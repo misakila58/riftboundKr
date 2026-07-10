@@ -60,6 +60,7 @@ function initConnect(){
   const msg=document.getElementById('connect-msg');
   input.value = localStorage.getItem('rb_server') || 'http://localhost:8321';
   document.getElementById('btn-offline').onclick=()=>showScreen('setup-screen');
+  document.getElementById('btn-tutorial').onclick=()=>TUT.start();
 
   const connect=async ()=>{
     msg.textContent='';

@@ -19,6 +19,7 @@ function createWindow() {
       sandbox: true,
       preload: path.join(__dirname, 'preload.js'),
       spellcheck: false,
+      backgroundThrottling: false, // 창 최소화 중에도 게임/튜토리얼 타이머 유지
     },
   });
 

@@ -184,6 +184,8 @@ function cardMiniEl(c, opts={}){
     el.appendChild(cost);
   }
   el.onmouseenter=()=>UI.inspect(c);
+  el._card = c;               // 확대(줌)용 카드 데이터
+  attachZoom(el);
   return el;
 }
 
@@ -213,6 +215,10 @@ function unitEl(u){
   el.onmouseenter=()=>UI.inspectUnit(u);
   el.onclick=(e)=>onUnitClick(u,e);
   el.oncontextmenu=(e)=>{ e.preventDefault(); showUnitMenu(u,e); };
+  el._card = u.isToken
+    ? { n:0, ko:unitName(u), name:'Token', type:'Unit', super:'Token', dom:[], tags:[], text:'', tko:'토큰은 죽으면 소멸합니다.', m:might(u), e:null, p:null, img:null }
+    : card(u.n);
+  attachZoom(el);
   return el;
 }
 function combatRoleOf(u){
@@ -248,6 +254,78 @@ UI.inspectUnit = function(u){
   }
   UI.inspect(card(u.n));
 };
+
+// ---------- 카드 확대 (롱프레스 / Alt+클릭) ----------
+UI.showZoom = function(c){
+  if(!c) return;
+  let ov = document.getElementById('card-zoom');
+  if(!ov){
+    ov = document.createElement('div');
+    ov.id = 'card-zoom';
+    ov.onclick = UI.hideZoom;
+    document.body.appendChild(ov);
+  }
+  const kwNote = ((c.text||'').match(/\[([A-Za-z-]+ ?\d*)\]/g)||[])
+    .map(k=>k.replace(/[\[\]]/g,'').replace(/ \d+$/,''))
+    .filter((v,i,a)=>a.indexOf(v)===i)
+    .map(k=>KEYWORDS_KO[k]?`<div class="cz-kw">· <b>[${KEYWORDS_KO[k].ko}]</b> ${KEYWORDS_KO[k].desc}</div>`:'')
+    .join('');
+  const statBits = [];
+  if(c.m!==null && c.m!==undefined) statBits.push(`전투력 ${c.m}`);
+  if(c.e!==null && c.e!==undefined) statBits.push(`비용 ${c.e}${c.p?'+파워'+c.p:''}`);
+  ov.innerHTML = `
+    <div class="cz-box" onclick="event.stopPropagation()">
+      ${c.img?`<img class="cz-img" src="${c.img}" alt="">`:'<div class="cz-noimg">🃏</div>'}
+      <div class="cz-info">
+        <div class="cz-name">${esc(c.ko||'')}</div>
+        <div class="cz-en">${esc(c.name||'')}${c.n?` · #${c.n}`:''}</div>
+        <div class="cz-type">${esc(typeLine(c))}${statBits.length?' · '+statBits.join(' · '):''}</div>
+        <div class="cz-text">${renderIcons(esc(c.tko||c.text||'(효과 없음)'))}</div>
+        ${kwNote}
+        ${c.tags&&c.tags.length?`<div class="cz-tags">태그: ${c.tags.map(esc).join(', ')}</div>`:''}
+        <div class="cz-hint">아무 곳이나 클릭하거나 Esc로 닫기</div>
+      </div>
+    </div>`;
+  ov.style.display = 'flex';
+};
+UI.hideZoom = function(){
+  const ov = document.getElementById('card-zoom');
+  if(ov) ov.style.display = 'none';
+};
+
+// 카드 요소에 롱프레스/Alt+클릭 확대를 연결
+let _lpTimer = null, _suppressClick = false;
+function attachZoom(el){
+  const start = (e)=>{
+    // Alt+클릭(또는 우클릭 아님) 즉시 확대는 아래 click 핸들러에서 처리. 여기선 롱프레스만.
+    if(e.button!==undefined && e.button!==0) return; // 좌클릭/터치만
+    clearTimeout(_lpTimer);
+    _lpTimer = setTimeout(()=>{
+      _suppressClick = true;         // 롱프레스로 확대되면 뒤따르는 클릭(플레이 등) 무시
+      UI.showZoom(el._card);
+    }, 450);
+  };
+  const cancel = ()=>{ clearTimeout(_lpTimer); };
+  el.addEventListener('mousedown', start);
+  el.addEventListener('mouseup', cancel);
+  el.addEventListener('mouseleave', cancel);
+  el.addEventListener('mousemove', cancel);
+  // 터치 롱프레스
+  el.addEventListener('touchstart', start, {passive:true});
+  el.addEventListener('touchend', cancel);
+  el.addEventListener('touchmove', cancel);
+  // Alt+클릭 즉시 확대
+  el.addEventListener('click', (e)=>{
+    if(e.altKey){ e.preventDefault(); e.stopImmediatePropagation(); UI.showZoom(el._card); }
+  }, true);
+}
+
+// 롱프레스 직후의 클릭을 한 번 무시 (플레이/선택 오동작 방지)
+document.addEventListener('click', (e)=>{
+  if(_suppressClick){ _suppressClick=false; e.stopImmediatePropagation(); e.preventDefault(); }
+}, true);
+// Esc로 확대 닫기
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') UI.hideZoom(); });
 
 // ---------- 유닛 클릭 ----------
 let _moveSel = new Set();
@@ -370,6 +448,8 @@ function onHandClick(p, idx, e){
 // ---------- 렌더링 ----------
 UI.render = function(){
   if(!G) return;
+  // 튜토리얼: 상태가 변할 때마다 진행 체크 (백그라운드 인터벌 스로틀 대비)
+  if(typeof TUT!=='undefined' && TUT.active && TUT.tickSoon) TUT.tickSoon();
   // 상단바
   document.getElementById('turn-info').textContent=`${pname(G.turn)}의 턴`;
   const phaseKo={setup:'준비',awaken:'각성',beginning:'시작',channel:'충전',draw:'드로우',action:'행동'}[G.phase]||G.phase;
@@ -644,6 +724,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     · 상대 전장/유닛이 있는 곳으로 이동하면 <b>격돌</b>이 열립니다. [행동]/[반응] 카드로 응수한 뒤 패스하면 전투가 벌어집니다.<br>
     · <b>전투</b>: 양측 전투력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 본진 귀환.<br>
     · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동·수동 도구.<br>
+    · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 클릭/Esc).<br>
     · 자동화가 안 되는 효과는 ⚙️ 알림이 뜨며, 우클릭 수동 도구로 처리하세요.<br>
     · 본진은 안전지대이며 유닛은 본진↔전장으로 이동합니다. [갱킹]은 전장 간 이동 가능.<br>
     </div>

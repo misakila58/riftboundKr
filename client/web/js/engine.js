@@ -717,7 +717,10 @@ async function killUnit(u){
 async function runTriggerList(list, ctx){
   if(!list) return;
   for(const t of list){
-    if(t.legion && !(G.players[ctx.p].playedCards>=1)){
+    // [군단] 판정: 등장(onPlay) 트리거는 "이 카드 이전에 다른 카드를 플레이했는가"(ctx.legionOK)로,
+    // 그 외 트리거는 이 턴에 카드를 플레이했는가로 판정한다. (자기 자신 포함 방지)
+    const legionOK = (ctx.legionOK!==undefined) ? ctx.legionOK : (G.players[ctx.p].playedCards>=1);
+    if(t.legion && !legionOK){
       UI.log(`[군단] 조건 미충족 — 트리거 생략`, 'sys'); continue;
     }
     await execOps(t.ops, ctx);
