@@ -258,6 +258,7 @@ UI.inspectUnit = function(u){
 // ---------- 카드 확대 (롱프레스 / Alt+클릭) ----------
 UI.showZoom = function(c){
   if(!c) return;
+  hideMenu(); // 열려 있던 컨텍스트 메뉴는 닫는다
   let ov = document.getElementById('card-zoom');
   if(!ov){
     ov = document.createElement('div');
@@ -331,6 +332,7 @@ document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') UI.hideZoom(); 
 let _moveSel = new Set();
 let _moveArmed = false;
 function onUnitClick(u, e){
+  if(e.altKey) return;              // Alt+클릭은 카드 확대 전용
   // 대상 선택 모드
   if(_pickableUids){
     if(_pickableUids.has(u.uid)){
@@ -354,6 +356,7 @@ function onUnitClick(u, e){
 
 // ---------- 컨텍스트 메뉴 ----------
 function showUnitMenu(u, e){
+  if(e && e.stopPropagation) e.stopPropagation(); // 여는 클릭이 닫기 리스너로 버블링 방지
   const menu=document.getElementById('ctx-menu');
   menu.innerHTML='';
   const title=document.createElement('div'); title.className='ctx-title'; title.textContent=unitName(u);
@@ -414,6 +417,8 @@ function canInitiate(p){
 
 function onHandClick(p, idx, e){
   if(G.winner) return;
+  if(e.altKey) return;              // Alt+클릭은 카드 확대 전용
+  e.stopPropagation();              // 메뉴를 연 클릭이 document 닫기 리스너로 버블링되는 것 방지
   if(NET.online && p!==NET.seat) return; // 상대 손패는 비공개
   const n=G.players[p].hand[idx];
   const c=card(n);
@@ -491,6 +496,8 @@ UI.render = function(){
       const cel=cardMiniEl(cc);
       cel.onclick=(e)=>{
         if(G.winner) return;
+        if(e.altKey) return;
+        e.stopPropagation();
         if(NET.online && p!==NET.seat) return;
         const menu=document.getElementById('ctx-menu');
         menu.innerHTML='';
@@ -613,6 +620,7 @@ async function executeMove(dest){
 // ---------- 전설 메뉴 ----------
 function showLegendMenu(p, e){
   if(G.winner) return;
+  if(e && e.stopPropagation) e.stopPropagation();
   const Pl=G.players[p];
   const fx=FX[Pl.legendN]||{activated:[]};
   const menu=document.getElementById('ctx-menu');
@@ -645,6 +653,7 @@ function showLegendMenu(p, e){
 
 // ---------- 장비 메뉴 ----------
 function showGearMenu(p, g, e){
+  if(e && e.stopPropagation) e.stopPropagation();
   if(NET.online && p!==NET.seat) return;
   const menu=document.getElementById('ctx-menu');
   const c=card(g.n);
