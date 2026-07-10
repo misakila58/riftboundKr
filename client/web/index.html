@@ -25,6 +25,7 @@
     </div>
     <div class="menu-btns" style="margin-top:14px">
       <button id="btn-tutorial" class="mid-btn" style="border-color:#d8c27a;color:#ffe6a0">🎓 튜토리얼 (처음이라면 여기부터!)</button>
+      <button id="btn-goto-p2p" class="mid-btn" style="border-color:#7fe07f;color:#b8f0b8">👥 친구와 직접 대전 (서버 없이 · 초대 코드)</button>
     </div>
     <p class="hint">서버 주소는 방장(호스트)에게 받으세요. 방장은 <code>서버_실행_가이드</code>를 참고해<br>
     자신의 PC에서 서버를 실행하고 접속 주소를 공유하면 됩니다.<br>
@@ -136,6 +137,59 @@
   <div id="room-list" class="deck-list"></div>
 </div>
 
+<!-- ══════════ P2P 직접 대전 (서버 없이) ══════════ -->
+<div id="p2p-screen" class="full-screen" style="display:none">
+  <div class="screen-head">
+    <h2>👥 친구와 직접 대전 (서버 없이)</h2>
+    <div>
+      <button class="mid-btn" id="btn-p2p-decks">🗂 내 덱 관리 (이 컴퓨터에 저장)</button>
+      <button class="mid-btn" id="btn-p2p-back">← 돌아가기</button>
+    </div>
+  </div>
+  <div class="p2p-body">
+    <div class="p2p-common">
+      <label>닉네임</label>
+      <input id="p2p-nick" type="text" maxlength="16" placeholder="닉네임">
+      <label>사용할 덱</label>
+      <select id="p2p-deck"></select>
+      <div class="hint" style="text-align:left;margin-top:4px">
+        덱은 이 컴퓨터에만 저장됩니다. 아직 없다면 <b>🎲 무작위 자동 덱</b>으로 바로 시작할 수 있어요.
+      </div>
+    </div>
+    <div class="p2p-cols">
+      <!-- 방 만들기 (호스트) -->
+      <div class="p2p-col">
+        <h3>🏠 방 만들기 (방장)</h3>
+        <ol class="p2p-steps">
+          <li>아래 버튼으로 <b>초대 코드</b>를 만들어 친구에게 보내세요 (카톡/디스코드 등).</li>
+          <li>친구가 보내준 <b>응답 코드</b>를 붙여넣고 [연결]을 누르면 자동 시작!</li>
+        </ol>
+        <button class="mid-btn primary-btn" id="btn-p2p-host">① 초대 코드 만들기</button>
+        <textarea id="p2p-offer-out" readonly placeholder="여기에 초대 코드가 생성됩니다"></textarea>
+        <button class="mid-btn" id="btn-copy-offer">📋 초대 코드 복사</button>
+        <textarea id="p2p-answer-in" placeholder="② 친구의 응답 코드를 여기에 붙여넣기"></textarea>
+        <button class="mid-btn primary-btn" id="btn-p2p-connect">③ 연결하기</button>
+        <div id="p2p-host-status" class="p2p-status"></div>
+      </div>
+      <!-- 참여하기 (게스트) -->
+      <div class="p2p-col">
+        <h3>🚪 초대 코드로 참여</h3>
+        <ol class="p2p-steps">
+          <li>방장이 보낸 <b>초대 코드</b>를 붙여넣고 버튼을 누르세요.</li>
+          <li>생성된 <b>응답 코드</b>를 방장에게 보내면, 방장이 연결하는 순간 자동 시작!</li>
+        </ol>
+        <textarea id="p2p-offer-in" placeholder="① 방장의 초대 코드를 여기에 붙여넣기"></textarea>
+        <button class="mid-btn primary-btn" id="btn-p2p-join">② 응답 코드 만들기</button>
+        <textarea id="p2p-answer-out" readonly placeholder="여기에 응답 코드가 생성됩니다"></textarea>
+        <button class="mid-btn" id="btn-copy-answer">📋 응답 코드 복사</button>
+        <div id="p2p-guest-status" class="p2p-status"></div>
+      </div>
+    </div>
+    <p class="hint">※ 인터넷을 통해 직접 연결(P2P)됩니다. 일부 사내망/특수 공유기 환경에서는 연결이 안 될 수 있으며,<br>
+    그 경우 서버 모드(서버 접속)를 이용해 주세요. 계정/서버 없이 두 사람의 클라이언트만으로 동작합니다.</p>
+  </div>
+</div>
+
 <!-- ══════════ 오프라인 핫시트 설정 ══════════ -->
 <div id="setup-screen" class="center-screen" style="display:none">
   <div class="setup-box">
@@ -241,6 +295,7 @@
 <script src="js/effects.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/net.js"></script>
+<script src="js/p2p.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/tutorial.js"></script>
 <script src="js/main.js"></script>

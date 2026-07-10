@@ -67,7 +67,10 @@ NET.connect = function(){
     ws.onclose = ()=>{ if(NET.online){ UI.toast('서버 연결이 끊어졌습니다','warn'); } };
   });
 };
-NET.send = obj=>{ if(NET.ws&&NET.ws.readyState===1) NET.ws.send(JSON.stringify(obj)); };
+NET.send = obj=>{
+  if(typeof P2P!=='undefined' && P2P.active){ P2P.netSend(obj); return; } // P2P 직접 대전 경로
+  if(NET.ws&&NET.ws.readyState===1) NET.ws.send(JSON.stringify(obj));
+};
 
 // ---------- 락스텝: 액션 ----------
 // 사용자가 취한 행동은 서버로 전송 → 서버가 순서를 부여해 양측에 에코 → 양측이 동일하게 실행

@@ -1,11 +1,32 @@
 // ══════════ 화면 흐름: 로그인 → 메뉴 → (덱 관리 | 로비 | 핫시트) → 게임 ══════════
 
-const SCREENS = ['connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','setup-screen','game-screen'];
+const SCREENS = ['connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','p2p-screen','setup-screen','game-screen'];
 function showScreen(id){
   SCREENS.forEach(s=>{ document.getElementById(s).style.display = s===id ? 'flex' : 'none'; });
 }
 
 let myDecks = [];
+
+// ---------- 덱 저장소 추상화: 서버(계정) 또는 로컬(이 컴퓨터) ----------
+// P2P/서버리스 모드에서는 덱이 localStorage에만 저장된다.
+const DeckStore = {
+  local:false,
+  returnTo:'menu-screen',   // 덱 관리 화면에서 돌아갈 곳
+  _read(){ try{ return JSON.parse(localStorage.getItem('rb_local_decks')||'[]'); }catch(e){ return []; } },
+  _write(a){ localStorage.setItem('rb_local_decks', JSON.stringify(a)); },
+  async list(){ return this.local ? this._read() : NET.getDecks(); },
+  async save(deck,index){
+    if(!this.local) return NET.saveDeck(deck,index);
+    const a=this._read();
+    if(index!==undefined&&index!==null){ if(!a[index]) throw new Error('덱이 없습니다'); a[index]=deck; }
+    else { if(a.length>=20) throw new Error('덱은 최대 20개까지 저장할 수 있습니다'); a.push(deck); }
+    this._write(a); return a;
+  },
+  async del(idx){
+    if(!this.local) return NET.delDeck(idx);
+    const a=this._read(); a.splice(idx,1); this._write(a); return a;
+  },
+};
 
 // ---------- 전설 목록/덱 자동 구성 (핫시트·자동완성 공용) ----------
 function legendList(){ return CARDS.filter(c=>c.type==='Legend'); }
@@ -126,7 +147,8 @@ function initLogin(){
 }
 
 async function enterMenu(){
-  myDecks = await NET.getDecks();
+  DeckStore.local=false; DeckStore.returnTo='menu-screen';
+  myDecks = await DeckStore.list();
   document.getElementById('menu-welcome').textContent=`${NET.userId}님, 환영합니다!`;
   document.getElementById('deck-count').textContent=myDecks.length;
   showScreen('menu-screen');
@@ -134,7 +156,7 @@ async function enterMenu(){
 
 // ---------- 메뉴 ----------
 function initMenu(){
-  document.getElementById('btn-goto-decks').onclick=()=>{ renderDeckList(); showScreen('decks-screen'); };
+  document.getElementById('btn-goto-decks').onclick=()=>{ DeckStore.local=false; DeckStore.returnTo='menu-screen'; renderDeckList(); showScreen('decks-screen'); };
   document.getElementById('btn-goto-lobby').onclick=async ()=>{
     if(!myDecks.length){ alert('먼저 덱을 만들어주세요! (내 덱 관리)'); return; }
     try{
@@ -171,7 +193,7 @@ function renderDeckList(){
     const bd=document.createElement('button'); bd.textContent='삭제';
     bd.onclick=async ()=>{
       if(!confirm(`「${d.name}」 덱을 삭제할까요?`)) return;
-      myDecks=await NET.delDeck(i);
+      myDecks=await DeckStore.del(i);
       document.getElementById('deck-count').textContent=myDecks.length;
       renderDeckList();
     };
@@ -182,7 +204,7 @@ function renderDeckList(){
   document.getElementById('deck-count').textContent=myDecks.length;
 }
 function initDecks(){
-  document.getElementById('btn-decks-back').onclick=()=>showScreen('menu-screen');
+  document.getElementById('btn-decks-back').onclick=()=>showScreen(DeckStore.returnTo);
   document.getElementById('btn-new-deck').onclick=()=>{
     if(myDecks.length>=20){ alert('덱은 최대 20개까지 저장할 수 있습니다'); return; }
     openEditor(null);
@@ -345,7 +367,7 @@ function initEditor(){
     if(deck.bfs.length!==3){ msg.textContent='전장은 정확히 3개여야 합니다'; return; }
     if(!deck.champN){ msg.textContent='이 전설의 챔피언 유닛을 찾을 수 없습니다'; return; }
     try{
-      myDecks=await NET.saveDeck(deck, ED.index);
+      myDecks=await DeckStore.save(deck, ED.index);
       renderDeckList(); showScreen('decks-screen');
     }catch(e){ msg.textContent=e.message; }
   };
@@ -403,6 +425,91 @@ function initLobby(){
     location.reload();
   };
   NET.onStart=(m)=>startOnlineGame(m);
+}
+
+// ---------- P2P 직접 대전 (서버 없이) ----------
+function p2pRefreshDecks(){
+  const sel=document.getElementById('p2p-deck');
+  sel.innerHTML='';
+  const auto=document.createElement('option');
+  auto.value='auto'; auto.textContent='🎲 무작위 자동 덱 (바로 시작)';
+  sel.appendChild(auto);
+  DeckStore._read().forEach((d,i)=>{
+    const o=document.createElement('option');
+    o.value=i; o.textContent=`${d.name} (${card(d.legendN).ko})`;
+    sel.appendChild(o);
+  });
+}
+function p2pGetDeck(){
+  const v=document.getElementById('p2p-deck').value;
+  if(v==='auto'){
+    const l=legendList()[Math.floor(Math.random()*legendList().length)];
+    const d=buildDeck(l.n);
+    return { name:'자동 덱', legendN:l.n, champN:d.champN, main:d.deck.slice(0,40), runes:d.runes, bfs:d.bfs };
+  }
+  return DeckStore._read()[+v];
+}
+function p2pNick(){
+  const n=document.getElementById('p2p-nick').value.trim()||'플레이어';
+  localStorage.setItem('rb_nick', n);
+  return n.slice(0,16);
+}
+async function copyText(ta){
+  ta.select();
+  try{ await navigator.clipboard.writeText(ta.value); UI.toast('복사되었습니다!'); }
+  catch(e){ document.execCommand('copy'); UI.toast('복사되었습니다!'); }
+}
+function initP2P(){
+  document.getElementById('btn-goto-p2p').onclick=()=>{
+    document.getElementById('p2p-nick').value=localStorage.getItem('rb_nick')||'';
+    p2pRefreshDecks();
+    showScreen('p2p-screen');
+  };
+  document.getElementById('btn-p2p-back').onclick=()=>{ P2P.reset(); showScreen('connect-screen'); };
+  document.getElementById('btn-p2p-decks').onclick=()=>{
+    DeckStore.local=true; DeckStore.returnTo='p2p-screen';
+    DeckStore.list().then(d=>{ myDecks=d; renderDeckList(); showScreen('decks-screen'); });
+  };
+  const hostStatus=t=>document.getElementById('p2p-host-status').textContent=t;
+  const guestStatus=t=>document.getElementById('p2p-guest-status').textContent=t;
+
+  // 연결 완료 시 상태 표시 (게임 시작은 start 메시지가 처리)
+  P2P.onStatus=(s)=>{ if(s==='connected'){ hostStatus('✅ 연결됨! 게임을 시작합니다...'); guestStatus('✅ 연결됨! 게임을 시작합니다...'); } };
+
+  // ── 호스트 ──
+  document.getElementById('btn-p2p-host').onclick=async ()=>{
+    const deck=p2pGetDeck();
+    if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+    hostStatus('초대 코드 생성 중... (몇 초 걸릴 수 있음)');
+    try{
+      const code=await P2P.host(p2pNick(), deck);
+      document.getElementById('p2p-offer-out').value=code;
+      hostStatus('① 초대 코드를 친구에게 보내고, ② 응답 코드를 기다리세요.');
+    }catch(e){ hostStatus('오류: '+e.message); }
+  };
+  document.getElementById('btn-copy-offer').onclick=()=>copyText(document.getElementById('p2p-offer-out'));
+  document.getElementById('btn-p2p-connect').onclick=async ()=>{
+    const code=document.getElementById('p2p-answer-in').value.trim();
+    if(!code){ UI.toast('응답 코드를 붙여넣으세요','warn'); return; }
+    hostStatus('연결 중...');
+    try{ await P2P.acceptAnswer(code); }
+    catch(e){ hostStatus('오류: '+e.message); }
+  };
+
+  // ── 게스트 ──
+  document.getElementById('btn-p2p-join').onclick=async ()=>{
+    const deck=p2pGetDeck();
+    if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+    const code=document.getElementById('p2p-offer-in').value.trim();
+    if(!code){ UI.toast('초대 코드를 붙여넣으세요','warn'); return; }
+    guestStatus('응답 코드 생성 중... (몇 초 걸릴 수 있음)');
+    try{
+      const ans=await P2P.join(p2pNick(), deck, code);
+      document.getElementById('p2p-answer-out').value=ans;
+      guestStatus('응답 코드를 방장에게 보내세요. 방장이 [연결하기]를 누르면 자동 시작!');
+    }catch(e){ guestStatus('오류: '+e.message); }
+  };
+  document.getElementById('btn-copy-answer').onclick=()=>copyText(document.getElementById('p2p-answer-out'));
 }
 
 // ---------- 게임 시작 ----------
@@ -480,6 +587,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   initDecks();
   initEditor();
   initLobby();
+  initP2P();
   initHotseat();
   showScreen('connect-screen');
 });
