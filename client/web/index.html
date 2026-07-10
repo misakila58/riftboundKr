@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 데스크톱(Electron) 보안 정책: 스크립트는 로컬만, 이미지는 Riot CDN, 접속은 사용자가 지정한 서버 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src *;">
+<title>리프트바운드 시뮬레이터 — Origins (한글판)</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<!-- ══════════ 서버 연결 화면 ══════════ -->
+<div id="connect-screen" class="center-screen">
+  <div class="setup-box">
+    <h1>⚔️ 리프트바운드 시뮬레이터</h1>
+    <p class="subtitle">Origins (부스터 1탄) · 한글판 · 데스크톱 대전 클라이언트<br>
+    <small>카드 데이터/이미지: Riftcodex API · Riot Games 자산 (비공식 팬 프로젝트)</small></p>
+    <div class="login-box">
+      <label style="text-align:left;font-size:13px;color:#8fa">접속할 서버 주소</label>
+      <input id="server-url" type="text" placeholder="예: https://이름.ngrok-free.app 또는 http://192.168.0.5:8321">
+      <div class="login-btns">
+        <button id="btn-connect" class="big-btn">서버 접속</button>
+      </div>
+      <div id="connect-msg" class="err-msg"></div>
+    </div>
+    <p class="hint">서버 주소는 방장(호스트)에게 받으세요. 방장은 <code>서버_실행_가이드</code>를 참고해<br>
+    자신의 PC에서 서버를 실행하고 접속 주소를 공유하면 됩니다.<br>
+    <button id="btn-offline" class="link-btn">서버 없이 오프라인 핫시트로 플레이 →</button></p>
+  </div>
+</div>
+
+<!-- ══════════ 로그인 화면 ══════════ -->
+<div id="login-screen" class="center-screen" style="display:none">
+  <div class="setup-box">
+    <h1>⚔️ 리프트바운드 시뮬레이터</h1>
+    <p class="subtitle">Origins (부스터 1탄) · 한글판 · 온라인 대전<br>
+    <small id="login-server-label"></small></p>
+    <div class="login-box">
+      <input id="login-id" type="text" placeholder="아이디 (2~16자)" maxlength="16">
+      <input id="login-pw" type="password" placeholder="비밀번호 (8자 이상)" maxlength="128">
+      <div class="login-btns">
+        <button id="btn-login" class="big-btn">로그인</button>
+        <button id="btn-register" class="mid-btn">회원가입</button>
+      </div>
+      <div id="login-msg" class="err-msg"></div>
+    </div>
+    <p class="hint">계정마다 덱을 <b>20개</b>까지 저장할 수 있습니다.<br>
+    <button id="btn-change-server" class="link-btn">← 다른 서버에 접속</button></p>
+  </div>
+</div>
+
+<!-- ══════════ 메인 메뉴 ══════════ -->
+<div id="menu-screen" class="center-screen" style="display:none">
+  <div class="setup-box">
+    <h1>⚔️ 리프트바운드</h1>
+    <p class="subtitle" id="menu-welcome"></p>
+    <div class="menu-btns">
+      <button class="big-btn" id="btn-goto-lobby">🌐 온라인 대전</button>
+      <button class="mid-btn" id="btn-goto-decks">🗂 내 덱 관리 (<span id="deck-count">0</span>/20)</button>
+      <button class="mid-btn" id="btn-goto-hotseat">💺 오프라인 핫시트 (2인)</button>
+      <button class="link-btn" id="btn-logout">로그아웃</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 덱 관리 ══════════ -->
+<div id="decks-screen" class="full-screen" style="display:none">
+  <div class="screen-head">
+    <h2>🗂 내 덱 관리</h2>
+    <div>
+      <button class="mid-btn" id="btn-new-deck">＋ 새 덱</button>
+      <button class="mid-btn" id="btn-decks-back">← 메뉴로</button>
+    </div>
+  </div>
+  <div id="deck-list" class="deck-list"></div>
+</div>
+
+<!-- ══════════ 덱 편집기 ══════════ -->
+<div id="editor-screen" class="full-screen" style="display:none">
+  <div class="screen-head">
+    <h2>🛠 덱 편집</h2>
+    <div>
+      <input id="ed-name" type="text" placeholder="덱 이름" maxlength="30">
+      <select id="ed-legend"></select>
+      <button class="mid-btn" id="btn-ed-auto">🎲 자동 완성</button>
+      <button class="mid-btn primary-btn" id="btn-ed-save">💾 저장</button>
+      <button class="mid-btn" id="btn-ed-cancel">취소</button>
+    </div>
+  </div>
+  <div id="editor-body">
+    <div id="ed-pool-panel">
+      <div class="ed-filters">
+        <select id="ed-type-filter">
+          <option value="">전체 타입</option>
+          <option value="Unit">유닛</option>
+          <option value="Spell">주문</option>
+          <option value="Gear">장비</option>
+          <option value="Battlefield">전장</option>
+        </select>
+        <input id="ed-search" type="text" placeholder="카드 검색...">
+        <label><input type="checkbox" id="ed-dom-only" checked> 전설 속성만</label>
+      </div>
+      <div id="ed-pool" class="ed-pool"></div>
+    </div>
+    <div id="ed-deck-panel">
+      <div class="ed-section"><b>메인 덱 <span id="ed-main-count">0</span>/40</b> (같은 카드 3장까지 · 클릭=제거)
+        <div id="ed-main" class="ed-cardlist"></div>
+      </div>
+      <div class="ed-section"><b>룬 <span id="ed-rune-count">0</span>/12</b>
+        <div id="ed-runes" class="ed-runes"></div>
+      </div>
+      <div class="ed-section"><b>전장 <span id="ed-bf-count">0</span>/3</b> (클릭=제거)
+        <div id="ed-bfs" class="ed-cardlist"></div>
+      </div>
+      <div class="ed-section"><b>선택 챔피언</b> <span id="ed-champ">-</span></div>
+      <div id="ed-msg" class="err-msg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 온라인 로비 ══════════ -->
+<div id="lobby-screen" class="full-screen" style="display:none">
+  <div class="screen-head">
+    <h2>🌐 온라인 로비</h2>
+    <div>
+      <select id="lobby-deck"></select>
+      <input id="lobby-room-name" type="text" placeholder="방 이름 (선택)" maxlength="24">
+      <button class="mid-btn primary-btn" id="btn-create-room">방 만들기</button>
+      <button class="mid-btn" id="btn-lobby-back">← 메뉴로</button>
+    </div>
+  </div>
+  <div id="lobby-status" class="hint" style="text-align:center"></div>
+  <div id="room-list" class="deck-list"></div>
+</div>
+
+<!-- ══════════ 오프라인 핫시트 설정 ══════════ -->
+<div id="setup-screen" class="center-screen" style="display:none">
+  <div class="setup-box">
+    <h1>💺 오프라인 핫시트</h1>
+    <p class="subtitle">한 화면에서 번갈아 플레이합니다</p>
+    <div class="setup-players">
+      <div class="setup-player">
+        <h2>플레이어 1</h2>
+        <input id="p0-name" type="text" value="플레이어 1" maxlength="12">
+        <label>전설(레전드) 선택</label>
+        <select id="p0-legend"></select>
+        <div id="p0-legend-preview" class="legend-preview"></div>
+      </div>
+      <div class="setup-player">
+        <h2>플레이어 2</h2>
+        <input id="p1-name" type="text" value="플레이어 2" maxlength="12">
+        <label>전설(레전드) 선택</label>
+        <select id="p1-legend"></select>
+        <div id="p1-legend-preview" class="legend-preview"></div>
+      </div>
+    </div>
+    <button id="btn-start" class="big-btn">게임 시작</button>
+    <button class="link-btn" id="btn-setup-back">← 돌아가기</button>
+    <p class="hint">덱은 선택한 전설의 속성에 맞춰 자동 구성됩니다.</p>
+  </div>
+</div>
+
+<!-- ══════════ 게임 화면 ══════════ -->
+<div id="game-screen" style="display:none">
+  <div id="topbar">
+    <div id="turn-info"></div>
+    <div id="phase-info"></div>
+    <div id="net-info"></div>
+    <div id="score-info"></div>
+    <button id="btn-help" title="도움말">❓</button>
+  </div>
+
+  <div id="board">
+    <!-- 상대(위) -->
+    <div class="player-area top" id="parea-1">
+      <div class="side-zone">
+        <div class="legend-slot" id="legend-1"></div>
+        <div class="champ-slot" id="champzone-1"></div>
+        <div class="runes-zone" id="runes-1"></div>
+        <div class="piles">
+          <div class="pile deck" id="deck-1"><span class="pile-label">덱</span><span class="pile-count"></span></div>
+          <div class="pile runedeck" id="runedeck-1"><span class="pile-label">룬</span><span class="pile-count"></span></div>
+          <div class="pile trash" id="trash-1"><span class="pile-label">파기</span><span class="pile-count"></span></div>
+        </div>
+      </div>
+      <div class="base-zone" id="base-1"><div class="zone-label">본진</div></div>
+      <div class="hand-zone opp" id="hand-1"></div>
+    </div>
+
+    <!-- 전장 (중앙) -->
+    <div id="battlefields">
+      <div class="battlefield" id="bf-0"></div>
+      <div id="center-info">
+        <div id="pool-display"></div>
+        <div id="showdown-banner" style="display:none"></div>
+      </div>
+      <div class="battlefield" id="bf-1"></div>
+    </div>
+
+    <!-- 나(아래) -->
+    <div class="player-area bottom" id="parea-0">
+      <div class="hand-zone" id="hand-0"></div>
+      <div class="base-zone" id="base-0"><div class="zone-label">본진</div></div>
+      <div class="side-zone">
+        <div class="legend-slot" id="legend-0"></div>
+        <div class="champ-slot" id="champzone-0"></div>
+        <div class="runes-zone" id="runes-0"></div>
+        <div class="piles">
+          <div class="pile deck" id="deck-0"><span class="pile-label">덱</span><span class="pile-count"></span></div>
+          <div class="pile runedeck" id="runedeck-0"><span class="pile-label">룬</span><span class="pile-count"></span></div>
+          <div class="pile trash" id="trash-0"><span class="pile-label">파기</span><span class="pile-count"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="sidebar">
+    <div id="inspector"><div class="insp-placeholder">카드에 마우스를 올리면<br>한글 정보가 표시됩니다</div></div>
+    <div id="prompt-area"></div>
+    <div id="action-buttons">
+      <button id="btn-move" class="act-btn">🚶 이동</button>
+      <button id="btn-endturn" class="act-btn primary">턴 종료</button>
+      <button id="btn-pass" class="act-btn" style="display:none">패스</button>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<!-- 모달/선택 오버레이 -->
+<div id="modal-overlay" style="display:none">
+  <div id="modal-box"></div>
+</div>
+<div id="ctx-menu" style="display:none"></div>
+<div id="toast-area"></div>
+
+<script src="js/cards.js"></script>
+<script src="js/loc.js"></script>
+<script src="js/effects.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/net.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,475 @@
+[
+ {
+  "n": 51,
+  "name": "Solari Shieldbearer",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Mount Targon"
+  ],
+  "text": "When you play me, stun a unit. (It doesn't deal combat damage this turn.)"
+ },
+ {
+  "n": 52,
+  "name": "Stalwart Poro",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Poro"
+  ],
+  "text": "[Shield] (+1 :rb_might: while I'm a defender.)"
+ },
+ {
+  "n": 53,
+  "name": "Stand United",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)[Action] (Play on your turn or in showdowns.)Buff a friendly unit. Buffs give an additional +1 :rb_might: to friendly units this turn. (To buff a unit, give it a +1 :rb_might: buff if it doesn't already have one.)"
+ },
+ {
+  "n": 54,
+  "name": "Sunlit Guardian",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Shurima"
+  ],
+  "text": "[Shield] (+1 :rb_might: while I'm a defender.)[Tank] (I must be assigned combat damage first.)"
+ },
+ {
+  "n": 55,
+  "name": "Wielder of Water",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Ionia"
+  ],
+  "text": "While I'm attacking or defending alone, I have +2 :rb_might:."
+ },
+ {
+  "n": 56,
+  "name": "Adaptatron",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Mech",
+   "Piltover"
+  ],
+  "text": "When I conquer, you may kill a gear. If you do, buff me. (If I don't have a buff, I get a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 57,
+  "name": "Block",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)[Action] (Play on your turn or in showdowns.)Give a unit [Shield 3] and [Tank] this turn. (+3 :rb_might: while it's a defender. It must be assigned combat damage first.)"
+ },
+ {
+  "n": 58,
+  "name": "Discipline",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Give a unit +2 :rb_might: this turn. Draw 1."
+ },
+ {
+  "n": 59,
+  "name": "Eclipse Herald",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Bird",
+   "Mount Targon"
+  ],
+  "text": "When you stun an enemy unit, ready me and give me +1 :rb_might: this turn."
+ },
+ {
+  "n": 60,
+  "name": "Mask of Foresight",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "When a friendly unit attacks or defends alone, give it +1 :rb_might: this turn."
+ },
+ {
+  "n": 61,
+  "name": "Poro Herder",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Freljord"
+  ],
+  "text": "When you play me, if you control a Poro, buff me and draw 1. (If I don't have a buff, I get a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 62,
+  "name": "Reinforce",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Look at the top 5 cards of your Main Deck. You may banish a unit from among them, then play it, reducing its cost by :rb_energy_5:. Recycle the remaining cards."
+ },
+ {
+  "n": 63,
+  "name": "Spirit's Refuge",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "When you play this, buff a friendly unit. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)Friendly buffed units have [Deflect] if they didn't already. (Opponents must pay :rb_rune_rainbow: to choose those units with a spell or ability.)"
+ },
+ {
+  "n": 64,
+  "name": "Wind Wall",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Counter a spell."
+ },
+ {
+  "n": 65,
+  "name": "Wizened Elder",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Ionia"
+  ],
+  "text": "While I'm buffed, I have an additional +1 :rb_might:."
+ },
+ {
+  "n": 66,
+  "name": "Ahri - Alluring",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Ahri",
+   "Ionia"
+  ],
+  "text": "When I hold, you score 1 point."
+ },
+ {
+  "n": 67,
+  "name": "Blitzcrank - Impassive",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Mech",
+   "Blitzcrank",
+   "Zaun"
+  ],
+  "text": "[Tank] (I must be assigned combat damage first.)When you play me to a battlefield, you may move an enemy unit to here.When I hold, return me to my owner's hand."
+ },
+ {
+  "n": 68,
+  "name": "Caitlyn - Patrolling",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Caitlyn",
+   "Piltover"
+  ],
+  "text": "I must be assigned combat damage last.:rb_exhaust:: Deal damage equal to my Might to a unit at a battlefield. Use this ability only while I'm at a battlefield."
+ },
+ {
+  "n": 69,
+  "name": "Last Stand",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Double a friendly unit's Might this turn. Give it [Temporary]. (Kill it at the start of its controller's Beginning Phase, before scoring.)"
+ },
+ {
+  "n": 70,
+  "name": "Mageseeker Warden",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Demacia"
+  ],
+  "text": "While I'm at a battlefield, opponents can only play units to their base.While I'm at a battlefield, spells and abilities can't ready enemy units and gear."
+ },
+ {
+  "n": 71,
+  "name": "Party Favors",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Each other player chooses Cards or Runes. For each player that chooses Cards, you and that player each draw 1. For each player that chooses Runes, you and that player each channel 1 rune exhausted."
+ },
+ {
+  "n": 72,
+  "name": "Solari Shrine",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "When you kill a stunned enemy unit, you may exhaust this to draw 1."
+ },
+ {
+  "n": 73,
+  "name": "Sona - Harmonious",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Sona",
+   "Demacia"
+  ],
+  "text": "At the end of your turn, if I'm at a battlefield, ready up to 4 friendly runes."
+ },
+ {
+  "n": 74,
+  "name": "Taric - Protector",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Taric",
+   "Mount Targon"
+  ],
+  "text": "[Shield] (+1 :rb_might: while I'm a defender.)[Tank] (I must be assigned combat damage first.)Other friendly units here have [Shield]."
+ },
+ {
+  "n": 75,
+  "name": "Tasty Faefolk",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Fae",
+   "Bandle City"
+  ],
+  "text": "[Accelerate] (You may pay :rb_energy_1::rb_rune_calm: as an additional cost to have me enter ready.)[Deathknell] — Channel 2 runes exhausted and draw 1. (When I die, get the effect.)"
+ },
+ {
+  "n": 76,
+  "name": "Yasuo - Remorseful",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Yasuo",
+   "Ionia"
+  ],
+  "text": "When I attack, deal damage equal to my Might to an enemy unit here."
+ },
+ {
+  "n": 77,
+  "name": "Zhonya's Hourglass",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)If a friendly unit would die, kill this instead. Heal that unit, exhaust it, and recall it. (Send it to base. This isn't a move.)"
+ },
+ {
+  "n": 78,
+  "name": "Lee Sin - Ascetic",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Lee Sin",
+   "Ionia"
+  ],
+  "text": "[Shield] (+1 :rb_might: while I'm a defender.):rb_exhaust:: Buff me. (I get a +1 :rb_might: buff.)I can have any number of buffs."
+ },
+ {
+  "n": 79,
+  "name": "Leona - Zealot",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Leona",
+   "Mount Targon"
+  ],
+  "text": "If an opponent's score is within 3 points of the Victory Score, I enter ready.Stunned enemy units here have -8 :rb_might:, to a minimum of 1 :rb_might:."
+ },
+ {
+  "n": 80,
+  "name": "Mystic Reversal",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Gain control of a spell. You may make new choices for it."
+ },
+ {
+  "n": 81,
+  "name": "Seal of Focus",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": ":rb_exhaust:: [Reaction] — [Add] :rb_rune_calm:. (Abilities that add resources can't be reacted to.)"
+ },
+ {
+  "n": 82,
+  "name": "Whiteflame Protector",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Dragon",
+   "Mount Targon"
+  ],
+  "text": "When you play me, give a unit +8 :rb_might: this turn."
+ },
+ {
+  "n": 83,
+  "name": "Consult the Past",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)[Reaction] (Play any time, even before spells and abilities resolve.)Draw 2."
+ },
+ {
+  "n": 84,
+  "name": "Eager Apprentice",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Piltover"
+  ],
+  "text": "While I'm at a battlefield, the Energy costs for spells you play is reduced by :rb_energy_1:, to a minimum of :rb_energy_1:."
+ },
+ {
+  "n": 85,
+  "name": "Falling Comet",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Deal 6 to a unit at a battlefield."
+ },
+ {
+  "n": 86,
+  "name": "Jeweled Colossus",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Mount Targon"
+  ],
+  "text": "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)[Shield] (+1 :rb_might: while I'm a defender.)"
+ },
+ {
+  "n": 87,
+  "name": "Lecturing Yordle",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Yordle",
+   "Bandle City"
+  ],
+  "text": "[Tank] (I must be assigned combat damage first.)When you play me, draw 1."
+ },
+ {
+  "n": 88,
+  "name": "Mega-Mech",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Mech",
+   "Bandle City"
+  ],
+  "text": ""
+ },
+ {
+  "n": 89,
+  "name": "Mind Rune",
+  "type": "Rune",
+  "super": "Basic",
+  "tags": [],
+  "text": ""
+ },
+ {
+  "n": 90,
+  "name": "Orb of Regret",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": ":rb_exhaust:: Give a unit -1 :rb_might: this turn, to a minimum of 1 :rb_might:."
+ },
+ {
+  "n": 91,
+  "name": "Pit Crew",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Bandle City"
+  ],
+  "text": "When you play a gear, ready me."
+ },
+ {
+  "n": 92,
+  "name": "Riptide Rex",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Pirate",
+   "Bilgewater"
+  ],
+  "text": "When you play me, deal 6 to an enemy unit at a battlefield."
+ },
+ {
+  "n": 93,
+  "name": "Smoke Screen",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Give a unit -4 :rb_might: this turn, to a minimum of 1 :rb_might:."
+ },
+ {
+  "n": 94,
+  "name": "Sprite Call",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)[Action] (Play on your turn or in showdowns.)Play a ready 3 :rb_might: Sprite unit token with [Temporary]. (Kill it at the start of its controller's Beginning Phase, before scoring.)"
+ },
+ {
+  "n": 95,
+  "name": "Stupefy",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Give a unit -1 :rb_might: this turn, to a minimum of 1 :rb_might:. Draw 1."
+ },
+ {
+  "n": 96,
+  "name": "Watchful Sentry",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Freljord"
+  ],
+  "text": "[Deathknell] — Draw 1. (When I die, get the effect.)"
+ },
+ {
+  "n": 97,
+  "name": "Blastcone Fae",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Fae",
+   "Bandle City"
+  ],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)When you play me, give a unit -2 :rb_might: this turn, to a minimum of 1 :rb_might:."
+ },
+ {
+  "n": 98,
+  "name": "Energy Conduit",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": ":rb_exhaust:: [Reaction] — [Add] :rb_energy_1:. (Abilities that add resources can't be reacted to.)"
+ },
+ {
+  "n": 99,
+  "name": "Garbage Grabber",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "Recycle 3 from your trash, :rb_energy_1:, :rb_exhaust:: Draw 1."
+ },
+ {
+  "n": 100,
+  "name": "Gemcraft Seer",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Mount Targon"
+  ],
+  "text": "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)Other friendly units have [Vision]."
+ }
+]

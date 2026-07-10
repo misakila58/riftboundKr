@@ -1,0 +1,481 @@
+[
+ {
+  "n": 151,
+  "name": "Lee Sin - Centered",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Lee Sin",
+   "Ionia"
+  ],
+  "text": "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)Other buffed friendly units at my battlefield have +2 :rb_might:."
+ },
+ {
+  "n": 152,
+  "name": "Mistfall",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "When you buff a friendly unit, you may pay :rb_rune_body: and exhaust this to ready it."
+ },
+ {
+  "n": 153,
+  "name": "Overt Operation",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)For each friendly unit, you may spend its buff to ready it. Then buff all friendly units. (Each one that doesn't have a buff gets a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 154,
+  "name": "Primal Strength",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Give a unit +7 :rb_might: this turn."
+ },
+ {
+  "n": 155,
+  "name": "Qiyana - Victorious",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Qiyana",
+   "Ixtal"
+  ],
+  "text": "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)When I conquer, draw 1 or channel 1 rune exhausted."
+ },
+ {
+  "n": 156,
+  "name": "Sabotage",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Choose an opponent. They reveal their hand. Choose a non-unit card from it, and recycle that card."
+ },
+ {
+  "n": 157,
+  "name": "Udyr - Wildman",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Udyr",
+   "Freljord"
+  ],
+  "text": "Spend my buff: Choose one you've not chosen this turn —Deal 2 to a unit at a battlefield.Stun a unit at a battlefield.Ready me.Give me [Ganking] this turn."
+ },
+ {
+  "n": 158,
+  "name": "Volibear - Imposing",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Volibear",
+   "Freljord"
+  ],
+  "text": "[Shield 3] (+3 :rb_might: while I'm a defender.)[Tank] (I must be assigned combat damage first.)When an opponent moves to a battlefield other than mine, draw 1. (Bases are not battlefield.)"
+ },
+ {
+  "n": 159,
+  "name": "Warwick - Hunter",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Dog",
+   "Warwick",
+   "Zaun"
+  ],
+  "text": "I enter ready.When I attack, kill all damaged enemy units here."
+ },
+ {
+  "n": 160,
+  "name": "Dazzling Aurora",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "At the end of your turn, reveal cards from the top of your Main Deck until you reveal a unit and banish it. Play it, ignoring its cost, and recycle the rest."
+ },
+ {
+  "n": 161,
+  "name": "Deadbloom Predator",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Shadow Isles"
+  ],
+  "text": "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)You may play me to an occupied enemy battlefield."
+ },
+ {
+  "n": 162,
+  "name": "Miss Fortune - Captain",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Pirate",
+   "Miss Fortune",
+   "Bilgewater"
+  ],
+  "text": "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)[Ganking] (I can move from battlefield to battlefield.)The first time I move each turn, you may ready something else that's exhausted."
+ },
+ {
+  "n": 163,
+  "name": "Seal of Strength",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": ":rb_exhaust:: [Reaction] — [Add] :rb_rune_body:. (Abilities that add resources can't be reacted to.)"
+ },
+ {
+  "n": 164,
+  "name": "Sett - Brawler",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Sett",
+   "Ionia"
+  ],
+  "text": "When I'm played and when I conquer, buff me. (If I don't have a buff, I get a +1 :rb_might: buff.)Spend my buff: Give me +4 :rb_might: this turn."
+ },
+ {
+  "n": 165,
+  "name": "Cemetery Attendant",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Dog",
+   "Shadow Isles"
+  ],
+  "text": "When you play me, return a unit from your trash to your hand."
+ },
+ {
+  "n": 166,
+  "name": "Chaos Rune",
+  "type": "Rune",
+  "super": "Basic",
+  "tags": [],
+  "text": ""
+ },
+ {
+  "n": 167,
+  "name": "Ember Monk",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Bandle City"
+  ],
+  "text": "When you play a card from [Hidden], give me +2 :rb_might: this turn."
+ },
+ {
+  "n": 168,
+  "name": "Fight or Flight",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)[Action] (Play on your turn or in showdowns.)Move a unit from a battlefield to its base."
+ },
+ {
+  "n": 169,
+  "name": "Gust",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Return a unit at a battlefield with 3 :rb_might: or less to its owner's hand."
+ },
+ {
+  "n": 170,
+  "name": "Morbid Return",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Return a unit from your trash to your hand."
+ },
+ {
+  "n": 171,
+  "name": "Mystic Poro",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Poro"
+  ],
+  "text": "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)"
+ },
+ {
+  "n": 172,
+  "name": "Rebuke",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Return a unit at a battlefield to its owner's hand."
+ },
+ {
+  "n": 173,
+  "name": "Ride The Wind",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Move a friendly unit and ready it."
+ },
+ {
+  "n": 174,
+  "name": "Sai Scout",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Shurima"
+  ],
+  "text": "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)You may play me to an open battlefield."
+ },
+ {
+  "n": 175,
+  "name": "Shipyard Skulker",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Pirate",
+   "Bilgewater"
+  ],
+  "text": ""
+ },
+ {
+  "n": 176,
+  "name": "Sneaky Deckhand",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Pirate",
+   "Bilgewater"
+  ],
+  "text": "You may play me to an open battlefield."
+ },
+ {
+  "n": 177,
+  "name": "Stealthy Pursuer",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Shurima"
+  ],
+  "text": "When a friendly unit moves from my location, I may be moved with it."
+ },
+ {
+  "n": 178,
+  "name": "Undercover Agent",
+  "type": "Unit",
+  "super": null,
+  "tags": [],
+  "text": "[Deathknell] — Discard 2, then draw 2. (When I die, get the effect.)"
+ },
+ {
+  "n": 179,
+  "name": "Acceptable Losses",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Each player kills one of their gear."
+ },
+ {
+  "n": 180,
+  "name": "Fading Memories",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Give a unit at a battlefield or a gear [Temporary]. (Kill it at the start of its controller's Beginning Phase, before scoring.)"
+ },
+ {
+  "n": 181,
+  "name": "Pack of Wonders",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": ":rb_exhaust:: Return another friendly gear, unit, or facedown card to its owner's hand."
+ },
+ {
+  "n": 182,
+  "name": "Scrapheap",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "When this is played, discarded, or killed, draw 1."
+ },
+ {
+  "n": 183,
+  "name": "Stacked Deck",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Look at the top 3 cards of your Main Deck. Put 1 into your hand and recycle the rest."
+ },
+ {
+  "n": 184,
+  "name": "The Syren",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": ":rb_energy_1:, :rb_exhaust:: Move a friendly unit at a battlefield to its base."
+ },
+ {
+  "n": 185,
+  "name": "Traveling Merchant",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Bilgewater"
+  ],
+  "text": "When I move, discard 1, then draw 1."
+ },
+ {
+  "n": 186,
+  "name": "Treasure Trove",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "When this leaves the board, draw 1 and channel 1 rune exhausted.:rb_rune_chaos:, :rb_exhaust:: Kill this."
+ },
+ {
+  "n": 187,
+  "name": "Whirlwind",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Starting with the next player, each player may return a unit to its owner's hand."
+ },
+ {
+  "n": 188,
+  "name": "Zaunite Bouncer",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Zaun"
+  ],
+  "text": "When you play me, return another unit at a battlefield to its owner's hand."
+ },
+ {
+  "n": 189,
+  "name": "Kayn - Unleashed",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Kayn",
+   "Ionia"
+  ],
+  "text": "[Ganking] (I can move from battlefield to battlefield.)If I have moved twice this turn, I don't take damage."
+ },
+ {
+  "n": 190,
+  "name": "Kog'Maw - Caustic",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Kog'Maw",
+   "The Void"
+  ],
+  "text": "[Deathknell] — Deal 4 to all units at my battlefield. (When I die, get the effect.)"
+ },
+ {
+  "n": 191,
+  "name": "Maddened Marauder",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Pirate",
+   "Bilgewater"
+  ],
+  "text": "[Tank] (I must be assigned combat damage first.)When you play me, move a unit from a battlefield to its base."
+ },
+ {
+  "n": 192,
+  "name": "Mindsplitter",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Dragon",
+   "Mount Targon"
+  ],
+  "text": "When you play me, choose an opponent. They reveal their hand. Choose a card from it, and they discard that card."
+ },
+ {
+  "n": 193,
+  "name": "Miss Fortune - Buccaneer",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Pirate",
+   "Miss Fortune",
+   "Bilgewater"
+  ],
+  "text": "You may play me to an open battlefield.Friendly units may be played to open battlefields."
+ },
+ {
+  "n": 194,
+  "name": "Nocturne - Horrifying",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Nocturne"
+  ],
+  "text": "[Ganking] (I can move from battlefield to battlefield.)As you look at or reveal me from the top of your deck, you may banish me. If you do, you may play me for :rb_rune_rainbow:."
+ },
+ {
+  "n": 195,
+  "name": "Rhasa the Sunderer",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Spirit",
+   "Shadow Isles"
+  ],
+  "text": "I cost :rb_energy_1: less for each card in your trash."
+ },
+ {
+  "n": 196,
+  "name": "Soulgorger",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Spirit",
+   "Shadow Isles"
+  ],
+  "text": "When you play me, you may play a unit from your trash, ignoring its Energy cost. (You must still pay its Power cost.)"
+ },
+ {
+  "n": 197,
+  "name": "Teemo - Scout",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Yordle",
+   "Teemo",
+   "Bandle City"
+  ],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)When you play me, give me +3 :rb_might: this turn."
+ },
+ {
+  "n": 198,
+  "name": "The Harrowing",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Play a unit from your trash, ignoring its Energy cost. (You must still pay its Power cost.)"
+ },
+ {
+  "n": 199,
+  "name": "Tideturner",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Bilgewater"
+  ],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)When you play me, you may choose a unit you control at another location. Move me to its location and it to my original location."
+ },
+ {
+  "n": 200,
+  "name": "Twisted Fate - Gambler",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Twisted Fate",
+   "Bilgewater"
+  ],
+  "text": "When I attack, reveal the top rune of your rune deck, then recycle it. Do one of the following based on its domain::rb_rune_fury: — Deal 2 to an enemy unit here and 1 to all other enemy units here.:rb_rune_mind: — Draw 1.:rb_rune_order: — Stun an enemy unit."
+ }
+]

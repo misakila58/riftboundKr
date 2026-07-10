@@ -1,0 +1,434 @@
+[
+ {
+  "n": 251,
+  "name": "Jinx - Loose Cannon",
+  "type": "Legend",
+  "super": null,
+  "tags": [
+   "Jinx"
+  ],
+  "text": "At start of your Beginning Phase, draw 1 if you have one or fewer cards in your hand."
+ },
+ {
+  "n": 252,
+  "name": "Super Mega Death Rocket!",
+  "type": "Spell",
+  "super": "Signature",
+  "tags": [
+   "Jinx"
+  ],
+  "text": "Deal 5 to a unit.When you conquer, you may discard 1 to return this from your trash to your hand."
+ },
+ {
+  "n": 253,
+  "name": "Darius - Hand of Noxus",
+  "type": "Legend",
+  "super": null,
+  "tags": [
+   "Darius"
+  ],
+  "text": ":rb_exhaust:: [Reaction], [Legion] — [Add] :rb_energy_1:. (Abilities that add resources can't be reacted to. Get the effect if you've played a card this turn.)"
+ },
+ {
+  "n": 254,
+  "name": "Noxian Guillotine",
+  "type": "Spell",
+  "super": "Signature",
+  "tags": [
+   "Darius"
+  ],
+  "text": "[Action] (Play on your turn or in showdowns.)Choose a unit. Kill it the next time it takes damage this turn.[Legion] — Kill it now instead. (Get the effect if you've played another card this turn.)"
+ },
+ {
+  "n": 255,
+  "name": "Ahri - Nine-Tailed Fox",
+  "type": "Legend",
+  "super": null,
+  "tags": [
+   "Ahri"
+  ],
+  "text": "When an enemy unit attacks a battlefield you control, give it -1 :rb_might: this turn, to a minimum of 1 :rb_might:."
+ },
+ {
+  "n": 256,
+  "name": "Fox-Fire",
+  "type": "Spell",
+  "super": "Signature",
+  "tags": [
+   "Ahri"
+  ],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)[Action] (Play on your turn or in showdowns.)Kill any number of units at a battlefield with total Might 4 or less."
+ },
+ {
+  "n": 257,
+  "name": "Lee Sin - Blind Monk",
+  "type": "Legend",
+  "super": null,
+  "tags": [
+   "Lee Sin"
+  ],
+  "text": ":rb_energy_1:, :rb_exhaust:: Buff a friendly unit. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 258,
+  "name": "Dragon's Rage",
+  "type": "Spell",
+  "super": "Signature",
+  "tags": [
+   "Lee Sin"
+  ],
+  "text": "Move an enemy unit. Then do this: Choose another enemy unit at its destination. They deal damage equal to their Mights to each other."
+ },
+ {
+  "n": 259,
+  "name": "Yasuo - Unforgiven",
+  "type": "Legend",
+  "super": null,
+  "tags": [
+   "Yasuo"
+  ],
+  "text": ":rb_energy_2:, :rb_exhaust:: Move a friendly unit to or from its base."
+ },
+ {
+  "n": 260,
+  "name": "Last Breath",
+  "type": "Spell",
+  "super": "Signature",
+  "tags": [
+   "Yasuo"
+  ],
+  "text": "[Action] (Play on your turn or in showdowns.)Ready a friendly unit. It deals damage equal to its Might to an enemy unit at a battlefield."
+ },
+ {
+  "n": 261,
+  "name": "Leona - Radiant Dawn",
+  "type": "Legend",
+  "super": null,
+  "tags": [
+   "Leona"
+  ],
+  "text": "When you stun one or more enemy units, buff a friendly unit. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 262,
+  "name": "Zenith Blade",
+  "type": "Spell",
+  "super": "Signature",
+  "tags": [
+   "Leona"
+  ],
+  "text": "[Action] (Play on your turn or in showdowns.)Stun an enemy unit at a battlefield. You may move a friendly unit to that enemy unit's battlefield. (A stunned unit doesn't deal combat damage this turn.)"
+ },
+ {
+  "n": 263,
+  "name": "Teemo - Swift Scout",
+  "type": "Legend",
+  "super": null,
+  "tags": [
+   "Teemo"
+  ],
+  "text": "You may pay :rb_energy_1: to hide a card with [Hidden] instead of :rb_rune_rainbow:.:rb_energy_1:, :rb_exhaust:: Put a Teemo unit you own into your hand from your Champion Zone or the board."
+ },
+ {
+  "n": 264,
+  "name": "Guerilla Warfare",
+  "type": "Spell",
+  "super": "Signature",
+  "tags": [
+   "Teemo"
+  ],
+  "text": "Return up to two cards with [Hidden] from your trash to your hand. You can hide cards ignoring costs this turn."
+ },
+ {
+  "n": 265,
+  "name": "Viktor - Herald of the Arcane",
+  "type": "Legend",
+  "super": null,
+  "tags": [
+   "Viktor"
+  ],
+  "text": ":rb_energy_1:, :rb_exhaust:: Play a 1 :rb_might: Recruit unit token."
+ },
+ {
+  "n": 266,
+  "name": "Siphon Power",
+  "type": "Spell",
+  "super": "Signature",
+  "tags": [
+   "Viktor"
+  ],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Choose a battlefield. Give friendly units there +1 :rb_might: this turn and enemy units there -1 :rb_might: this turn, to a minimum of 1 :rb_might:."
+ },
+ {
+  "n": 267,
+  "name": "Miss Fortune - Bounty Hunter",
+  "type": "Legend",
+  "super": null,
+  "tags": [
+   "Miss Fortune"
+  ],
+  "text": ":rb_exhaust:: Give a unit [Ganking] this turn. (It can move from battlefield to battlefield.)"
+ },
+ {
+  "n": 268,
+  "name": "Bullet Time",
+  "type": "Spell",
+  "super": "Signature",
+  "tags": [
+   "Miss Fortune"
+  ],
+  "text": "[Action] (Play on your turn or in showdowns.)Pay any amount of :rb_rune_rainbow: to deal that much damage to all enemy units at a battlefield."
+ },
+ {
+  "n": 269,
+  "name": "Sett - The Boss",
+  "type": "Legend",
+  "super": null,
+  "tags": [
+   "Sett"
+  ],
+  "text": "If a buffed unit you control would die, you may pay :rb_rune_rainbow:, exhaust me, and spend its buff to heal it, exhaust it, and recall it instead. (Send it to base. This isn't a move.)When you conquer, ready me."
+ },
+ {
+  "n": 270,
+  "name": "Showstopper",
+  "type": "Spell",
+  "super": "Signature",
+  "tags": [
+   "Sett"
+  ],
+  "text": "Buff a friendly unit in your base, then move it to a battlefield. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 271,
+  "name": "Recruit (271) // Buff",
+  "type": "Unit",
+  "super": "Token",
+  "tags": [
+   "Recruit"
+  ],
+  "text": ""
+ },
+ {
+  "n": 272,
+  "name": "Recruit (272) // Buff",
+  "type": "Unit",
+  "super": "Token",
+  "tags": [
+   "Recruit"
+  ],
+  "text": ""
+ },
+ {
+  "n": 273,
+  "name": "Recruit (273) // Buff",
+  "type": "Unit",
+  "super": "Token",
+  "tags": [
+   "Recruit"
+  ],
+  "text": ""
+ },
+ {
+  "n": 274,
+  "name": "Sprite (274) // Buff",
+  "type": "Unit",
+  "super": "Token",
+  "tags": [
+   "Fae"
+  ],
+  "text": "[Temporary] (Kill me at the start of your Beginning Phase, before scoring.)"
+ },
+ {
+  "n": 275,
+  "name": "Altar to Unity",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you hold here, play a 1 :rb_might: Recruit unit token in your base."
+ },
+ {
+  "n": 276,
+  "name": "Aspirant's Climb",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "Increase the points needed to win the game by 1."
+ },
+ {
+  "n": 277,
+  "name": "Back-Alley Bar",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When a unit moves from here, give it +1 :rb_might: this turn."
+ },
+ {
+  "n": 278,
+  "name": "Bandle Tree",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "You may hide an additional card here."
+ },
+ {
+  "n": 279,
+  "name": "Fortified Position",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you defend here, choose a unit. It gains [Shield 2] this combat. (+2 :rb_might: while it's a defender.)"
+ },
+ {
+  "n": 280,
+  "name": "Grove of the God-Willow",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you hold here, draw 1."
+ },
+ {
+  "n": 281,
+  "name": "Hallowed Tomb",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you hold here, you may return your Chosen Champion from your trash to your Champion Zone if it is empty."
+ },
+ {
+  "n": 282,
+  "name": "Monastery of Hirana",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you conquer here, you may spend a buff to draw 1."
+ },
+ {
+  "n": 283,
+  "name": "Navori Fighting Pit",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you hold here, buff a unit here. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 284,
+  "name": "Obelisk of Power",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "At the start of each player's first Beginning Phase, that player channels 1 rune."
+ },
+ {
+  "n": 285,
+  "name": "Reaver's Row",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you defend here, you may move a friendly unit here to base."
+ },
+ {
+  "n": 286,
+  "name": "Reckoner's Arena",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you hold here, activate the conquer effects of units here."
+ },
+ {
+  "n": 287,
+  "name": "Sigil of the Storm",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you conquer here, you must recycle one of your runes. (This doesn’t choose anything.)"
+ },
+ {
+  "n": 288,
+  "name": "Startipped Peak",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you hold here, you may channel 1 rune exhausted."
+ },
+ {
+  "n": 289,
+  "name": "Targon's Peak",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you conquer here, ready up to 2 runes at the end of this turn."
+ },
+ {
+  "n": 290,
+  "name": "The Arena's Greatest",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "At the start of each player's first Beginning Phase, that player gains 1 point."
+ },
+ {
+  "n": 291,
+  "name": "The Candlelit Sanctum",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you conquer here, look at the top two cards of your Main Deck. You may recycle one or both of them. Put those you don't back in any order."
+ },
+ {
+  "n": 292,
+  "name": "The Dreaming Tree",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When a player chooses a friendly unit here with a spell for the first time each turn, they draw 1."
+ },
+ {
+  "n": 293,
+  "name": "The Grand Plaza",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you hold here, if you have 7+ units here, you win the game."
+ },
+ {
+  "n": 294,
+  "name": "Trifarian War Camp",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "Units here have +1 :rb_might:. (This includes attackers.)"
+ },
+ {
+  "n": 295,
+  "name": "Vilemaw's Lair",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "Units can't move from here to base."
+ },
+ {
+  "n": 296,
+  "name": "Void Gate",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "Spells and abilities deal 1 Bonus Damage to units here. (Each instance of damage the spell deals to a unit here is increased by 1.)"
+ },
+ {
+  "n": 297,
+  "name": "Windswept Hillock",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "Units here have [Ganking]. (They can move from battlefield to battlefield.)"
+ },
+ {
+  "n": 298,
+  "name": "Zaun Warrens",
+  "type": "Battlefield",
+  "super": null,
+  "tags": [],
+  "text": "When you conquer here, discard 1, then draw 1."
+ }
+]

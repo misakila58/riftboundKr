@@ -1,0 +1,35 @@
+{
+  "name": "riftbound-sim-client",
+  "version": "1.0.0",
+  "description": "리프트바운드 시뮬레이터 데스크톱 클라이언트 (비공식 팬 프로젝트)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.fan.riftboundsim",
+    "productName": "RiftboundSim",
+    "files": ["main.js", "preload.js", "web/**/*"],
+    "win": {
+      "target": ["nsis", "portable"],
+      "artifactName": "RiftboundSim-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "리프트바운드 시뮬레이터"
+    },
+    "portable": {
+      "artifactName": "RiftboundSim-${version}-portable.exe"
+    },
+    "directories": { "output": "dist" }
+  }
+}

@@ -1,0 +1,44 @@
+name: build-release
+
+# 태그(v*)를 push하면 클라이언트/서버 실행 파일을 빌드해 Release에 첨부합니다.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 클라이언트 (Electron 데스크톱 앱)
+      - name: Build client
+        working-directory: client
+        run: |
+          npm install
+          npm run dist
+
+      # 서버 (단일 exe + 실행 스크립트)
+      - name: Build server
+        working-directory: server
+        run: |
+          npm install
+          node build-dist.js --exe
+
+      - name: Package server dist
+        run: Compress-Archive -Path server/dist/* -DestinationPath riftbound-server-win.zip
+        shell: pwsh
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            client/dist/*.exe
+            riftbound-server-win.zip

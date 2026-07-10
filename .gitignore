@@ -1,0 +1,31 @@
+# 의존성
+node_modules/
+
+# 빌드 산출물
+client/dist/
+server/dist/
+*.bak
+.*.bak
+
+# 사용자 데이터 (비밀번호 해시 포함 — 절대 커밋 금지)
+server/data/
+data/db.json
+
+# 터널/DNS 설정 (토큰 포함 가능) 및 다운로드 바이너리
+**/ngrok-config.txt
+**/ddns-config.txt
+**/cloudflared.exe
+**/ngrok.exe
+**/ngrok.zip
+
+# 대용량/저작권 원본 (재수집 가능) — Riot 규칙 PDF는 재배포하지 않음
+tools/data/*.pdf
+tools/data/rules*.txt
+tools/data/ogn_*.json
+
+# 로컬 도구/OS
+.claude/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log

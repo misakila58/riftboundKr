@@ -1,0 +1,656 @@
+// ══════════ UI: 렌더링 & 상호작용 ══════════
+const UI = {};
+
+// ---------- 로그/토스트 ----------
+UI.log = function(msg, cls){
+  const el=document.getElementById('log');
+  const d=document.createElement('div');
+  d.className='log-entry log-'+(cls||'sys');
+  d.textContent=msg;
+  el.appendChild(d);
+  el.scrollTop=el.scrollHeight;
+};
+UI.toast = function(msg, cls){
+  const area=document.getElementById('toast-area');
+  const d=document.createElement('div');
+  d.className='toast '+(cls||'');
+  d.textContent=msg;
+  area.appendChild(d);
+  setTimeout(()=>d.remove(), 2600);
+};
+UI.manualNotice = function(c){
+  UI.toast(`⚙️ 「${c.ko}」 효과 일부는 수동 처리가 필요합니다 (우클릭 메뉴 활용)`, 'warn');
+  UI.log(`⚙️ 수동 처리 필요: ${c.ko} — ${c.tko||c.text}`, 'sys');
+};
+
+// ---------- 프롬프트 ----------
+UI.prompt = function(text){
+  document.getElementById('prompt-area').innerHTML =
+    text?`<div class="prompt-title">${esc(text)}</div>`:'';
+};
+UI.promptShowdown = function(){
+  const sd=G.showdown; if(!sd) return;
+  const bf=G.bfs[sd.bfIdx];
+  document.getElementById('showdown-banner').style.display='';
+  document.getElementById('showdown-banner').innerHTML =
+    `⚔️ 격돌: ${esc(card(bf.n).ko)}<br>공격 ${esc(pname(sd.attacker))} → 방어 ${esc(pname(sd.defender))}`;
+  UI.prompt(`${pname(G.actingPlayer)}: [행동]/[반응] 카드·능력을 사용하거나 패스하세요`);
+  document.getElementById('btn-pass').style.display='';
+  document.getElementById('btn-endturn').style.display='none';
+};
+
+// ---------- 선택 프리미티브 (Promise 기반) ----------
+let _resolver = null;
+function settle(v){ if(_resolver){ const r=_resolver; _resolver=null; clearPicking(); r(v); } }
+function clearPicking(){
+  document.querySelectorAll('.targetable').forEach(e=>e.classList.remove('targetable'));
+  const pa=document.getElementById('prompt-area');
+  pa.innerHTML = G && G.state==='showdown'
+    ? `<div class="prompt-title">${esc(pname(G.actingPlayer))}: [행동]/[반응] 사용 또는 패스</div>`
+    : (G && !G.winner ? `<div class="prompt-title">${esc(pname(G.turn))}의 행동 단계</div>` : '');
+}
+
+// ── 온라인 라우팅 래퍼 ──
+// 내 좌석이면 인터랙티브, 상대 좌석이면 대기. 결과는 서버 에코로 양측 동시 해결.
+function routedPick(p, interactiveFn, serialize, deserialize){
+  if(!NET.online) return interactiveFn();
+  return NET.choice(p, interactiveFn, serialize, deserialize);
+}
+
+// 유닛 선택 (보드에서 클릭)
+UI.pickUnitFrom = function(p, candidates, promptText, optional){
+  if(!candidates.length) return Promise.resolve(null);
+  return routedPick(p,
+    ()=>_pickUnitLocal(p,candidates,promptText,optional),
+    v=>v?{uid:v.uid}:null,
+    d=>d?(candidates.find(u=>u.uid===d.uid)||everyUnit().find(u=>u.uid===d.uid)||null):null);
+};
+function _pickUnitLocal(p, candidates, promptText, optional){
+  return new Promise(res=>{
+    if(!candidates.length){ res(null); return; }
+    _resolver=res;
+    _pickableUids = new Set(candidates.map(u=>u.uid));
+    UI.render();
+    const pa=document.getElementById('prompt-area');
+    pa.innerHTML=`<div class="prompt-title">👉 ${esc(promptText||'대상 선택')}</div>`;
+    const btns=document.createElement('div'); btns.className='prompt-btns';
+    if(optional){
+      const skip=document.createElement('button'); skip.textContent='선택 안 함';
+      skip.onclick=()=>{ _pickableUids=null; settle(null); UI.render(); };
+      btns.appendChild(skip);
+    }
+    pa.appendChild(btns);
+  });
+};
+let _pickableUids = null;
+
+// 옵션 선택 (인덱스 기반 동기화)
+UI.pickOption = function(p, title, options){
+  return routedPick(p,
+    ()=>_pickOptionLocal(p,title,options),
+    v=>v, v=>v
+  ).then(idx=>idx===null?null:options[idx].v);
+};
+function _pickOptionLocal(p, title, options){
+  return new Promise(res=>{
+    _resolver=res;
+    const pa=document.getElementById('prompt-area');
+    pa.innerHTML=`<div class="prompt-title">👉 ${esc(pname(p))}: ${esc(title)}</div>`;
+    const btns=document.createElement('div'); btns.className='prompt-btns';
+    options.forEach((o,i)=>{
+      const b=document.createElement('button'); b.textContent=o.label;
+      b.onclick=()=>settle(i);
+      btns.appendChild(b);
+    });
+    const cancel=document.createElement('button'); cancel.textContent='취소';
+    cancel.style.opacity=.6;
+    cancel.onclick=()=>settle(null);
+    btns.appendChild(cancel);
+    pa.appendChild(btns);
+  });
+}
+
+// 확인 (예/아니오)
+UI.confirmP = function(p, text, previewCard){
+  return routedPick(p, ()=>_confirmLocal(p,text,previewCard), v=>v, v=>v);
+};
+function _confirmLocal(p, text, previewCard){
+  return new Promise(res=>{
+    _resolver=res;
+    const pa=document.getElementById('prompt-area');
+    pa.innerHTML=`<div class="prompt-title">👉 ${esc(pname(p))}: ${esc(text)}</div>`;
+    if(previewCard) UI.inspect(previewCard);
+    const btns=document.createElement('div'); btns.className='prompt-btns';
+    const y=document.createElement('button'); y.textContent='예'; y.onclick=()=>settle(true);
+    const n=document.createElement('button'); n.textContent='아니오'; n.onclick=()=>settle(false);
+    btns.appendChild(y); btns.appendChild(n);
+    pa.appendChild(btns);
+  });
+}
+
+// 숫자 선택
+UI.pickNumber = function(p, text, min, max){
+  return routedPick(p, ()=>_pickNumberLocal(p,text,min,max), v=>v, v=>v);
+};
+function _pickNumberLocal(p, text, min, max){
+  return new Promise(res=>{
+    _resolver=res;
+    const pa=document.getElementById('prompt-area');
+    pa.innerHTML=`<div class="prompt-title">👉 ${esc(text)}</div>`;
+    const btns=document.createElement('div'); btns.className='prompt-btns';
+    for(let i=min;i<=max;i++){
+      const b=document.createElement('button'); b.textContent=i;
+      b.onclick=()=>settle(i);
+      btns.appendChild(b);
+    }
+    pa.appendChild(btns);
+  });
+}
+
+// 손패 카드 선택 (모달 — 선택자 화면에만 표시)
+UI.pickHandCard = function(p, title){
+  if(!G.players[p].hand.length) return Promise.resolve(null);
+  return routedPick(p, ()=>_pickHandLocal(p,title), v=>v, v=>v);
+};
+function _pickHandLocal(p, title){
+  return new Promise(res=>{
+    const P=G.players[p];
+    if(!P.hand.length){ res(null); return; }
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>${esc(pname(p))}: ${esc(title)}</h3>`;
+    const wrap=document.createElement('div'); wrap.className='modal-cards';
+    P.hand.forEach((n,i)=>{
+      const el=cardMiniEl(card(n));
+      el.onclick=()=>{ closeModal(); res(i); };
+      wrap.appendChild(el);
+    });
+    box.appendChild(wrap);
+    openModal();
+  });
+}
+
+function openModal(){ document.getElementById('modal-overlay').style.display='flex'; }
+function closeModal(){ document.getElementById('modal-overlay').style.display='none'; }
+
+// ---------- 카드 미니 요소 ----------
+function cardMiniEl(c, opts={}){
+  const el=document.createElement('div');
+  el.className='card-mini';
+  if(c.img) el.style.backgroundImage=`url("${c.img}")`;
+  const name=document.createElement('div'); name.className='cm-name'; name.textContent=c.ko;
+  el.appendChild(name);
+  if(c.e!==null && c.e!==undefined && c.type!=='Rune' && c.type!=='Battlefield'){
+    const cost=document.createElement('div'); cost.className='cm-cost'; cost.textContent=c.e;
+    el.appendChild(cost);
+  }
+  el.onmouseenter=()=>UI.inspect(c);
+  return el;
+}
+
+// 유닛 요소
+function unitEl(u){
+  const c=unitCard(u);
+  const el=document.createElement('div');
+  el.className='card-mini';
+  el.dataset.uid=u.uid;
+  if(u.ex) el.classList.add('exhausted');
+  if(u.stunned) el.classList.add('stunned');
+  if(_pickableUids && _pickableUids.has(u.uid)) el.classList.add('targetable');
+  if(_moveSel.has(u.uid)) el.classList.add('selected');
+  if(u.isToken){
+    el.style.background='linear-gradient(135deg,#2a3a2a,#1a2a1a)';
+  } else if(c.img) el.style.backgroundImage=`url("${c.img}")`;
+  const name=document.createElement('div'); name.className='cm-name'; name.textContent=unitName(u);
+  el.appendChild(name);
+  const m=document.createElement('div');
+  const baseM=(u.isToken?u.tokenMight:(c.m||0));
+  const curM=might(u, combatRoleOf(u));
+  m.className='cm-might'+(curM>baseM?' buffed':curM<baseM?' weakened':'');
+  m.textContent=curM+'⚔';
+  el.appendChild(m);
+  if(u.dmg>0){ const d=document.createElement('div'); d.className='cm-dmg'; d.textContent='-'+u.dmg; el.appendChild(d); }
+  if(u.buff>0){ const b=document.createElement('div'); b.className='cm-buff'; b.textContent='+'+u.buff; el.appendChild(b); }
+  el.onmouseenter=()=>UI.inspectUnit(u);
+  el.onclick=(e)=>onUnitClick(u,e);
+  el.oncontextmenu=(e)=>{ e.preventDefault(); showUnitMenu(u,e); };
+  return el;
+}
+function combatRoleOf(u){
+  if(!G.showdown || u.loc!==G.showdown.bfIdx) return null;
+  return u.ctrl===G.showdown.attacker?'attacker':'defender';
+}
+
+// ---------- 인스펙터 ----------
+UI.inspect = function(c){
+  const el=document.getElementById('inspector');
+  const kwNote = (c.text.match(/\[([A-Za-z-]+ ?\d*)\]/g)||[])
+    .map(k=>k.replace(/[\[\]]/g,'').replace(/ \d+$/,''))
+    .filter((v,i,a)=>a.indexOf(v)===i)
+    .map(k=>KEYWORDS_KO[k]?`<div style="font-size:11px;color:#9aa4bd">· <b>[${KEYWORDS_KO[k].ko}]</b> ${KEYWORDS_KO[k].desc}</div>`:'')
+    .join('');
+  el.innerHTML=`
+    ${c.img?`<img src="${c.img}" alt="">`:''}
+    <div class="insp-name">${esc(c.ko)}</div>
+    <div class="insp-name-en">${esc(c.name)} · #${c.n}</div>
+    <div class="insp-type">${esc(typeLine(c))}${c.m!==null&&c.m!==undefined?` · 전투력 ${c.m}`:''}${c.e!==null&&c.e!==undefined?` · 비용 ${c.e}${c.p?'+파워'+c.p:''}`:''}</div>
+    <div class="insp-text">${renderIcons(esc(c.tko||c.text||'(효과 없음)'))}</div>
+    ${kwNote}
+    ${c.tags&&c.tags.length?`<div class="insp-tags">태그: ${c.tags.map(esc).join(', ')}</div>`:''}
+  `;
+};
+UI.inspectUnit = function(u){
+  if(u.isToken){
+    document.getElementById('inspector').innerHTML=`
+      <div class="insp-name">${esc(unitName(u))}</div>
+      <div class="insp-type">토큰 유닛 · 전투력 ${might(u)}</div>
+      <div class="insp-text">토큰은 죽으면 소멸합니다.</div>`;
+    return;
+  }
+  UI.inspect(card(u.n));
+};
+
+// ---------- 유닛 클릭 ----------
+let _moveSel = new Set();
+let _moveArmed = false;
+function onUnitClick(u, e){
+  // 대상 선택 모드
+  if(_pickableUids){
+    if(_pickableUids.has(u.uid)){
+      const unit=u;
+      _pickableUids=null;
+      settle(unit);
+      UI.render();
+    }
+    return;
+  }
+  // 이동 모드: 아군 준비 유닛 다중 선택
+  if(_moveArmed && u.ctrl===G.actingPlayer && !u.ex){
+    if(_moveSel.has(u.uid)) _moveSel.delete(u.uid);
+    else _moveSel.add(u.uid);
+    UI.render();
+    return;
+  }
+  // 기본: 능력 발동 메뉴
+  showUnitMenu(u, e);
+}
+
+// ---------- 컨텍스트 메뉴 ----------
+function showUnitMenu(u, e){
+  const menu=document.getElementById('ctx-menu');
+  menu.innerHTML='';
+  const title=document.createElement('div'); title.className='ctx-title'; title.textContent=unitName(u);
+  menu.appendChild(title);
+  const fx=unitFx(u);
+  // 발동형 능력
+  (fx.activated||[]).forEach((ab,abIdx)=>{
+    if(u.ctrl!==G.actingPlayer && !(ab.reaction||ab.action)) return;
+    if(NET.online && u.ctrl!==NET.seat) return;
+    const item=document.createElement('div'); item.className='ctx-item';
+    item.textContent='⚡ '+ab.label;
+    item.onclick=()=>{ hideMenu();
+      NET.dispatch({k:'ability',p:u.ctrl,src:{kind:'unit',uid:u.uid},abIdx},
+        ()=>activateAbility(u.ctrl,{kind:'unit',u},ab)); };
+    menu.appendChild(item);
+  });
+  if(fx.manual&&fx.manual.length){
+    const mi=document.createElement('div'); mi.className='ctx-item'; mi.textContent='📖 효과 텍스트 보기(수동 처리)';
+    mi.onclick=()=>{ hideMenu(); UI.inspectUnit(u); UI.toast('사이드바에서 효과를 확인하고 수동 도구로 처리하세요'); };
+    menu.appendChild(mi);
+  }
+  const sep=document.createElement('div'); sep.className='ctx-sep'; menu.appendChild(sep);
+  const uref={uid:u.uid};
+  const tools=[
+    ['💥 피해 1', 'damage', [uref,1]],
+    ['💚 치유(피해 제거)', 'heal', [uref]],
+    ['🔼 버프 +1', 'buff', [uref]],
+    ['⚔ 전투력 +1 (턴)', 'might', [uref,1]],
+    ['⚔ 전투력 -1 (턴)', 'might', [uref,-1]],
+    ['💫 스턴 토글', 'stun', [uref]],
+    ['⟳ 소진/준비 토글', 'toggleEx', [uref]],
+    ['🖐 손패로 되돌림', 'bounce', [uref]],
+    ['💀 처치', 'kill', [uref]],
+  ];
+  tools.forEach(([label,tool,args])=>{
+    const item=document.createElement('div'); item.className='ctx-item'; item.textContent=label;
+    item.onclick=()=>{ hideMenu();
+      NET.dispatch({k:'manual',tool,args},
+        ()=>ManualTools[tool](...args.map(x=>x&&x.uid!==undefined?u:x))); };
+    menu.appendChild(item);
+  });
+  menu.style.display='block';
+  menu.style.left=Math.min(e.clientX, innerWidth-190)+'px';
+  menu.style.top=Math.min(e.clientY, innerHeight-menu.offsetHeight-10)+'px';
+}
+function hideMenu(){ document.getElementById('ctx-menu').style.display='none'; }
+document.addEventListener('click', e=>{
+  if(!e.target.closest('#ctx-menu')) hideMenu();
+});
+
+// ---------- 손패 클릭 ----------
+// 온라인: 내 좌석의 행동만 개시 가능
+function canInitiate(p){
+  if(!NET.online) return true;
+  if(p!==NET.seat){ UI.toast('상대 카드는 조작할 수 없습니다','warn'); return false; }
+  return true;
+}
+
+function onHandClick(p, idx, e){
+  if(G.winner) return;
+  if(NET.online && p!==NET.seat) return; // 상대 손패는 비공개
+  const n=G.players[p].hand[idx];
+  const c=card(n);
+  const fx=FX[n]||{kw:{}};
+  const menu=document.getElementById('ctx-menu');
+  menu.innerHTML='';
+  const title=document.createElement('div'); title.className='ctx-title'; title.textContent=c.ko;
+  menu.appendChild(title);
+  const play=document.createElement('div'); play.className='ctx-item';
+  play.textContent=`▶ 플레이 (비용 ${c.e??0}${c.p?'+파워'+c.p:''})`;
+  play.onclick=()=>{
+    hideMenu();
+    NET.dispatch({k:'play',p,handIdx:idx,opts:{}},
+      ()=>playCardFromHand(p,idx).then(ok=>{ if(ok&&G.state==='showdown') showdownActed(); }));
+  };
+  menu.appendChild(play);
+  if(fx.kw.hidden){
+    const hide=document.createElement('div'); hide.className='ctx-item';
+    hide.textContent='🕶 숨기기 (파워 1)';
+    hide.onclick=()=>{ hideMenu(); NET.dispatch({k:'hide',p,handIdx:idx}, ()=>hideCard(p,idx)); };
+    menu.appendChild(hide);
+  }
+  const sep=document.createElement('div'); sep.className='ctx-sep'; menu.appendChild(sep);
+  const disc=document.createElement('div'); disc.className='ctx-item'; disc.textContent='🗑 버리기(수동)';
+  disc.onclick=()=>{ hideMenu(); NET.dispatch({k:'manual',tool:'discardIdx',args:[p,idx]}, ()=>{ discardFromHand(p,idx); UI.render(); }); };
+  menu.appendChild(disc);
+  menu.style.display='block';
+  menu.style.left=Math.min(e.clientX, innerWidth-190)+'px';
+  menu.style.top=Math.min(e.clientY-10, innerHeight-200)+'px';
+}
+
+// ---------- 렌더링 ----------
+UI.render = function(){
+  if(!G) return;
+  // 상단바
+  document.getElementById('turn-info').textContent=`${pname(G.turn)}의 턴`;
+  const phaseKo={setup:'준비',awaken:'각성',beginning:'시작',channel:'충전',draw:'드로우',action:'행동'}[G.phase]||G.phase;
+  document.getElementById('phase-info').textContent=
+    `${phaseKo} 단계` + (G.state==='showdown'?' · ⚔️격돌 중':'');
+  document.getElementById('score-info').innerHTML=
+    `<span style="color:#9fc8ff">${esc(pname(0))} ${G.players[0].points}점</span> : <span style="color:#ffc89f">${esc(pname(1))} ${G.players[1].points}점</span> (선취 ${G.victory}점)`;
+
+  // 풀
+  const P=G.players[G.actingPlayer];
+  const powStr=Object.entries(P.power).filter(([,v])=>v>0).map(([d,v])=>`${DOMAIN_ICON[d]}${v}`).join(' ');
+  document.getElementById('pool-display').innerHTML=
+    `<b>${esc(pname(G.actingPlayer))}</b> 풀<br>에너지 ${P.energy} ${powStr?'· '+powStr:''}<br>준비 룬 ${readyRunes(G.actingPlayer).length}/${P.runes.length}`;
+
+  if(G.state!=='showdown'){
+    document.getElementById('showdown-banner').style.display='none';
+    document.getElementById('btn-pass').style.display='none';
+    document.getElementById('btn-endturn').style.display='';
+  }
+
+  // 플레이어 영역
+  for(let p=0;p<2;p++){
+    const Pl=G.players[p];
+    // 전설
+    const lc=card(Pl.legendN);
+    const lslot=document.getElementById('legend-'+p);
+    lslot.innerHTML='';
+    const lel=cardMiniEl(lc);
+    if(Pl.legendEx) lel.classList.add('exhausted');
+    lel.onclick=(e)=>showLegendMenu(p,e);
+    lslot.appendChild(lel);
+    const lcap=document.createElement('div'); lcap.className='slot-caption'; lcap.textContent='전설';
+    lslot.appendChild(lcap);
+    // 챔피언 존
+    const cslot=document.getElementById('champzone-'+p);
+    cslot.innerHTML='';
+    if(Pl.champInZone){
+      const cc=card(Pl.champN);
+      const cel=cardMiniEl(cc);
+      cel.onclick=(e)=>{
+        if(G.winner) return;
+        if(NET.online && p!==NET.seat) return;
+        const menu=document.getElementById('ctx-menu');
+        menu.innerHTML='';
+        const play=document.createElement('div'); play.className='ctx-item';
+        play.textContent=`▶ 챔피언 플레이 (비용 ${cc.e??0}${cc.p?'+파워'+cc.p:''})`;
+        play.onclick=()=>{ hideMenu();
+          NET.dispatch({k:'play',p,handIdx:-1,opts:{champZone:true}},
+            ()=>playCardFromHand(p,-1,{champZone:true})); };
+        menu.appendChild(play);
+        menu.style.display='block';
+        menu.style.left=e.clientX+'px'; menu.style.top=e.clientY+'px';
+      };
+      cslot.appendChild(cel);
+    }
+    const ccap=document.createElement('div'); ccap.className='slot-caption'; ccap.textContent='챔피언 존';
+    cslot.appendChild(ccap);
+    // 룬
+    const rz=document.getElementById('runes-'+p);
+    rz.innerHTML='';
+    Pl.runes.forEach(r=>{
+      const rel=document.createElement('div');
+      rel.className='rune-mini'+(r.ex?' exhausted':'');
+      const dom=runeDomain(r.n);
+      rel.textContent=DOMAIN_ICON[dom]||'◆';
+      rel.style.borderColor=DOMAIN_COLOR[dom]||'#556';
+      rel.title=card(r.n).ko+(r.ex?' (소진)':'');
+      rel.onmouseenter=()=>UI.inspect(card(r.n));
+      rz.appendChild(rel);
+    });
+    // 더미
+    document.querySelector('#deck-'+p+' .pile-count').textContent=Pl.deck.length;
+    document.querySelector('#runedeck-'+p+' .pile-count').textContent=Pl.runeDeck.length;
+    document.querySelector('#trash-'+p+' .pile-count').textContent=Pl.trash.length;
+    // 본진
+    const bz=document.getElementById('base-'+p);
+    bz.innerHTML='<div class="zone-label">본진</div>';
+    Pl.base.forEach(u=>bz.appendChild(unitEl(u)));
+    // 장비 (본진에 표시)
+    Pl.gear.forEach(g=>{
+      const gel=cardMiniEl(card(g.n));
+      gel.style.borderColor='#8a7a4a';
+      if(g.ex) gel.classList.add('exhausted');
+      gel.oncontextmenu=(e)=>{ e.preventDefault(); showGearMenu(p,g,e); };
+      gel.onclick=(e)=>showGearMenu(p,g,e);
+      bz.appendChild(gel);
+    });
+    // 손패
+    const hz=document.getElementById('hand-'+p);
+    hz.innerHTML='';
+    Pl.hand.forEach((n,i)=>{
+      const showFace = !NET.online || p===NET.seat; // 온라인: 상대 손패 비공개
+      let el;
+      if(showFace){ el = cardMiniEl(card(n)); el.onclick=(e)=>onHandClick(p,i,e); }
+      else { el = document.createElement('div'); el.className='card-mini card-back'; }
+      hz.appendChild(el);
+    });
+  }
+
+  // 전장
+  G.bfs.forEach((bf,i)=>{
+    const el=document.getElementById('bf-'+i);
+    el.className='battlefield';
+    if(bf.controller!==null) el.classList.add('controlled-'+bf.controller);
+    if(G.showdown&&G.showdown.bfIdx===i) el.classList.add('contested');
+    const bc=card(bf.n);
+    el.innerHTML='';
+    const head=document.createElement('div'); head.className='bf-header';
+    if(bc.img){ const im=document.createElement('img'); im.src=bc.img; im.onmouseenter=()=>UI.inspect(bc); head.appendChild(im); }
+    const info=document.createElement('div');
+    info.innerHTML=`<div class="bf-name">${esc(bc.ko)}</div>
+      <div class="bf-status">${bf.controller===null?'무주공산':'통제: '+esc(pname(bf.controller))}${bf.hiddenCards.length?' · 🕶숨김카드×'+bf.hiddenCards.length:''}</div>`;
+    head.appendChild(info);
+    el.appendChild(head);
+    const uwrap=document.createElement('div'); uwrap.className='bf-units';
+    for(let p=0;p<2;p++){
+      const us=bf.units.filter(u=>u.ctrl===p);
+      if(!us.length) continue;
+      const row=document.createElement('div'); row.className='bf-row';
+      const lbl=document.createElement('div'); lbl.className='bf-row-label'; lbl.textContent=pname(p);
+      row.appendChild(lbl);
+      us.forEach(u=>row.appendChild(unitEl(u)));
+      uwrap.appendChild(row);
+    }
+    el.appendChild(uwrap);
+    // 클릭: 이동 목적지 / 숨김 카드 플레이
+    el.onclick=(e)=>{
+      if(e.target.closest('.card-mini')) return;
+      if(_moveArmed && _moveSel.size){ executeMove(i); return; }
+      const hp=G.actingPlayer;
+      if(bf.hiddenCards.some(h=>h.by===hp)){
+        if(NET.online && hp!==NET.seat) return;
+        NET.dispatch({k:'playHidden',p:hp,bfIdx:i}, ()=>playHidden(hp,i));
+      }
+    };
+  });
+
+  updateButtons();
+};
+
+function updateButtons(){
+  const btnMove=document.getElementById('btn-move');
+  btnMove.className='act-btn'+(_moveArmed?' armed':'');
+  btnMove.textContent=_moveArmed?`🚶 이동: 목적지 클릭 (${_moveSel.size}개 선택)`:'🚶 이동';
+  document.getElementById('btn-endturn').disabled = G.state==='showdown' || G.winner!==null;
+}
+
+// 이동 실행
+async function executeMove(dest){
+  const units=everyUnit().filter(u=>_moveSel.has(u.uid));
+  const uids=units.map(u=>u.uid);
+  const p=G.actingPlayer;
+  _moveArmed=false; _moveSel.clear();
+  updateButtons();
+  if(units.length){
+    NET.dispatch({k:'move',p,uids,dest}, ()=>moveUnits(p,units,dest).then(()=>UI.render()));
+  }
+  UI.render();
+}
+
+// ---------- 전설 메뉴 ----------
+function showLegendMenu(p, e){
+  if(G.winner) return;
+  const Pl=G.players[p];
+  const fx=FX[Pl.legendN]||{activated:[]};
+  const menu=document.getElementById('ctx-menu');
+  menu.innerHTML='';
+  const title=document.createElement('div'); title.className='ctx-title'; title.textContent=card(Pl.legendN).ko;
+  menu.appendChild(title);
+  (fx.activated||[]).forEach((ab,abIdx)=>{
+    if(NET.online && p!==NET.seat) return;
+    const item=document.createElement('div'); item.className='ctx-item';
+    item.textContent='⚡ '+ab.label + (Pl.legendEx&&ab.cost&&ab.cost.exhaustSelf?' (소진됨)':'');
+    item.onclick=()=>{ hideMenu();
+      NET.dispatch({k:'ability',p,src:{kind:'legend'},abIdx},
+        ()=>activateAbility(p,{kind:'legend'},ab)); };
+    menu.appendChild(item);
+  });
+  if(!(fx.activated||[]).length){
+    const none=document.createElement('div'); none.className='ctx-title'; none.textContent='(상시/트리거 효과 — 자동 처리)';
+    menu.appendChild(none);
+  }
+  const sep=document.createElement('div'); sep.className='ctx-sep'; menu.appendChild(sep);
+  if(!NET.online || p===NET.seat){
+    const tgl=document.createElement('div'); tgl.className='ctx-item'; tgl.textContent='⟳ 소진/준비 토글(수동)';
+    tgl.onclick=()=>{ hideMenu(); NET.dispatch({k:'manual',tool:'legendToggle',args:[p]}, ()=>{ Pl.legendEx=!Pl.legendEx; UI.render(); }); };
+    menu.appendChild(tgl);
+  }
+  menu.style.display='block';
+  menu.style.left=Math.min(e.clientX,innerWidth-190)+'px';
+  menu.style.top=Math.min(e.clientY,innerHeight-180)+'px';
+}
+
+// ---------- 장비 메뉴 ----------
+function showGearMenu(p, g, e){
+  if(NET.online && p!==NET.seat) return;
+  const menu=document.getElementById('ctx-menu');
+  const c=card(g.n);
+  const fx=FX[g.n]||{activated:[]};
+  const gearIdx=G.players[p].gear.indexOf(g);
+  menu.innerHTML='';
+  const title=document.createElement('div'); title.className='ctx-title'; title.textContent=c.ko;
+  menu.appendChild(title);
+  (fx.activated||[]).forEach((ab,abIdx)=>{
+    const item=document.createElement('div'); item.className='ctx-item';
+    item.textContent='⚡ '+ab.label;
+    item.onclick=()=>{ hideMenu();
+      NET.dispatch({k:'ability',p,src:{kind:'gear',gearIdx},abIdx},
+        ()=>activateAbility(p,{kind:'gear',g},ab)); };
+    menu.appendChild(item);
+  });
+  if(fx.equipCost!==undefined){
+    const item=document.createElement('div'); item.className='ctx-item';
+    item.textContent=`🛡 장착 (에너지 ${fx.equipCost})`;
+    item.onclick=()=>{ hideMenu();
+      NET.dispatch({k:'equip',p,gearIdx}, ()=>equipGear(p,gearIdx)); };
+    menu.appendChild(item);
+  }
+  const sep=document.createElement('div'); sep.className='ctx-sep'; menu.appendChild(sep);
+  const del=document.createElement('div'); del.className='ctx-item'; del.textContent='💀 파기(수동)';
+  del.onclick=()=>{ hideMenu(); NET.dispatch({k:'manual',tool:'trashGear',args:[p,gearIdx]},
+    ()=>ManualTools.trashGear(p,gearIdx)); };
+  menu.appendChild(del);
+  menu.style.display='block';
+  menu.style.left=Math.min(e.clientX,innerWidth-190)+'px';
+  menu.style.top=Math.min(e.clientY,innerHeight-180)+'px';
+}
+
+// ---------- 승리 ----------
+UI.showVictory = function(p){
+  const box=document.getElementById('modal-box');
+  const btnLabel = NET.online ? '로비로 돌아가기' : '새 게임';
+  box.innerHTML=`<div class="victory-box">
+    <h2>🎉 ${esc(pname(p))} 승리!</h2>
+    <p>${G.victory}점을 선취했습니다.</p>
+    <div class="modal-btns"><button class="primary" onclick="location.reload()">${btnLabel}</button></div>
+  </div>`;
+  openModal();
+};
+
+// ---------- 버튼 바인딩 ----------
+window.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('btn-endturn').onclick=()=>{
+    if(G.state==='showdown'||G.winner) return;
+    if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
+    if(NET.online && G.turn!==NET.seat){ UI.toast('자신의 턴이 아닙니다','warn'); return; }
+    NET.dispatch({k:'endTurn'}, ()=>endTurn());
+  };
+  document.getElementById('btn-move').onclick=()=>{
+    if(G.state==='showdown'){ UI.toast('격돌 중에는 이동할 수 없습니다','warn'); return; }
+    if(G.turn!==G.actingPlayer){ return; }
+    if(NET.online && G.turn!==NET.seat){ UI.toast('자신의 턴이 아닙니다','warn'); return; }
+    _moveArmed=!_moveArmed;
+    if(!_moveArmed) _moveSel.clear();
+    else UI.toast('이동할 아군 유닛들을 클릭한 뒤, 목적지(전장/본진)를 클릭하세요');
+    UI.render();
+  };
+  document.getElementById('btn-pass').onclick=()=>{
+    if(G.state!=='showdown') return;
+    if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
+    if(NET.online && G.actingPlayer!==NET.seat){ UI.toast('상대의 응답 차례입니다','warn'); return; }
+    NET.dispatch({k:'pass'}, ()=>showdownPass());
+  };
+  document.getElementById('btn-help').onclick=()=>{
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>도움말</h3>
+    <div style="font-size:13px;line-height:1.9">
+    · <b>승리</b>: 8점 선취. 전장 <b>정복</b>(빼앗기) 1점, 자기 시작 단계까지 <b>점유</b> 유지 1점.<br>
+    · 마지막 1점은 점유로만, 또는 그 턴에 모든 전장을 득점한 경우의 정복으로만 얻습니다.<br>
+    · <b>비용</b>: 에너지는 룬 소진, 파워는 룬 재충전(룬 덱으로 반환)으로 자동 지불됩니다.<br>
+    · <b>이동</b>: [이동] 버튼 → 유닛들 클릭 → 목적지 클릭. 이동한 유닛은 소진됩니다.<br>
+    · 상대 전장/유닛이 있는 곳으로 이동하면 <b>격돌</b>이 열립니다. [행동]/[반응] 카드로 응수한 뒤 패스하면 전투가 벌어집니다.<br>
+    · <b>전투</b>: 양측 전투력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 본진 귀환.<br>
+    · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동·수동 도구.<br>
+    · 자동화가 안 되는 효과는 ⚙️ 알림이 뜨며, 우클릭 수동 도구로 처리하세요.<br>
+    · 본진은 안전지대이며 유닛은 본진↔전장으로 이동합니다. [갱킹]은 전장 간 이동 가능.<br>
+    </div>
+    <div class="modal-btns"><button class="primary" onclick="closeModal()">닫기</button></div>`;
+    openModal();
+  };
+  document.getElementById('modal-overlay').onclick=(e)=>{
+    if(e.target.id==='modal-overlay' && !document.querySelector('.victory-box')) {/* 모달 밖 클릭 무시 */}
+  };
+});

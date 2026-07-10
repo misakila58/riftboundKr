@@ -1,0 +1,477 @@
+[
+ {
+  "n": 101,
+  "name": "Mushroom Pouch",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "At the start of your Beginning Phase, if you control a facedown card at a battlefield, draw 1."
+ },
+ {
+  "n": 102,
+  "name": "Portal Rescue",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Banish a friendly unit, then its owner plays it to their base, ignoring its cost."
+ },
+ {
+  "n": 103,
+  "name": "Ravenbloom Student",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Noxus"
+  ],
+  "text": "When you play a spell, give me +1 :rb_might: this turn."
+ },
+ {
+  "n": 104,
+  "name": "Retreat",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Return a friendly unit to its owner's hand. Its owner channels 1 rune exhausted."
+ },
+ {
+  "n": 105,
+  "name": "Singularity",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Deal 6 to each of up to two units."
+ },
+ {
+  "n": 106,
+  "name": "Sprite Mother",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Fae"
+  ],
+  "text": "When you play me, play a ready 3 :rb_might: Sprite unit token with [Temporary] here. (Kill it at the start of its controller's Beginning Phase, before scoring.)"
+ },
+ {
+  "n": 107,
+  "name": "Ava Achiever",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Yordle"
+  ],
+  "text": "When I attack, you may pay :rb_rune_mind: to play a card with [Hidden] from your hand, ignoring its cost. If it’s a unit, play it here."
+ },
+ {
+  "n": 108,
+  "name": "Convergent Mutation",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Choose a friendly unit. This turn, increase its Might to the Might of another friendly unit."
+ },
+ {
+  "n": 109,
+  "name": "Dr. Mundo - Expert",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Dr. Mundo",
+   "Zaun"
+  ],
+  "text": "My Might is increased by the number of cards in your trash.At the start of your Beginning Phase, recycle 3 from your trash."
+ },
+ {
+  "n": 110,
+  "name": "Ekko - Recurrent",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Ekko",
+   "Zaun"
+  ],
+  "text": "[Accelerate] (You may pay :rb_energy_1::rb_rune_mind: as an additional cost to have me enter ready.)[Deathknell] — Recycle me to ready your runes. (When I die, get the effect.)"
+ },
+ {
+  "n": 111,
+  "name": "Heimerdinger - Inventor",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Yordle",
+   "Heimerdinger",
+   "Piltover"
+  ],
+  "text": "I have all :rb_exhaust: abilities of all friendly legends, units, and gear."
+ },
+ {
+  "n": 112,
+  "name": "Kai'Sa - Evolutionary",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Kai'Sa",
+   "The Void"
+  ],
+  "text": "[Ganking] (I can move from battlefield to battlefield.)When I conquer, you may play a spell from your trash with Energy cost less than your points without paying its Energy cost. Then recycle it. (You must still pay its Power cost.)"
+ },
+ {
+  "n": 113,
+  "name": "Malzahar - Fanatic",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Malzahar",
+   "The Void"
+  ],
+  "text": "Kill a friendly unit or gear, :rb_exhaust:: [Action] — [Add] :rb_rune_rainbow::rb_rune_rainbow:. (Use on your turn or in showdowns. Abilities that add resources can't be reacted to.)"
+ },
+ {
+  "n": 114,
+  "name": "Progress Day",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Draw 4."
+ },
+ {
+  "n": 115,
+  "name": "Promising Future",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Each player looks at the top 5 cards of their Main Deck, banishes one of them, then recycles the rest. Starting with the next player, each player plays those cards, ignoring Energy costs. (They must still pay Power costs.)"
+ },
+ {
+  "n": 116,
+  "name": "Thousand-Tailed Watcher",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Ionia"
+  ],
+  "text": "[Accelerate] (You may pay :rb_energy_1::rb_rune_mind: as an additional cost to have me enter ready.)When you play me, give enemy units -3 :rb_might: this turn, to a minimum of 1 :rb_might:."
+ },
+ {
+  "n": 117,
+  "name": "Viktor - Innovator",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Viktor",
+   "Zaun"
+  ],
+  "text": "When you play a card on an opponent's turn, play a 1 :rb_might: Recruit unit token in your base."
+ },
+ {
+  "n": 118,
+  "name": "Wraith of Echoes",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Spirit",
+   "Shadow Isles"
+  ],
+  "text": "The first time a friendly unit dies each turn, draw 1."
+ },
+ {
+  "n": 119,
+  "name": "Ahri - Inquisitive",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Ahri",
+   "Ionia"
+  ],
+  "text": "When I attack or defend, give an enemy unit here -2 :rb_might: this turn, to a minimum of 1 :rb_might:."
+ },
+ {
+  "n": 120,
+  "name": "Seal of Insight",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": ":rb_exhaust:: [Reaction] — [Add] :rb_rune_mind:. (Abilities that add resources can't be reacted to.)"
+ },
+ {
+  "n": 121,
+  "name": "Teemo - Strategist",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Yordle",
+   "Teemo",
+   "Bandle City"
+  ],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)When I defend, choose an enemy unit here and reveal the top 5 cards of your Main Deck. Deal 1 to that unit for each card with [Hidden] revealed this way, then recycle the revealed cards."
+ },
+ {
+  "n": 122,
+  "name": "Time Warp",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Take a turn after this one. Banish this."
+ },
+ {
+  "n": 123,
+  "name": "Unchecked Power",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Exhaust all friendly units, then deal 12 to ALL units at battlefields."
+ },
+ {
+  "n": 124,
+  "name": "Arena Bar",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": ":rb_exhaust:: Buff an exhausted friendly unit. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 125,
+  "name": "Bilgewater Bully",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Bilgewater"
+  ],
+  "text": "While I'm buffed, I have [Ganking]. (I can move from battlefield to battlefield.)"
+ },
+ {
+  "n": 126,
+  "name": "Body Rune",
+  "type": "Rune",
+  "super": "Basic",
+  "tags": [],
+  "text": ""
+ },
+ {
+  "n": 127,
+  "name": "Cannon Barrage",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Deal 2 to all enemy units in combat."
+ },
+ {
+  "n": 128,
+  "name": "Challenge",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Choose a friendly unit and an enemy unit. They deal damage equal to their Mights to each other."
+ },
+ {
+  "n": 129,
+  "name": "Confront",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)Units you play this turn enter ready. Draw 1."
+ },
+ {
+  "n": 130,
+  "name": "Crackshot Corsair",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Pirate",
+   "Bilgewater"
+  ],
+  "text": "When I attack, deal 1 to an enemy unit here."
+ },
+ {
+  "n": 131,
+  "name": "Dune Drake",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Dragon",
+   "Shurima"
+  ],
+  "text": "When I attack, give me +2 :rb_might: this turn if there is a ready enemy unit here."
+ },
+ {
+  "n": 132,
+  "name": "First Mate",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Pirate",
+   "Bilgewater"
+  ],
+  "text": "When you play me, ready another unit."
+ },
+ {
+  "n": 133,
+  "name": "Flurry of Blades",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Deal 1 to all units at battlefields."
+ },
+ {
+  "n": 134,
+  "name": "Mobilize",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Channel 1 rune exhausted. If you can't, draw 1."
+ },
+ {
+  "n": 135,
+  "name": "Pakaa Cub",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Cat",
+   "Ixtal"
+  ],
+  "text": "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)"
+ },
+ {
+  "n": 136,
+  "name": "Pit Rookie",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Bilgewater"
+  ],
+  "text": "When you play me, buff another friendly unit. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 137,
+  "name": "Stormclaw Ursine",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Freljord"
+  ],
+  "text": "[Tank] (I must be assigned combat damage first.)When you play me, channel 1 rune exhausted."
+ },
+ {
+  "n": 138,
+  "name": "Catalyst of Aeons",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "Channel 2 runes exhausted. If you couldn't channel 2 runes this way, draw 1."
+ },
+ {
+  "n": 139,
+  "name": "Cithria of Cloudfield",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Elite",
+   "Demacia"
+  ],
+  "text": "When you play another unit, buff me. (If I don't have a buff, I get a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 140,
+  "name": "Herald of Scales",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Mount Targon"
+  ],
+  "text": "Your Dragons' Energy costs are reduced by :rb_energy_2:, to a minimum of :rb_energy_1:."
+ },
+ {
+  "n": 141,
+  "name": "Kinkou Monk",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Ionia"
+  ],
+  "text": "When you play me, buff up to two other friendly units. (Each one that doesn't have a buff gets a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 142,
+  "name": "Mountain Drake",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Dragon"
+  ],
+  "text": ""
+ },
+ {
+  "n": 143,
+  "name": "Pirate's Haven",
+  "type": "Gear",
+  "super": null,
+  "tags": [],
+  "text": "When you ready a friendly unit, give it +1 :rb_might: this turn."
+ },
+ {
+  "n": 144,
+  "name": "Spoils of War",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)If an enemy unit has died this turn, this costs :rb_energy_2: less.Draw 2."
+ },
+ {
+  "n": 145,
+  "name": "Unyielding Spirit",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Reaction] (Play any time, even before spells and abilities resolve.)Prevent all spell and ability damage this turn."
+ },
+ {
+  "n": 146,
+  "name": "Wallop",
+  "type": "Spell",
+  "super": null,
+  "tags": [],
+  "text": "[Action] (Play on your turn or in showdowns.)As you play this, you may spend a buff as an additional cost. If you do, ignore this spell's cost.Ready a unit."
+ },
+ {
+  "n": 147,
+  "name": "Wildclaw Shaman",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Freljord"
+  ],
+  "text": "When you play me, you may spend a buff to buff me and ready me. (If I don't have a buff, I get a +1 :rb_might: buff.)"
+ },
+ {
+  "n": 148,
+  "name": "Anivia - Primal",
+  "type": "Unit",
+  "super": "Champion",
+  "tags": [
+   "Bird",
+   "Anivia",
+   "Freljord"
+  ],
+  "text": "When I attack, deal 3 to all enemy units here."
+ },
+ {
+  "n": 149,
+  "name": "Carnivorous Snapvine",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Shadow Isles"
+  ],
+  "text": "When you play me, choose an enemy unit at a battlefield. We deal damage equal to our Mights to each other."
+ },
+ {
+  "n": 150,
+  "name": "Kraken Hunter",
+  "type": "Unit",
+  "super": null,
+  "tags": [
+   "Pirate",
+   "Bilgewater"
+  ],
+  "text": "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)[Assault] (+1 :rb_might: while I'm an attacker.)As you play me, you may spend any number of buffs as an additional cost. Reduce my cost by :rb_rune_body: for each buff you spend."
+ }
+]
