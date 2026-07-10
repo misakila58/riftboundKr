@@ -91,22 +91,23 @@ UI.pickOption = function(p, title, options){
     v=>v, v=>v
   ).then(idx=>idx===null?null:options[idx].v);
 };
+// 눈에 잘 띄도록 중앙 모달로 표시한다 (배치 위치 선택 등을 사용자가 놓치지 않게)
 function _pickOptionLocal(p, title, options){
   return new Promise(res=>{
-    _resolver=res;
-    const pa=document.getElementById('prompt-area');
-    pa.innerHTML=`<div class="prompt-title">👉 ${esc(pname(p))}: ${esc(title)}</div>`;
-    const btns=document.createElement('div'); btns.className='prompt-btns';
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>👉 ${esc(pname(p))}: ${esc(title)}</h3>`;
+    const btns=document.createElement('div'); btns.className='modal-btns';
     options.forEach((o,i)=>{
-      const b=document.createElement('button'); b.textContent=o.label;
-      b.onclick=()=>settle(i);
+      const b=document.createElement('button'); b.className='primary'; b.textContent=o.label;
+      b.onclick=()=>{ closeModal(); res(i); };
       btns.appendChild(b);
     });
     const cancel=document.createElement('button'); cancel.textContent='취소';
     cancel.style.opacity=.6;
-    cancel.onclick=()=>settle(null);
+    cancel.onclick=()=>{ closeModal(); res(null); };
     btns.appendChild(cancel);
-    pa.appendChild(btns);
+    box.appendChild(btns);
+    openModal();
   });
 }
 
@@ -419,6 +420,7 @@ function onHandClick(p, idx, e){
   if(G.winner) return;
   if(e.altKey) return;              // Alt+클릭은 카드 확대 전용
   e.stopPropagation();              // 메뉴를 연 클릭이 document 닫기 리스너로 버블링되는 것 방지
+  if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
   if(NET.online && p!==NET.seat) return; // 상대 손패는 비공개
   const n=G.players[p].hand[idx];
   const c=card(n);
@@ -565,7 +567,18 @@ UI.render = function(){
     const bc=card(bf.n);
     el.innerHTML='';
     const head=document.createElement('div'); head.className='bf-header';
-    if(bc.img){ const im=document.createElement('img'); im.src=bc.img; im.onmouseenter=()=>UI.inspect(bc); head.appendChild(im); }
+    if(bc.img){
+      const im=document.createElement('img'); im.src=bc.img;
+      im.onmouseenter=()=>UI.inspect(bc);
+      // 전장 카드 클릭 → 확대 (단, 이동 목적지 선택 중에는 이동 우선)
+      im.onclick=(e)=>{
+        if(_moveArmed && _moveSel.size) return;   // 버블링되어 이동 처리로 진행
+        e.stopPropagation();
+        UI.showZoom(bc);
+      };
+      im._card=bc; attachZoom(im);                 // 꾹 누르기/Alt+클릭 확대
+      head.appendChild(im);
+    }
     const info=document.createElement('div');
     info.innerHTML=`<div class="bf-name">${esc(bc.ko)}</div>
       <div class="bf-status">${bf.controller===null?'무주공산':'통제: '+esc(pname(bf.controller))}${bf.hiddenCards.length?' · 🕶숨김카드×'+bf.hiddenCards.length:''}</div>`;
