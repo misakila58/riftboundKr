@@ -392,3 +392,7 @@ button { cursor:pointer; font-family:inherit; }
 .tut-btn.primary { background:#6a4a1a; border-color:#d8c27a; color:#ffe6a0; font-weight:bold; }
 .tut-btn:hover { filter:brightness(1.2); }
 .tut-wait { color:#8a94b0; font-size:12px; flex:1; }
+
+/* 드래그 앤 드롭 이동 */
+.drop-hint { outline:3px dashed #7fe07f; outline-offset:-3px; background:rgba(30,80,45,.35) !important; }
+.card-mini[draggable="true"] { cursor:grab; }

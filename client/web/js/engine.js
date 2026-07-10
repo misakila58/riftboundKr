@@ -287,7 +287,9 @@ async function startTurn(){
   // 룬 풀 비우기
   P.energy=0; Object.keys(P.power).forEach(k=>P.power[k]=0);
 
-  G.phase='action'; G.state='neutral'; UI.render();
+  G.phase='action'; G.state='neutral';
+  G.actingPlayer=p; // 이전 턴 격돌 해결 시점의 행동 권한이 남지 않도록 턴 주인으로 초기화
+  UI.render();
   UI.prompt(`${pname(p)}의 행동 단계 — 카드 플레이 / 이동 / 능력 발동 / 턴 종료`);
 }
 

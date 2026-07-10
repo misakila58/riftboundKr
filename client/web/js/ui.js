@@ -220,7 +220,50 @@ function unitEl(u){
     ? { n:0, ko:unitName(u), name:'Token', type:'Unit', super:'Token', dom:[], tags:[], text:'', tko:'토큰은 죽으면 소멸합니다.', m:might(u), e:null, p:null, img:null }
     : card(u.n);
   attachZoom(el);
+  // 드래그 앤 드롭 이동 (준비된 아군 유닛, 내 턴 중립 상태에서만)
+  const canDrag = !G.winner && G.state==='neutral' && G.phase==='action' && !u.ex && !u.stunned
+    && u.ctrl===G.turn && !_pickableUids && (!NET.online || NET.seat===G.turn);
+  if(canDrag){
+    el.draggable=true;
+    el.ondragstart=(ev)=>{
+      clearTimeout(_lpTimer);            // 롱프레스 확대와 충돌 방지
+      hideMenu();
+      _dragUid=u.uid;
+      try{ ev.dataTransfer.setData('text/plain', String(u.uid)); ev.dataTransfer.effectAllowed='move'; }catch(e){}
+    };
+    el.ondragend=()=>{ _dragUid=null; clearDropHints(); };
+  }
   return el;
+}
+
+// ---------- 드래그 앤 드롭 이동 ----------
+let _dragUid=null;
+function clearDropHints(){ document.querySelectorAll('.drop-hint').forEach(e=>e.classList.remove('drop-hint')); }
+function attachDropZone(el, dest){
+  el.ondragover=(ev)=>{ if(_dragUid!=null){ ev.preventDefault(); ev.dataTransfer.dropEffect='move'; el.classList.add('drop-hint'); } };
+  el.ondragleave=()=>el.classList.remove('drop-hint');
+  el.ondrop=(ev)=>{
+    ev.preventDefault(); el.classList.remove('drop-hint');
+    const uid=_dragUid ?? Number(ev.dataTransfer.getData('text/plain'));
+    _dragUid=null; clearDropHints();
+    if(uid==null||isNaN(uid)) return;
+    dropMove(uid, dest);
+  };
+}
+function dropMove(uid, dest){
+  const u=everyUnit().find(x=>x.uid===uid);
+  if(!u) return;
+  const p=u.ctrl;
+  if(NET.online && p!==NET.seat) return;
+  if(G.state!=='neutral' || G.turn!==p){ UI.toast('지금은 이동할 수 없습니다','warn'); return; }
+  // 드래그한 유닛이 다중 선택에 포함돼 있으면 선택된 유닛 전부 함께 이동
+  let units=[u];
+  if(_moveSel.size && _moveSel.has(uid)){
+    units=everyUnit().filter(x=>_moveSel.has(x.uid));
+  }
+  const uids=units.map(x=>x.uid);
+  _moveArmed=false; _moveSel.clear(); updateButtons();
+  NET.dispatch({k:'move',p,uids,dest}, ()=>moveUnits(p,units,dest).then(()=>UI.render()));
 }
 function combatRoleOf(u){
   if(!G.showdown || u.loc!==G.showdown.bfIdx) return null;
@@ -536,6 +579,7 @@ UI.render = function(){
     // 본진
     const bz=document.getElementById('base-'+p);
     bz.innerHTML='<div class="zone-label">본진</div>';
+    attachDropZone(bz, 'base'); // 드래그 이동: 자기 본진으로 귀환 (moveUnits가 소유자 검증)
     Pl.base.forEach(u=>bz.appendChild(unitEl(u)));
     // 장비 (본진에 표시)
     Pl.gear.forEach(g=>{
@@ -595,6 +639,7 @@ UI.render = function(){
       uwrap.appendChild(row);
     }
     el.appendChild(uwrap);
+    attachDropZone(el, i); // 드래그 이동: 이 전장으로
     // 클릭: 이동 목적지 / 숨김 카드 플레이
     el.onclick=(e)=>{
       if(e.target.closest('.card-mini')) return;
@@ -742,7 +787,8 @@ window.addEventListener('DOMContentLoaded', ()=>{
     · <b>승리</b>: 8점 선취. 전장 <b>정복</b>(빼앗기) 1점, 자기 시작 단계까지 <b>점유</b> 유지 1점.<br>
     · 마지막 1점은 점유로만, 또는 그 턴에 모든 전장을 득점한 경우의 정복으로만 얻습니다.<br>
     · <b>비용</b>: 에너지는 룬 소진, 파워는 룬 재충전(룬 덱으로 반환)으로 자동 지불됩니다.<br>
-    · <b>이동</b>: [이동] 버튼 → 유닛들 클릭 → 목적지 클릭. 이동한 유닛은 소진됩니다.<br>
+    · <b>이동</b>: 유닛을 <b>드래그해서 전장/본진에 놓기</b>, 또는 [이동] 버튼 → 유닛들 클릭 → 목적지 클릭. 이동한 유닛은 소진됩니다.<br>
+    · 여러 유닛을 함께 보내려면 [이동] 버튼으로 유닛들을 선택한 뒤 그중 하나를 드래그하세요.<br>
     · 상대 전장/유닛이 있는 곳으로 이동하면 <b>격돌</b>이 열립니다. [행동]/[반응] 카드로 응수한 뒤 패스하면 전투가 벌어집니다.<br>
     · <b>전투</b>: 양측 전투력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 본진 귀환.<br>
     · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동·수동 도구.<br>
