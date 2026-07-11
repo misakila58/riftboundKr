@@ -17,9 +17,16 @@
   "build": {
     "appId": "com.fan.riftboundsim",
     "productName": "RiftboundSim",
-    "files": ["main.js", "preload.js", "web/**/*"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "web/**/*"
+    ],
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "artifactName": "RiftboundSim-${version}-${arch}.${ext}"
     },
     "nsis": {
@@ -30,6 +37,11 @@
     "portable": {
       "artifactName": "RiftboundSim-${version}-portable.exe"
     },
-    "directories": { "output": "dist" }
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "allowScripts": {
+    "electron@31.7.7": true
   }
 }
