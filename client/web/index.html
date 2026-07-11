@@ -219,14 +219,6 @@
 
 <!-- ══════════ 게임 화면 ══════════ -->
 <div id="game-screen" style="display:none">
-  <div id="topbar">
-    <div id="turn-info"></div>
-    <div id="phase-info"></div>
-    <div id="net-info"></div>
-    <div id="score-info"></div>
-    <button id="btn-help" title="도움말">❓</button>
-  </div>
-
   <div id="board">
     <!-- 상대(위) -->
     <div class="player-area top" id="parea-1">
@@ -242,6 +234,7 @@
       </div>
       <div class="base-zone" id="base-1"><div class="zone-label">본진</div></div>
       <div class="hand-zone opp" id="hand-1"></div>
+      <div class="count-display" id="counts-1"></div>
     </div>
 
     <!-- 전장 (중앙) -->
@@ -256,6 +249,7 @@
 
     <!-- 나(아래) -->
     <div class="player-area bottom" id="parea-0">
+      <div class="count-display" id="counts-0"></div>
       <div class="hand-zone" id="hand-0"></div>
       <div class="base-zone" id="base-0"><div class="zone-label">본진</div></div>
       <div class="side-zone">
@@ -271,16 +265,26 @@
     </div>
   </div>
 
+  <div id="inspector"><div class="insp-placeholder">카드에 마우스를 올리면<br>한글 정보가 표시됩니다</div></div>
+
   <div id="sidebar">
-    <div id="inspector"><div class="insp-placeholder">카드에 마우스를 올리면<br>한글 정보가 표시됩니다</div></div>
+    <div id="turn-panel">
+      <div id="turn-info"></div>
+      <div id="phase-info"></div>
+      <div id="score-info"></div>
+      <div id="net-info"></div>
+      <button id="btn-help" title="도움말">❓</button>
+    </div>
     <div id="prompt-area"></div>
+    <div id="log"></div>
     <div id="action-buttons">
       <button id="btn-move" class="act-btn">🚶 이동</button>
       <button id="btn-endturn" class="act-btn primary">턴 종료</button>
       <button id="btn-pass" class="act-btn" style="display:none">패스</button>
     </div>
-    <div id="log"></div>
   </div>
+
+  <div id="phase-banner"></div>
 </div>
 
 <!-- 모달/선택 오버레이 -->

@@ -496,6 +496,31 @@ function onHandClick(p, idx, e){
 }
 
 // ---------- 렌더링 ----------
+// 페이즈 시작 배너 (표시 전용 — 게임 상태에 영향 없음)
+let _phaseKey=null;
+const PHASE_FX={
+  awaken:   ['🌅','각성 단계'],
+  beginning:['☀️','시작 단계'],
+  channel:  ['🔋','충전 단계'],
+  draw:     ['🃏','드로우 단계'],
+  action:   ['⚔️','행동 단계'],
+};
+function announcePhase(){
+  const key=G.turn+'-'+G.phase;
+  if(key===_phaseKey) return;
+  _phaseKey=key;
+  const fx=PHASE_FX[G.phase];
+  if(!fx || G.winner) return;
+  const b=document.getElementById('phase-banner');
+  b.innerHTML=`<div class="pb-inner" data-phase="${G.phase}">
+    <span class="pb-icon">${fx[0]}</span>
+    <span class="pb-text">${fx[1]}</span>
+    <span class="pb-sub">${esc(pname(G.turn))}의 턴</span>
+  </div>`;
+  b.classList.remove('show'); void b.offsetWidth; // 애니메이션 재시작
+  b.classList.add('show');
+}
+
 UI.render = function(){
   if(!G) return;
   // 튜토리얼: 상태가 변할 때마다 진행 체크 (백그라운드 인터벌 스로틀 대비)
@@ -505,6 +530,7 @@ UI.render = function(){
   const phaseKo={setup:'준비',awaken:'각성',beginning:'시작',channel:'충전',draw:'드로우',action:'행동'}[G.phase]||G.phase;
   document.getElementById('phase-info').textContent=
     `${phaseKo} 단계` + (G.state==='showdown'?' · ⚔️격돌 중':'');
+  announcePhase();
   document.getElementById('score-info').innerHTML=
     `<span style="color:#9fc8ff">${esc(pname(0))} ${G.players[0].points}점</span> : <span style="color:#ffc89f">${esc(pname(1))} ${G.players[1].points}점</span> (선취 ${G.victory}점)`;
 
@@ -576,6 +602,7 @@ UI.render = function(){
     document.querySelector('#deck-'+p+' .pile-count').textContent=Pl.deck.length;
     document.querySelector('#runedeck-'+p+' .pile-count').textContent=Pl.runeDeck.length;
     document.querySelector('#trash-'+p+' .pile-count').textContent=Pl.trash.length;
+    document.getElementById('counts-'+p).innerHTML=`덱: ${Pl.deck.length}<br>손패: ${Pl.hand.length}`;
     // 본진
     const bz=document.getElementById('base-'+p);
     bz.innerHTML='<div class="zone-label">본진</div>';
