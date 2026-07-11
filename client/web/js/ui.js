@@ -19,8 +19,8 @@ UI.toast = function(msg, cls){
   setTimeout(()=>d.remove(), 2600);
 };
 UI.manualNotice = function(c){
-  UI.toast(`⚙️ 「${c.ko}」 효과 일부는 수동 처리가 필요합니다 (우클릭 메뉴 활용)`, 'warn');
-  UI.log(`⚙️ 수동 처리 필요: ${c.ko} — ${c.tko||c.text}`, 'sys');
+  UI.toast(`⚙️ 「${c.ko}」 효과 일부는 자동 처리되지 않습니다`, 'warn');
+  UI.log(`⚙️ 자동 처리 안 됨: ${c.ko} — ${c.tko||c.text}`, 'sys');
 };
 
 // ---------- 프롬프트 ----------
@@ -419,30 +419,14 @@ function showUnitMenu(u, e){
     menu.appendChild(item);
   });
   if(fx.manual&&fx.manual.length){
-    const mi=document.createElement('div'); mi.className='ctx-item'; mi.textContent='📖 효과 텍스트 보기(수동 처리)';
-    mi.onclick=()=>{ hideMenu(); UI.inspectUnit(u); UI.toast('사이드바에서 효과를 확인하고 수동 도구로 처리하세요'); };
+    const mi=document.createElement('div'); mi.className='ctx-item'; mi.textContent='📖 효과 텍스트 보기';
+    mi.onclick=()=>{ hideMenu(); UI.inspectUnit(u); };
     menu.appendChild(mi);
   }
-  const sep=document.createElement('div'); sep.className='ctx-sep'; menu.appendChild(sep);
-  const uref={uid:u.uid};
-  const tools=[
-    ['💥 피해 1', 'damage', [uref,1]],
-    ['💚 치유(피해 제거)', 'heal', [uref]],
-    ['🔼 버프 +1', 'buff', [uref]],
-    ['⚔ 전투력 +1 (턴)', 'might', [uref,1]],
-    ['⚔ 전투력 -1 (턴)', 'might', [uref,-1]],
-    ['💫 스턴 토글', 'stun', [uref]],
-    ['⟳ 소진/준비 토글', 'toggleEx', [uref]],
-    ['🖐 손패로 되돌림', 'bounce', [uref]],
-    ['💀 처치', 'kill', [uref]],
-  ];
-  tools.forEach(([label,tool,args])=>{
-    const item=document.createElement('div'); item.className='ctx-item'; item.textContent=label;
-    item.onclick=()=>{ hideMenu();
-      NET.dispatch({k:'manual',tool,args},
-        ()=>ManualTools[tool](...args.map(x=>x&&x.uid!==undefined?u:x))); };
-    menu.appendChild(item);
-  });
+  if(!menu.querySelector('.ctx-item')){
+    const none=document.createElement('div'); none.className='ctx-title'; none.textContent='(사용할 수 있는 능력 없음)';
+    menu.appendChild(none);
+  }
   menu.style.display='block';
   menu.style.left=Math.min(e.clientX, innerWidth-190)+'px';
   menu.style.top=Math.min(e.clientY, innerHeight-menu.offsetHeight-10)+'px';
@@ -726,12 +710,6 @@ function showLegendMenu(p, e){
     const none=document.createElement('div'); none.className='ctx-title'; none.textContent='(상시/트리거 효과 — 자동 처리)';
     menu.appendChild(none);
   }
-  const sep=document.createElement('div'); sep.className='ctx-sep'; menu.appendChild(sep);
-  if(!NET.online || p===NET.seat){
-    const tgl=document.createElement('div'); tgl.className='ctx-item'; tgl.textContent='⟳ 소진/준비 토글(수동)';
-    tgl.onclick=()=>{ hideMenu(); NET.dispatch({k:'manual',tool:'legendToggle',args:[p]}, ()=>{ Pl.legendEx=!Pl.legendEx; UI.render(); }); };
-    menu.appendChild(tgl);
-  }
   menu.style.display='block';
   menu.style.left=Math.min(e.clientX,innerWidth-190)+'px';
   menu.style.top=Math.min(e.clientY,innerHeight-180)+'px';
@@ -763,11 +741,6 @@ function showGearMenu(p, g, e){
       NET.dispatch({k:'equip',p,gearIdx}, ()=>equipGear(p,gearIdx)); };
     menu.appendChild(item);
   }
-  const sep=document.createElement('div'); sep.className='ctx-sep'; menu.appendChild(sep);
-  const del=document.createElement('div'); del.className='ctx-item'; del.textContent='💀 파기(수동)';
-  del.onclick=()=>{ hideMenu(); NET.dispatch({k:'manual',tool:'trashGear',args:[p,gearIdx]},
-    ()=>ManualTools.trashGear(p,gearIdx)); };
-  menu.appendChild(del);
   menu.style.display='block';
   menu.style.left=Math.min(e.clientX,innerWidth-190)+'px';
   menu.style.top=Math.min(e.clientY,innerHeight-180)+'px';
@@ -819,9 +792,9 @@ window.addEventListener('DOMContentLoaded', ()=>{
     · 여러 유닛을 함께 보내려면 [이동] 버튼으로 유닛들을 선택한 뒤 그중 하나를 드래그하세요.<br>
     · 상대 전장/유닛이 있는 곳으로 이동하면 <b>격돌</b>이 열립니다. [행동]/[반응] 카드로 응수한 뒤 패스하면 전투가 벌어집니다.<br>
     · <b>전투</b>: 양측 전투력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 본진 귀환.<br>
-    · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동·수동 도구.<br>
+    · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동.<br>
     · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 클릭/Esc).<br>
-    · 자동화가 안 되는 효과는 ⚙️ 알림이 뜨며, 우클릭 수동 도구로 처리하세요.<br>
+    · 자동화가 안 되는 효과는 ⚙️ 알림이 뜹니다.<br>
     · 본진은 안전지대이며 유닛은 본진↔전장으로 이동합니다. [갱킹]은 전장 간 이동 가능.<br>
     </div>
     <div class="modal-btns"><button class="primary" onclick="closeModal()">닫기</button></div>`;
