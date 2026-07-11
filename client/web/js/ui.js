@@ -83,6 +83,7 @@ function _pickUnitLocal(p, candidates, promptText, optional){
   });
 };
 let _pickableUids = null;
+UI.isPicking = ()=>!!_resolver; // 봇 등 외부에서 선택 대기 여부 확인용
 
 // 옵션 선택 (인덱스 기반 동기화)
 UI.pickOption = function(p, title, options){
