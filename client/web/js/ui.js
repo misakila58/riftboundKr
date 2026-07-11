@@ -47,7 +47,7 @@ function clearPicking(){
   const pa=document.getElementById('prompt-area');
   pa.innerHTML = G && G.state==='showdown'
     ? `<div class="prompt-title">${esc(pname(G.actingPlayer))}: [행동]/[반응] 사용 또는 패스</div>`
-    : (G && !G.winner ? `<div class="prompt-title">${esc(pname(G.turn))}의 행동 단계</div>` : '');
+    : (G && G.winner===null ? `<div class="prompt-title">${esc(pname(G.turn))}의 행동 단계</div>` : '');
 }
 
 // ── 온라인 라우팅 래퍼 ──
@@ -174,6 +174,40 @@ function _pickHandLocal(p, title){
 function openModal(){ document.getElementById('modal-overlay').style.display='flex'; }
 function closeModal(){ document.getElementById('modal-overlay').style.display='none'; }
 
+// 멀리건: 교체할 카드 다중 선택 (게임 시작 시)
+UI.pickMulligan = function(p){
+  return routedPick(p, ()=>_pickMulliganLocal(p), v=>v, v=>v);
+};
+function _pickMulliganLocal(p){
+  return new Promise(res=>{
+    const P=G.players[p];
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>🔄 ${esc(pname(p))}: 멀리건</h3>
+      <div style="font-size:13px;color:#9aa4bd;margin-bottom:10px">
+      교체할 카드를 <b>최대 2장</b> 선택하세요. 그 수만큼 새로 뽑은 뒤, 선택한 카드는 덱 맨 아래로 갑니다. (1회)</div>`;
+    const wrap=document.createElement('div'); wrap.className='modal-cards';
+    const sel=new Set();
+    P.hand.forEach((n,i)=>{
+      const el=cardMiniEl(card(n));
+      el.onclick=()=>{
+        if(sel.has(i)){ sel.delete(i); el.classList.remove('selected'); }
+        else if(sel.size<2){ sel.add(i); el.classList.add('selected'); }
+        else UI.toast('최대 2장까지 선택할 수 있습니다','warn');
+      };
+      wrap.appendChild(el);
+    });
+    box.appendChild(wrap);
+    const btns=document.createElement('div'); btns.className='modal-btns';
+    const ok=document.createElement('button'); ok.className='primary'; ok.textContent='선택한 카드 교체';
+    ok.onclick=()=>{ closeModal(); res([...sel]); };
+    const keep=document.createElement('button'); keep.textContent='그대로 시작';
+    keep.onclick=()=>{ closeModal(); res([]); };
+    btns.appendChild(ok); btns.appendChild(keep);
+    box.appendChild(btns);
+    openModal();
+  });
+}
+
 // ---------- 카드 미니 요소 ----------
 function cardMiniEl(c, opts={}){
   const el=document.createElement('div');
@@ -222,7 +256,7 @@ function unitEl(u){
     : card(u.n);
   attachZoom(el);
   // 드래그 앤 드롭 이동 (준비된 아군 유닛, 내 턴 중립 상태에서만)
-  const canDrag = !G.winner && G.state==='neutral' && G.phase==='action' && !u.ex && !u.stunned
+  const canDrag = G.winner===null && G.state==='neutral' && G.phase==='action' && !u.ex && !u.stunned
     && u.ctrl===G.turn && !_pickableUids && (!NET.online || NET.seat===G.turn);
   if(canDrag){
     el.draggable=true;
@@ -418,6 +452,26 @@ function showUnitMenu(u, e){
         ()=>activateAbility(u.ctrl,{kind:'unit',u},ab)); };
     menu.appendChild(item);
   });
+  // 하이머딩거: 모든 아군 전설/유닛/장비의 소진 능력 사용 가능
+  if(fx.copyAllExhaust && (!NET.online || u.ctrl===NET.seat)){
+    const seen=new Set();
+    const addCopied=(srcFx, srcName)=>{
+      (srcFx.activated||[]).forEach(ab=>{
+        if(!ab.cost || !ab.cost.exhaustSelf) return;
+        const key=srcName+':'+ab.label; if(seen.has(key)) return; seen.add(key);
+        const item=document.createElement('div'); item.className='ctx-item';
+        item.textContent='🔧 '+srcName+': '+ab.label;
+        item.onclick=()=>{ hideMenu();
+          NET.dispatch({k:'ability',p:u.ctrl,src:{kind:'unit',uid:u.uid},copy:{srcName,label:ab.label}},
+            ()=>activateAbility(u.ctrl,{kind:'unit',u},ab)); };
+        menu.appendChild(item);
+      });
+    };
+    const P=G.players[u.ctrl];
+    addCopied(FX[P.legendN]||{}, card(P.legendN).ko);
+    everyUnit().filter(x=>x.ctrl===u.ctrl&&x!==u&&!x.isToken).forEach(x=>addCopied(unitFx(x), unitName(x)));
+    P.gear.forEach(g=>addCopied(FX[g.n]||{}, card(g.n).ko));
+  }
   if(fx.manual&&fx.manual.length){
     const mi=document.createElement('div'); mi.className='ctx-item'; mi.textContent='📖 효과 텍스트 보기';
     mi.onclick=()=>{ hideMenu(); UI.inspectUnit(u); };
@@ -445,7 +499,7 @@ function canInitiate(p){
 }
 
 function onHandClick(p, idx, e){
-  if(G.winner) return;
+  if(G.winner!==null) return;
   if(e.altKey) return;              // Alt+클릭은 카드 확대 전용
   e.stopPropagation();              // 메뉴를 연 클릭이 document 닫기 리스너로 버블링되는 것 방지
   if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
@@ -495,7 +549,7 @@ function announcePhase(){
   if(key===_phaseKey) return;
   _phaseKey=key;
   const fx=PHASE_FX[G.phase];
-  if(!fx || G.winner) return;
+  if(!fx || G.winner!==null) return;
   const b=document.getElementById('phase-banner');
   b.innerHTML=`<div class="pb-inner" data-phase="${G.phase}">
     <span class="pb-icon">${fx[0]}</span>
@@ -551,7 +605,7 @@ UI.render = function(){
       const cc=card(Pl.champN);
       const cel=cardMiniEl(cc);
       cel.onclick=(e)=>{
-        if(G.winner) return;
+        if(G.winner!==null) return;
         if(e.altKey) return;
         e.stopPropagation();
         if(NET.online && p!==NET.seat) return;
@@ -689,7 +743,7 @@ async function executeMove(dest){
 
 // ---------- 전설 메뉴 ----------
 function showLegendMenu(p, e){
-  if(G.winner) return;
+  if(G.winner!==null) return;
   if(e && e.stopPropagation) e.stopPropagation();
   const Pl=G.players[p];
   const fx=FX[Pl.legendN]||{activated:[]};
@@ -761,7 +815,7 @@ UI.showVictory = function(p){
 // ---------- 버튼 바인딩 ----------
 window.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('btn-endturn').onclick=()=>{
-    if(G.state==='showdown'||G.winner) return;
+    if(G.state==='showdown'||G.winner!==null) return;
     if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
     if(NET.online && G.turn!==NET.seat){ UI.toast('자신의 턴이 아닙니다','warn'); return; }
     NET.dispatch({k:'endTurn'}, ()=>endTurn());

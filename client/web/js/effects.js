@@ -40,6 +40,9 @@ function parseTargetSpec(s){
   if(/exhausted/.test(s)) spec.exhausted=true;
   const m = s.match(/with (\d+) or less :rb_might:/); if(m) spec.mightMax=+m[1];
   const m2 = s.match(/with (\d+) or more :rb_might:/); if(m2) spec.mightMin=+m2[1];
+  if(/damaged/.test(s)) spec.damaged=true;
+  if(/stunned/.test(s)) spec.stunned=true;
+  if(/\banother\b/.test(s)) spec.other=true;
   if(/each|all/.test(s)) spec.count='all';
   if(/up to two|up to 2/.test(s)) spec.count=2, spec.optional=true;
   if(/you may/.test(s)) spec.optional=true;
@@ -149,12 +152,24 @@ function parseOp(s){
     return { op:'addEnergy', n:+m[1] };
   if(/^\[?Add\]? :rb_rune_rainbow:/.test(s))
     return { op:'addPower', dom:'Any', n:(s.match(/:rb_rune_rainbow:/g)||[]).length };
+  if((m = s.match(/^\[?Add\]? :rb_rune_(fury|calm|mind|body|order|chaos):$/i)))
+    return { op:'addPower', dom:m[1][0].toUpperCase()+m[1].slice(1).toLowerCase(), n:1 };
+
+  // 분할 피해 ('to' 없는 형태)
+  if((m = s.match(/^[Dd]eal (\d+) damage split among any number of enemy units( here)?$/)))
+    return { op:'dealSplit', n:+m[1], spec:{side:'enemy', where:m[2]?'here':'any'} };
+  // 전장 아군 유닛 → 본진
+  if(/^[Mm]ove a friendly unit at a battlefield to its base$/.test(s))
+    return { op:'moveSpec', spec:{side:'friendly',where:'bf'}, to:'base' };
+  // 추가 턴 / 자기 추방
+  if(/^[Tt]ake a turn after this one$/.test(s)) return { op:'extraTurn' };
+  if(/^[Bb]anish this$/.test(s)) return { op:'banishSelf' };
 
   // 토큰 생성
-  if((m = s.match(/^(?:You may )?[Pp]lay (a|one|two|three|\d+)? ?(\d+) :rb_might: ([\w' ]+?) unit tokens?( here| at a battlefield| to your base| in your base)?/))){
-    let where = m[4]?m[4].trim():'base';
-    if(where==='to your base'||where==='in your base') where='base';
-    return { op:'token', count:numOf(m[1]), might:+m[2], name:m[3].trim(), where };
+  if((m = s.match(/^(?:You may )?[Pp]lay (a|one|two|three|\d+)? ?(ready )?(\d+) :rb_might: ([\w' ]+?) unit tokens?( with \[Temporary\])?( here| at a battlefield| to your base| in your base| at your base| into your base)?/))){
+    let where = m[6]?m[6].trim():'base';
+    if(/base/.test(where)) where='base';
+    return { op:'token', count:numOf(m[1]), might:+m[3], name:m[4].trim(), where, ready:!!m[2], temp:!!m[5] };
   }
   // 범용 "You may X" (선택 실행)
   if((m = s.match(/^[Yy]ou may (.+)$/))){
@@ -221,20 +236,38 @@ const TRIGGER_PATTERNS = [
   { re:/^When I attack,\s*/i, ev:'onAttack' },
   { re:/^When I('m| am) killed,\s*/i, ev:'onDeath' },
   { re:/^At (?:the )?start of your Beginning Phase,\s*/i, ev:'onBeginning' },
+  { re:/^When you play a spell,\s*/i, ev:'onYouPlaySpell' },
+  { re:/^When you play a gear,\s*/i, ev:'onYouPlayGear' },
+  { re:/^When I move to a battlefield,\s*/i, ev:'onMoveSelf' },
+  { re:/^When I move,\s*/i, ev:'onMoveSelf' },
+  { re:/^When I attack or defend,\s*/i, ev:'onAttackOrDefend' },
+  { re:/^When I defend,\s*/i, ev:'onDefend' },
+  { re:/^At the end of your turn,\s*/i, ev:'onEndTurn' },
+  { re:/^When you discard one or more cards,\s*/i, ev:'onYouDiscard' },
+  { re:/^When you ready a friendly unit,\s*/i, ev:'onYouReadyUnit' },
 ];
 
 // 발동형 능력 비용 파싱: "COST: EFFECT"
 function parseActivatedCost(costStr){
-  const cost = { energy:0, power:0, exhaustSelf:false, recycleTrash:0, discard:0, spendBuff:false, raw:costStr };
+  const cost = { energy:0, power:0, pips:[], exhaustSelf:false, recycleTrash:0, discard:0, spendBuff:false, raw:costStr };
   let ok = true;
-  costStr.split(',').map(x=>x.trim()).forEach(part=>{
+  costStr.split(',').map(x=>x.trim()).filter(Boolean).forEach(part=>{
     let m;
-    if((m=part.match(/^:rb_energy_(\d+):$/))) cost.energy+=+m[1];
-    else if(part===':rb_exhaust:') cost.exhaustSelf=true;
-    else if(part===':rb_rune_rainbow:') cost.power+=1;
+    if(/^(:rb_[a-z_0-9]+:)+$/.test(part)){
+      // 아이콘 토큰 연속 (":rb_energy_1::rb_rune_order:" 등)
+      for(const t of part.match(/:rb_[a-z_0-9]+:/g)||[]){
+        if((m=t.match(/^:rb_energy_(\d+):$/))) cost.energy+=+m[1];
+        else if(t===':rb_exhaust:') cost.exhaustSelf=true;
+        else if(t===':rb_rune_rainbow:') cost.pips.push('Any');
+        else if((m=t.match(/^:rb_rune_(fury|calm|mind|body|order|chaos):$/))) cost.pips.push(m[1][0].toUpperCase()+m[1].slice(1));
+        else ok=false;
+      }
+    }
     else if((m=part.match(/^Recycle (\d+) from your trash$/i))) cost.recycleTrash=+m[1];
     else if((m=part.match(/^Discard (\d+)$/i))) cost.discard=+m[1];
-    else if(/^Spend a buff$/i.test(part)) cost.spendBuff=true;
+    else if(/^Spend (a|my) buff$/i.test(part)) cost.spendBuff=true;
+    else if(/^Kill a friendly unit or gear$/i.test(part)) cost.killFriendlyOrGear=true;
+    else if(/^Kill this$/i.test(part)) cost.killSelfGear=true;
     else ok=false;
   });
   return ok?cost:null;
@@ -304,16 +337,23 @@ function compileCard(c){
     // 발동형 능력 "cost: effect"
     const ci = body.indexOf(':');
     // ':'가 아이콘 토큰 내부가 아닌 실제 구분자인지: 비용 파싱 시도
-    if(ci>0){
+    if(ci>=0){
       const costCand = findActivatedSplit(body);
       if(costCand){
-        const ops = parseOpsSeq(costCand.effect.replace(/^\[(Action|Reaction)\]\s*—?\s*/,''));
+        let eff=costCand.effect, leg2=legion;
+        const reaction=/^\[Reaction\]/.test(eff), action=/^\[Action\]/.test(eff);
+        eff=eff.replace(/^\[(Action|Reaction)\]\s*—?\s*/,'');
+        const lm=eff.match(/^\[Legion\]\s*—\s*/); if(lm){ leg2=true; eff=eff.slice(lm[0].length); }
+        const ops = parseOpsSeq(eff);
         if(ops){
-          fx.activated.push({ cost:costCand.cost, ops, legion, label:costCand.effect.slice(0,40) });
+          fx.activated.push({ cost:costCand.cost, ops, legion:leg2, reaction, action, label:eff.slice(0,40) });
           continue;
         }
       }
     }
+
+    // 상시효과·플레이 규칙 등 기타 절
+    if(parseMiscClause(body, c, fx, legion)) continue;
 
     // 주문 본문 등 일반 문장
     if(c.type==='Spell' || c.type==='Gear' || c.type==='Battlefield' || c.type==='Legend'){
@@ -333,6 +373,43 @@ function compileCard(c){
 }
 
 function pushTrig(fx, ev, t){ (fx.triggers[ev]=fx.triggers[ev]||[]).push(t); }
+
+// ---------- 상시효과·플레이 규칙 절 파싱 ----------
+// 반환: true = 처리됨 (manual로 보내지 않음)
+function parseMiscClause(s, c, fx, legion){
+  s = s.trim().replace(/\.$/,'');
+  let m;
+  if(legion && (m=s.match(/^I cost :rb_energy_(\d+): less$/))){ fx.selfCost={...(fx.selfCost||{}),legion:+m[1]}; return true; }
+  const st = ()=> (fx.statics=fx.statics||[]);
+  if(/^You may play me to an open battlefield$/.test(s)){ fx.playToOpenBf=true; return true; }
+  if(/^You may play me to an occupied enemy battlefield$/.test(s)){ fx.playToEnemyBf=true; return true; }
+  if(/^Friendly units may be played to open battlefields$/.test(s)){ fx.openBfAura=true; return true; }
+  if(/^This enters exhausted$/.test(s)){ fx.entersExhausted=true; return true; }
+  if(/^I enter ready$/.test(s)){ fx.entersReady=true; return true; }
+  if(/^If an opponent controls a battlefield, I enter ready$/.test(s)){ fx.entersReady='oppBf'; return true; }
+  if(/^I can have any number of buffs$/.test(s)) return true; // 버프 개수 제한 없음(기본 동작)
+  if(/^I must be assigned combat damage last$/.test(s)){ fx.combatLast=true; return true; }
+  if(/^Your opponents' \[Hidden\] cards can't be revealed here$/.test(s)){ fx.blockReveal=true; return true; }
+  if(/^Your \[Deathknell\] effects trigger an additional time$/.test(s)){ fx.deathknellTwice=true; return true; }
+  if(/^Use this ability only while I'm at a battlefield$/.test(s)){
+    if(fx.activated.length) fx.activated[fx.activated.length-1].onlyAtBf=true; return true; }
+  if(/^Other friendly units enter ready$/.test(s)){ st().push({kind:'enterReadyAura'}); return true; }
+  if((m=s.match(/^Other friendly units( here)? have \[(\w[\w-]*)( \d+)?\]$/))){
+    st().push({kind:'kwAura',kws:[m[2].toLowerCase().replace('-','')],
+      filter:{side:'friendly',other:true,...(m[1]?{where:'here',srcAtBf:true}:{})}}); return true; }
+  if((m=s.match(/^Other friendly units have \+(\d+) :rb_might: here$/))){
+    st().push({kind:'mightAura',n:+m[1],filter:{side:'friendly',other:true,where:'here',srcAtBf:true}}); return true; }
+  if((m=s.match(/^While I'm buffed, I have an additional \+(\d+) :rb_might:$/))){
+    st().push({kind:'selfMight',fn:u=>u.buff>0?+m[1]:0}); return true; }
+  if((m=s.match(/^While I'm buffed, I have \[(\w+)\]$/))){
+    const kw=m[1].toLowerCase().replace('-','');
+    st().push({kind:'selfKw',kws:[kw],cond:u=>u.buff>0}); return true; }
+  if((m=s.match(/^\[Legion\] — I cost :rb_energy_(\d+): less$/))){ fx.selfCost={...(fx.selfCost||{}),legion:+m[1]}; return true; }
+  if((m=s.match(/^I cost :rb_energy_(\d+): less for each card in your trash$/))){ fx.selfCost={...(fx.selfCost||{}),perTrash:+m[1]}; return true; }
+  if(/^This spell's Energy cost is reduced by the highest Might among units you control$/.test(s)){
+    fx.selfCost={...(fx.selfCost||{}),highestMight:true}; return true; }
+  return false;
+}
 
 // "cost: effect" 분리 — 아이콘 ':' 와 혼동 방지 위해 후보 위치 전부 시도
 function findActivatedSplit(s){

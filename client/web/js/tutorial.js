@@ -264,7 +264,7 @@ TUT.observe=function(){
 
 // ---------- 봇 자동화 ----------
 TUT.botAuto=function(){
-  if(!G||G.winner) return;
+  if(!G||G.winner!==null) return;
   // 격돌 중 봇의 응답 차례면 자동 패스
   if(G.state==='showdown' && G.actingPlayer===1 && !TUT._passing){
     TUT._passing=true;
@@ -309,7 +309,7 @@ TUT.runBotTurn=async function(){
     // 이후 턴: 아무것도 안 함 (허수아비)
   }catch(e){ console.warn('bot error',e); }
   await sleep(900);
-  try{ if(G.turn===1 && !G.winner) await endTurn(); }catch(e){}
+  try{ if(G.turn===1 && G.winner===null) await endTurn(); }catch(e){}
 };
 
 // ---------- 패널 렌더링 ----------

@@ -42,6 +42,15 @@ UI.pickNumber = function(p, text, min, max){
   if(botIs(p)) return botDelay(max);
   return _bot_pickNumber.apply(UI, arguments);
 };
+const _bot_mull = UI.pickMulligan;
+UI.pickMulligan = function(p){
+  if(botIs(p)){
+    // 봇: 비용 5 이상 카드를 최대 2장 교체
+    const h=G.players[p].hand;
+    return botDelay(h.map((n,i)=>i).filter(i=>(card(h[i]).e||0)>=5).slice(0,2));
+  }
+  return _bot_mull.apply(UI, arguments);
+};
 const _bot_pickHand = UI.pickHandCard;
 UI.pickHandCard = function(p, title){
   if(botIs(p)){
@@ -53,7 +62,7 @@ UI.pickHandCard = function(p, title){
 
 // ── 턴 드라이버 (900ms마다 한 가지 행동) ──
 setInterval(()=>{
-  if(!BOT.active || !G || G.winner || NET.online || BOT.busy) return;
+  if(!BOT.active || !G || G.winner!==null || NET.online || BOT.busy) return;
   if(UI.isPicking && UI.isPicking()) return;                       // 사람이 선택 중
   if(document.getElementById('modal-overlay').style.display!=='none') return;
   if(BOT.lastTC!==G.turnCount){ BOT.lastTC=G.turnCount; BOT.tried.clear(); }
@@ -191,7 +200,7 @@ function startBotGame(preset, myDeck){
   showScreen('game-screen');
   document.getElementById('net-info').textContent='🤖 BOT 대전 — '+preset.name;
   UI.log(`BOT 대전 시작! 내 덱: ${myDeck.name} / 상대: ${preset.name}`, 'sys');
-  startTurn();
+  mulliganPhase().then(()=>startTurn());
 }
 
 window.addEventListener('DOMContentLoaded', ()=>{

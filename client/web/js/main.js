@@ -532,7 +532,7 @@ function startOnlineGame(m){
   document.getElementById('net-info').textContent=`🌐 온라인 — 나: ${m.players[NET.seat].id} (${NET.seat===0?'선공':'후공'})`;
   UI.log(`온라인 대전 시작! ${m.players[0].id} vs ${m.players[1].id}`, 'sys');
   UI.log('승리 조건: '+G.victory+'점 선취!', 'sys');
-  startTurn();
+  mulliganPhase().then(()=>startTurn());
 }
 
 function startHotseat(){
@@ -552,7 +552,7 @@ function startHotseat(){
   showScreen('game-screen');
   document.getElementById('net-info').textContent='💺 오프라인 핫시트';
   UI.log('게임 시작! 각자 4장으로 시작합니다.', 'sys');
-  startTurn();
+  mulliganPhase().then(()=>startTurn());
 }
 
 function initHotseat(){
