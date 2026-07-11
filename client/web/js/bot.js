@@ -167,7 +167,8 @@ function openBotSelect(){
     btns.appendChild(b);
   });
   const cancel=document.createElement('button'); cancel.textContent='취소';
-  cancel.onclick=()=>closeModal();
+  // 게임 종료 후 진입한 경우: 취소하면 끝난 게임 화면에 갇히지 않게 처음으로
+  cancel.onclick=()=>{ if(typeof G!=='undefined' && G && G.winner!==null) location.reload(); else closeModal(); };
   btns.appendChild(cancel);
   box.appendChild(btns);
   openModal();

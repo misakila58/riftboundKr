@@ -803,12 +803,22 @@ function showGearMenu(p, g, e){
 // ---------- 승리 ----------
 UI.showVictory = function(p){
   const box=document.getElementById('modal-box');
-  const btnLabel = NET.online ? '로비로 돌아가기' : '새 게임';
+  const isBot = typeof BOT!=='undefined' && BOT.active && !NET.online;
+  const btnLabel = NET.online ? '로비로 돌아가기' : (isBot ? '🤖 새 게임 (덱 선택)' : '새 게임');
   box.innerHTML=`<div class="victory-box">
     <h2>🎉 ${esc(pname(p))} 승리!</h2>
     <p>${G.victory}점을 선취했습니다.</p>
-    <div class="modal-btns"><button class="primary" onclick="location.reload()">${btnLabel}</button></div>
+    <div class="modal-btns">
+      <button class="primary" id="btn-victory-next">${btnLabel}</button>
+      ${isBot?'<button id="btn-victory-home">처음 화면으로</button>':''}
+    </div>
   </div>`;
+  document.getElementById('btn-victory-next').onclick=()=>{
+    if(isBot){ BOT.active=false; closeModal(); openBotSelect(); }
+    else location.reload();
+  };
+  const home=document.getElementById('btn-victory-home');
+  if(home) home.onclick=()=>location.reload();
   openModal();
 };
 
