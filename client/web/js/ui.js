@@ -118,15 +118,23 @@ UI.confirmP = function(p, text, previewCard){
 };
 function _confirmLocal(p, text, previewCard){
   return new Promise(res=>{
-    _resolver=res;
-    const pa=document.getElementById('prompt-area');
-    pa.innerHTML=`<div class="prompt-title">👉 ${esc(pname(p))}: ${esc(text)}</div>`;
-    if(previewCard) UI.inspect(previewCard);
-    const btns=document.createElement('div'); btns.className='prompt-btns';
-    const y=document.createElement('button'); y.textContent='예'; y.onclick=()=>settle(true);
-    const n=document.createElement('button'); n.textContent='아니오'; n.onclick=()=>settle(false);
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>👉 ${esc(pname(p))}</h3>
+      <div style="font-size:15px;line-height:1.65;max-width:420px;margin-bottom:8px">${esc(text)}</div>`;
+    if(previewCard){
+      UI.inspect(previewCard);
+      const wrap=document.createElement('div'); wrap.className='modal-cards';
+      wrap.appendChild(cardMiniEl(previewCard));
+      box.appendChild(wrap);
+    }
+    const btns=document.createElement('div'); btns.className='modal-btns';
+    const y=document.createElement('button'); y.className='primary'; y.textContent='예';
+    y.onclick=()=>{ closeModal(); res(true); };
+    const n=document.createElement('button'); n.textContent='아니오';
+    n.onclick=()=>{ closeModal(); res(false); };
     btns.appendChild(y); btns.appendChild(n);
-    pa.appendChild(btns);
+    box.appendChild(btns);
+    openModal();
   });
 }
 
@@ -136,16 +144,16 @@ UI.pickNumber = function(p, text, min, max){
 };
 function _pickNumberLocal(p, text, min, max){
   return new Promise(res=>{
-    _resolver=res;
-    const pa=document.getElementById('prompt-area');
-    pa.innerHTML=`<div class="prompt-title">👉 ${esc(text)}</div>`;
-    const btns=document.createElement('div'); btns.className='prompt-btns';
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>👉 ${esc(pname(p))}: ${esc(text)}</h3>`;
+    const btns=document.createElement('div'); btns.className='modal-btns';
     for(let i=min;i<=max;i++){
-      const b=document.createElement('button'); b.textContent=i;
-      b.onclick=()=>settle(i);
+      const b=document.createElement('button'); b.className='primary'; b.textContent=i;
+      b.onclick=()=>{ closeModal(); res(i); };
       btns.appendChild(b);
     }
-    pa.appendChild(btns);
+    box.appendChild(btns);
+    openModal();
   });
 }
 

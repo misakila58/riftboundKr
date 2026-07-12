@@ -82,6 +82,10 @@ function initConnect(){
   input.value = localStorage.getItem('rb_server') || 'http://localhost:8321';
   document.getElementById('btn-offline').onclick=()=>showScreen('setup-screen');
   document.getElementById('btn-tutorial').onclick=()=>TUT.start();
+  document.getElementById('btn-local-decks').onclick=()=>{
+    DeckStore.local=true; DeckStore.returnTo='connect-screen';
+    DeckStore.list().then(d=>{ myDecks=d; renderDeckList(); showScreen('decks-screen'); });
+  };
 
   const connect=async ()=>{
     msg.textContent='';
