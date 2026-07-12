@@ -12,7 +12,7 @@ function createWindow() {
     minHeight: 680,
     backgroundColor: '#0e1420',
     title: '리프트바운드 시뮬레이터',
-    icon: path.join(__dirname, 'build', 'icon.png'),
+    icon: path.join(__dirname, 'web', 'assets', 'logo.png'),
     webPreferences: {
       contextIsolation: true,   // 렌더러와 Node 분리 (보안)
       nodeIntegration: false,   // 렌더러에서 Node API 사용 안 함

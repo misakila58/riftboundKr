@@ -216,7 +216,8 @@ function initDecks(){
 }
 
 // ---------- 덱 편집기 ----------
-const ED = { index:null, main:[], runes:{}, bfs:[], legendN:null };
+// champOverride: 유저가 직접 고른 챔피언 (null이면 전설 기준 자동 = 견본덱 방식)
+const ED = { index:null, main:[], runes:{}, bfs:[], legendN:null, champOverride:null, selN:null };
 
 function openEditor(index){
   ED.index=index;
@@ -234,22 +235,73 @@ function openEditor(index){
     document.getElementById('ed-name').value='새 덱 '+(myDecks.length+1);
   }
   document.getElementById('ed-legend').value=ED.legendN;
+  // 저장된 챔피언이 자동 배정과 다르면 "나만의 덱" (직접 선택)으로 간주
+  ED.champOverride = (index!==null && myDecks[index].champN && myDecks[index].champN!==edAutoChampN())
+    ? myDecks[index].champN : null;
+  document.getElementById('ed-champ-select').value = ED.champOverride ? String(ED.champOverride) : '';
   document.getElementById('ed-msg').textContent='';
+  ED.selN=null;
   renderEditor();
   showScreen('editor-screen');
 }
 
-function edLegend(){ return card(+document.getElementById('ed-legend').value); }
-function edChampN(){
-  const tag=edLegend().name.split(' - ')[0];
+function edIsCustom(){ return document.getElementById('ed-legend').value==='custom'; }
+function edLegend(){ return edIsCustom() ? null : card(+document.getElementById('ed-legend').value); }
+// 전설 기준 자동 챔피언 (견본덱 방식) — 나만의 덱에서는 자동 배정 없음
+function edAutoChampN(){
+  const legend=edLegend();
+  if(!legend) return null;
+  const tag=legend.name.split(' - ')[0];
   const cu=CARDS.filter(c=>c.type==='Unit'&&c.super==='Champion'&&c.tags.includes(tag))
     .sort((a,b)=>(a.e||0)-(b.e||0));
   return cu.length?cu[0].n:null;
 }
+function edChampN(){ return ED.champOverride ?? edAutoChampN(); }
+// 나만의 덱: 챔피언에 맞는 전설 자동 연결 (태그 짝 → 없으면 속성이 가장 겹치는 전설)
+function edLegendForChamp(champN){
+  if(champN==null) return null;
+  const c=card(champN);
+  const L=legendList();
+  const tagMatch=L.find(l=>c.tags.includes(l.name.split(' - ')[0]));
+  if(tagMatch) return tagMatch.n;
+  let best=L[0], bestScore=-1;
+  L.forEach(l=>{
+    const s=c.dom.filter(d=>l.dom.includes(d)).length;
+    if(s>bestScore){ bestScore=s; best=l; }
+  });
+  return best.n;
+}
+
+// 카드 1장 추가/제거 (성공 시 true) — 풀 클릭 확대 팝업의 ＋/− 버튼에서 사용
+function edAddCard(c){
+  if(c.type==='Battlefield'){
+    if(ED.bfs.includes(c.n)){ UI.toast('같은 전장은 1개까지입니다','warn'); return false; }
+    if(ED.bfs.length>=3){ UI.toast('전장은 3개까지입니다','warn'); return false; }
+    ED.bfs.push(c.n); return true;
+  }
+  const cnt=ED.main.filter(n=>n===c.n).length;
+  if(cnt>=3){ UI.toast('같은 카드는 3장까지입니다','warn'); return false; }
+  if(ED.main.length>=40){ UI.toast('메인 덱은 40장입니다','warn'); return false; }
+  if(c.n===edChampN()){ UI.toast('선택 챔피언은 자동 배정됩니다 (챔피언 존)','warn'); return false; }
+  ED.main.push(c.n); return true;
+}
+function edRemoveCard(c){
+  if(c.type==='Battlefield'){
+    const i=ED.bfs.indexOf(c.n);
+    if(i<0) return false;
+    ED.bfs.splice(i,1); return true;
+  }
+  const i=ED.main.indexOf(c.n);
+  if(i<0) return false;
+  ED.main.splice(i,1); return true;
+}
+function edCardCount(c){
+  return c.type==='Battlefield' ? (ED.bfs.includes(c.n)?1:0) : ED.main.filter(n=>n===c.n).length;
+}
 
 function renderEditor(){
   const legend=edLegend();
-  const doms=legend.dom;
+  const doms=legend?legend.dom:null;   // 나만의 덱: 속성 제한 없음
   const typeF=document.getElementById('ed-type-filter').value;
   const search=document.getElementById('ed-search').value.trim().toLowerCase();
   const domOnly=document.getElementById('ed-dom-only').checked;
@@ -260,7 +312,7 @@ function renderEditor(){
     if(!['Unit','Spell','Gear','Battlefield'].includes(c.type)) return false;
     if(c.super==='Token') return false;
     if(typeF && c.type!==typeF) return false;
-    if(domOnly && c.type!=='Battlefield' && !(c.dom.length===0||c.dom.every(d=>doms.includes(d)||d==='Colorless'))) return false;
+    if(domOnly && doms && c.type!=='Battlefield' && !(c.dom.length===0||c.dom.every(d=>doms.includes(d)||d==='Colorless'))) return false;
     if(search && !(c.ko.toLowerCase().includes(search)||c.name.toLowerCase().includes(search))) return false;
     return true;
   });
@@ -271,21 +323,25 @@ function renderEditor(){
     const el=cardMiniEl(c);
     const inCnt = c.type==='Battlefield' ? (ED.bfs.includes(c.n)?1:0) : (counts[c.n]||0);
     if(inCnt){ const b=document.createElement('div'); b.className='cm-inpool'; b.textContent=inCnt; el.appendChild(b); }
-    el.onclick=()=>{
-      if(c.type==='Battlefield'){
-        if(ED.bfs.includes(c.n)) return;
-        if(ED.bfs.length>=3){ UI.toast('전장은 3개까지입니다','warn'); return; }
-        ED.bfs.push(c.n);
-      } else {
-        if((counts[c.n]||0)>=3){ UI.toast('같은 카드는 3장까지입니다','warn'); return; }
-        if(ED.main.length>=40){ UI.toast('메인 덱은 40장입니다','warn'); return; }
-        if(c.n===champN){ UI.toast('선택 챔피언은 자동 배정됩니다 (챔피언 존)','warn'); return; }
-        ED.main.push(c.n);
-      }
-      renderEditor();
-    };
+    // 선택된 카드: 카드 위에 ＋/− 버튼 표시 → 바로 추가/제거
+    if(ED.selN===c.n){
+      el.classList.add('ed-selected');
+      const ctl=document.createElement('div'); ctl.className='cm-ctl';
+      const minus=document.createElement('button'); minus.className='cm-minus'; minus.textContent='−';
+      minus.onclick=(e)=>{ e.stopPropagation(); if(edRemoveCard(c)) renderEditor(); };
+      const plus=document.createElement('button'); plus.className='cm-plus'; plus.textContent='＋';
+      plus.onclick=(e)=>{ e.stopPropagation(); if(edAddCard(c)) renderEditor(); };
+      ctl.appendChild(minus); ctl.appendChild(plus);
+      el.appendChild(ctl);
+    }
+    el.onclick=()=>{ ED.selN = c.n; renderEditor(); };
     poolEl.appendChild(el);
   });
+
+  // 선택 카드 상세 (우측 패널)
+  document.getElementById('ed-inspector').innerHTML =
+    ED.selN!=null ? UI.cardInfoHTML(card(ED.selN))
+                  : '<div class="insp-placeholder">카드를 클릭하면 여기에 자세한 내용이 표시됩니다</div>';
 
   // 메인 덱 목록
   const mainEl=document.getElementById('ed-main');
@@ -335,22 +391,54 @@ function renderEditor(){
   document.getElementById('ed-bf-count').textContent=ED.bfs.length;
 
   // 챔피언
-  document.getElementById('ed-champ').textContent = champN?card(champN).ko:'(해당 챔피언 유닛 없음)';
+  document.getElementById('ed-champ').textContent =
+    edIsCustom()
+      ? (champN ? `→ ${card(champN).ko} · 전설 자동 연결: ${card(edLegendForChamp(champN)).ko}` : '⚠ 챔피언을 선택하세요')
+      : (champN ? (ED.champOverride ? `→ ${card(champN).ko} (직접 선택)` : `→ ${card(champN).ko} (전설 기준 자동)`)
+                : '(해당 챔피언 유닛 없음)');
 }
 
 function initEditor(){
   const sel=document.getElementById('ed-legend');
+  // 최상단: 아무것도 지정되지 않은 나만의 덱 (전체 카드 풀, 챔피언 직접 선택)
+  const customOpt=document.createElement('option');
+  customOpt.value='custom'; customOpt.textContent='🛠 나만의 덱 — 자유 구성 (챔피언부터 직접 선택)';
+  sel.appendChild(customOpt);
   legendList().forEach(l=>{
     const o=document.createElement('option');
     o.value=l.n; o.textContent=`${l.ko} (${l.dom.map(d=>DOMAIN_KO[d]).join('/')})`;
     sel.appendChild(o);
   });
   sel.onchange=()=>renderEditor();
+  // 챔피언 직접 선택 (나만의 덱): "자동" = 전설 기준 견본 방식
+  const champSel=document.getElementById('ed-champ-select');
+  const autoOpt=document.createElement('option');
+  autoOpt.value=''; autoOpt.textContent='🎯 자동 (전설 기준)';
+  champSel.appendChild(autoOpt);
+  CARDS.filter(c=>c.type==='Unit'&&c.super==='Champion')
+    .sort((a,b)=>a.ko.localeCompare(b.ko,'ko'))
+    .forEach(c=>{
+      const o=document.createElement('option');
+      o.value=c.n;
+      o.textContent=`${c.ko} [${c.e??0}] (${c.dom.map(d=>DOMAIN_KO[d]||d).join('/')})`;
+      champSel.appendChild(o);
+    });
+  champSel.onchange=()=>{
+    ED.champOverride=champSel.value?+champSel.value:null;
+    // 새 챔피언과 같은 카드가 메인 덱에 있으면 제거 (챔피언 존에 자동 배정되므로)
+    const n=edChampN();
+    const before=ED.main.length;
+    ED.main=ED.main.filter(x=>x!==n);
+    if(ED.main.length<before) UI.toast('선택 챔피언과 같은 카드는 메인 덱에서 제외했습니다','warn');
+    renderEditor();
+  };
   ['ed-type-filter','ed-search','ed-dom-only'].forEach(id=>{
     document.getElementById(id).addEventListener('input',()=>renderEditor());
   });
   document.getElementById('btn-ed-auto').onclick=()=>{
-    const d=buildDeck(+sel.value);
+    const legendN = edIsCustom() ? edLegendForChamp(edChampN()) : +sel.value;
+    if(legendN==null){ UI.toast('나만의 덱: 챔피언을 먼저 선택하면 자동 완성할 수 있습니다','warn'); return; }
+    const d=buildDeck(legendN);
     ED.main=[...d.deck]; ED.bfs=[...d.bfs];
     ED.runes={}; d.runes.forEach(n=>ED.runes[n]=(ED.runes[n]||0)+1);
     renderEditor();
@@ -361,15 +449,20 @@ function initEditor(){
     msg.textContent='';
     const runes=[];
     Object.entries(ED.runes).forEach(([n,cnt])=>{ for(let i=0;i<cnt;i++) runes.push(+n); });
+    const champN=edChampN();
+    if(!champN){
+      msg.textContent = edIsCustom() ? '나만의 덱은 선택 챔피언을 골라야 합니다' : '이 전설의 챔피언 유닛을 찾을 수 없습니다';
+      return;
+    }
     const deck={
       name:document.getElementById('ed-name').value.trim()||'이름없는 덱',
-      legendN:+sel.value, champN:edChampN(),
+      legendN: edIsCustom() ? edLegendForChamp(champN) : +sel.value,
+      champN,
       main:[...ED.main], runes, bfs:[...ED.bfs],
     };
     if(deck.main.length!==40){ msg.textContent='메인 덱은 정확히 40장이어야 합니다'; return; }
     if(runes.length!==12){ msg.textContent='룬은 정확히 12개여야 합니다'; return; }
     if(deck.bfs.length!==3){ msg.textContent='전장은 정확히 3개여야 합니다'; return; }
-    if(!deck.champN){ msg.textContent='이 전설의 챔피언 유닛을 찾을 수 없습니다'; return; }
     try{
       myDecks=await DeckStore.save(deck, ED.index);
       renderDeckList(); showScreen('decks-screen');

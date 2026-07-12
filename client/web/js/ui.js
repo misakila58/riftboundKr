@@ -314,14 +314,14 @@ function combatRoleOf(u){
 }
 
 // ---------- 인스펙터 ----------
-UI.inspect = function(c){
-  const el=document.getElementById('inspector');
-  const kwNote = (c.text.match(/\[([A-Za-z-]+ ?\d*)\]/g)||[])
+// 카드 상세 HTML (사이드바 인스펙터·덱 편집기 상세 영역 공용)
+UI.cardInfoHTML = function(c){
+  const kwNote = ((c.text||'').match(/\[([A-Za-z-]+ ?\d*)\]/g)||[])
     .map(k=>k.replace(/[\[\]]/g,'').replace(/ \d+$/,''))
     .filter((v,i,a)=>a.indexOf(v)===i)
     .map(k=>KEYWORDS_KO[k]?`<div style="font-size:11px;color:#9aa4bd">· <b>[${KEYWORDS_KO[k].ko}]</b> ${KEYWORDS_KO[k].desc}</div>`:'')
     .join('');
-  el.innerHTML=`
+  return `
     ${c.img?`<img src="${c.img}" alt="">`:''}
     <div class="insp-name">${esc(c.ko)}</div>
     <div class="insp-name-en">${esc(c.name)} · #${c.n}</div>
@@ -330,6 +330,9 @@ UI.inspect = function(c){
     ${kwNote}
     ${c.tags&&c.tags.length?`<div class="insp-tags">태그: ${c.tags.map(esc).join(', ')}</div>`:''}
   `;
+};
+UI.inspect = function(c){
+  document.getElementById('inspector').innerHTML = UI.cardInfoHTML(c);
 };
 UI.inspectUnit = function(u){
   if(u.isToken){
