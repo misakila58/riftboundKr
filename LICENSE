@@ -24,11 +24,16 @@ SOFTWARE.
 
 The MIT license above applies only to the source code written for this project.
 
-Riftbound, League of Legends, and all related card names, artwork, text, and
-other assets are the property of Riot Games, Inc. This is an unofficial,
-non-commercial fan project created under Riot Games' "Legal Jibber Jabber"
-policy. It is not endorsed by or affiliated with Riot Games. Card data and
-images are retrieved at runtime from the community Riftcodex API
-(https://riftcodex.com) and the Riot content delivery network.
+Riftbound Simulator isn't endorsed by Riot Games and doesn't reflect the views
+or opinions of Riot Games or anyone officially involved in producing or managing
+Riot Games properties. This is a non-commercial fan project created under Riot
+Games' fan content policy.
 
-If you are a rights holder and have concerns, please open an issue.
+Riftbound, League of Legends, and all related card names, artwork, text, and
+other assets are trademarks or registered trademarks / property of Riot Games,
+Inc. Card data and images are retrieved at runtime from the community Riftcodex
+API (https://riftcodex.com) and the Riot content delivery network; they are not
+redistributed as part of this software.
+
+If you are a rights holder and have concerns, please open an issue and the
+project will comply with any takedown request.

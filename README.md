@@ -7,8 +7,16 @@
 - **방장(호스트)**은 자신의 PC에서 서버 프로그램을 실행합니다. 계정(아이디/비밀번호)과 덱은 방장 PC에만 저장됩니다.
 - 오프라인 **핫시트(한 화면 2인)** 모드도 지원하여 서버 없이도 플레이할 수 있습니다.
 
-> ⚠️ Riftbound와 모든 카드 자산의 저작권은 Riot Games에 있습니다. 본 프로젝트는 Riot의
-> 팬 콘텐츠 정책에 따른 비공식·비영리 프로젝트이며 Riot Games가 보증하지 않습니다.
+> ⚠️ **법적 고지 (Riot 팬 콘텐츠 정책)**
+> 리프트바운드 시뮬레이터(Riftbound Simulator)는 Riot Games가 보증하지 않으며, Riot Games 또는
+> 리그 오브 레전드/리프트바운드 제작·운영에 공식적으로 관여한 이들의 견해나 의견을 반영하지 않습니다.
+> 본 프로젝트는 Riot Games의 팬 콘텐츠 정책에 따라 제작된 **비영리 팬 프로젝트**입니다.
+> Riftbound, League of Legends 및 관련 자산은 Riot Games, Inc.의 상표 또는 등록 상표입니다.
+>
+> _Riftbound Simulator isn't endorsed by Riot Games and doesn't reflect the views or opinions of
+> Riot Games or anyone officially involved in producing or managing Riot Games properties.
+> Riftbound and League of Legends are trademarks or registered trademarks of Riot Games, Inc._
+>
 > 카드 데이터/이미지는 실행 시 [Riftcodex API](https://riftcodex.com)와 Riot CDN에서 가져옵니다.
 
 ## 저장소 구조

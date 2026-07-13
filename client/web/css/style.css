@@ -494,3 +494,12 @@ button { cursor:pointer; font-family:inherit; }
   border:1px solid #3a4a70; background:#0e1626; color:#9fd8ff; font-size:11px; font-family:monospace;
 }
 .p2p-status { min-height:20px; font-size:13px; color:#ffe07f; line-height:1.5; }
+
+/* ══════════ Riot 팬 콘텐츠 정책 필수 고지 ══════════ */
+#legal-footer {
+  position:fixed; left:0; right:0; bottom:0; z-index:50;
+  background:rgba(10,14,24,.9); border-top:1px solid #2e3d5e;
+  color:#7c86a0; font-size:10px; line-height:1.5; text-align:center;
+  padding:5px 14px; max-height:22vh; overflow-y:auto;
+}
+#legal-footer .legal-en { color:#5a6a90; }

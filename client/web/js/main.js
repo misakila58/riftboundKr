@@ -3,6 +3,9 @@
 const SCREENS = ['connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','p2p-screen','setup-screen','game-screen'];
 function showScreen(id){
   SCREENS.forEach(s=>{ document.getElementById(s).style.display = s===id ? 'flex' : 'none'; });
+  // 법적 고지 푸터: 게임 화면에서는 보드를 가리지 않게 숨김, 그 외 입장 화면에서는 상시 노출
+  const lf=document.getElementById('legal-footer');
+  if(lf) lf.style.display = (id==='game-screen') ? 'none' : 'block';
 }
 
 let myDecks = [];
