@@ -190,6 +190,7 @@ function startBotGame(preset, myDeck){
   const lb=botRand(legendList()).n;
   const db=buildDeck(lb);
   newGame({
+    manual: false, // BOT 대전은 규칙 자동 처리 필요
     players:[
       { name:'나', legendN:myDeck.legendN, champN:myDeck.champN, deck:myDeck.main, runes:myDeck.runes },
       { name:preset.name, legendN:lb, champN:db.champN, deck:db.deck, runes:db.runes },

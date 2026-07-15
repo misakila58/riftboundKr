@@ -136,6 +136,7 @@
     <div>
       <select id="lobby-deck"></select>
       <input id="lobby-room-name" type="text" placeholder="방 이름 (선택)" maxlength="24">
+      <label class="mode-chk"><input type="checkbox" id="lobby-auto"> 자동 규칙 처리</label>
       <button class="mid-btn primary-btn" id="btn-create-room">방 만들기</button>
       <button class="mid-btn" id="btn-lobby-back">← 메뉴로</button>
     </div>
@@ -159,8 +160,9 @@
       <input id="p2p-nick" type="text" maxlength="16" placeholder="닉네임">
       <label>사용할 덱</label>
       <select id="p2p-deck"></select>
+      <label class="mode-chk" style="margin-top:8px"><input type="checkbox" id="p2p-auto"> 자동 규칙 처리 (방장이 방 만들 때 결정)</label>
       <div class="hint" style="text-align:left;margin-top:4px">
-        덱은 이 컴퓨터에만 저장됩니다. 아직 없다면 <b>🎲 무작위 자동 덱</b>으로 바로 시작할 수 있어요.
+        기본은 <b>수동 모드</b>(효과·전투·득점을 직접 처리). 덱은 이 컴퓨터에만 저장됩니다. 아직 없다면 <b>🎲 무작위 자동 덱</b>으로 바로 시작할 수 있어요.
       </div>
     </div>
     <div class="p2p-cols">
@@ -218,6 +220,7 @@
         <div id="p1-legend-preview" class="legend-preview"></div>
       </div>
     </div>
+    <label class="mode-chk" style="justify-content:center;margin:10px 0"><input type="checkbox" id="hs-auto"> 자동 규칙 처리 (효과·전투·득점 자동)</label>
     <button id="btn-start" class="big-btn">게임 시작</button>
     <button class="link-btn" id="btn-setup-back">← 돌아가기</button>
     <p class="hint">덱은 선택한 전설의 속성에 맞춰 자동 구성됩니다.</p>

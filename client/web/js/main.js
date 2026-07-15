@@ -512,7 +512,8 @@ function initLobby(){
   };
   document.getElementById('btn-create-room').onclick=()=>{
     const deckIdx=+document.getElementById('lobby-deck').value;
-    NET.send({t:'createRoom', deckIdx, name:document.getElementById('lobby-room-name').value.trim()});
+    const manual = !document.getElementById('lobby-auto').checked;
+    NET.send({t:'createRoom', deckIdx, manual, name:document.getElementById('lobby-room-name').value.trim()});
   };
   NET.onRooms=renderRooms;
   NET.onRoomCreated=(room)=>{
@@ -582,7 +583,8 @@ function initP2P(){
     if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
     hostStatus('초대 코드 생성 중... (몇 초 걸릴 수 있음)');
     try{
-      const code=await P2P.host(p2pNick(), deck);
+      const manual = !document.getElementById('p2p-auto').checked;
+      const code=await P2P.host(p2pNick(), deck, manual);
       document.getElementById('p2p-offer-out').value=code;
       hostStatus('① 초대 코드를 친구에게 보내고, ② 응답 코드를 기다리세요.');
     }catch(e){ hostStatus('오류: '+e.message); }
@@ -622,6 +624,7 @@ function startOnlineGame(m){
   const bfs = m.players.map(pl=>pl.deck.bfs[Math.floor(rng()*pl.deck.bfs.length)]);
   newGame({
     seed: m.seed,
+    manual: m.manual,
     players: m.players.map(pl=>({
       name: pl.id, legendN: pl.deck.legendN, champN: pl.deck.champN,
       deck: pl.deck.main, runes: pl.deck.runes,
@@ -629,8 +632,9 @@ function startOnlineGame(m){
     bfs,
   });
   showScreen('game-screen');
-  document.getElementById('net-info').textContent=`🌐 온라인 — 나: ${m.players[NET.seat].id} (${NET.seat===0?'선공':'후공'})`;
-  UI.log(`온라인 대전 시작! ${m.players[0].id} vs ${m.players[1].id}`, 'sys');
+  const modeLabel = G.manual ? '수동' : '자동';
+  document.getElementById('net-info').textContent=`🌐 온라인(${modeLabel}) — 나: ${m.players[NET.seat].id} (${NET.seat===0?'선공':'후공'})`;
+  UI.log(`온라인 대전 시작! ${m.players[0].id} vs ${m.players[1].id} · 규칙 처리: ${modeLabel} 모드`, 'sys');
   UI.log('승리 조건: '+G.victory+'점 선취!', 'sys');
   mulliganPhase().then(()=>startTurn());
 }
@@ -642,7 +646,9 @@ function startHotseat(){
   const d0=buildDeck(p0legend), d1=buildDeck(p1legend);
   const bf0=d0.bfs[Math.floor(Math.random()*3)];
   const bf1=d1.bfs[Math.floor(Math.random()*3)];
+  const autoHs=document.getElementById('hs-auto')?.checked;
   newGame({
+    manual: !autoHs,
     players:[
       { name:document.getElementById('p0-name').value||'플레이어 1', legendN:p0legend, champN:d0.champN, deck:d0.deck, runes:d0.runes },
       { name:document.getElementById('p1-name').value||'플레이어 2', legendN:p1legend, champN:d1.champN, deck:d1.deck, runes:d1.runes },
@@ -650,7 +656,7 @@ function startHotseat(){
     bfs:[bf0,bf1],
   });
   showScreen('game-screen');
-  document.getElementById('net-info').textContent='💺 오프라인 핫시트';
+  document.getElementById('net-info').textContent='💺 오프라인 핫시트 ('+(G.manual?'수동':'자동')+')';
   UI.log('게임 시작! 각자 4장으로 시작합니다.', 'sys');
   mulliganPhase().then(()=>startTurn());
 }

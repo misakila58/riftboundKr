@@ -349,7 +349,7 @@ wss.on('connection', (ws, req) => {
         const deck = u && u.decks[m.deckIdx];
         if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요' });
         const nm = (typeof m.name === 'string' && m.name.trim()) ? m.name.trim().slice(0, LIMITS.MAX_ROOM_NAME) : (ws._userId + '의 방');
-        const r = { id: 'r' + (roomSeq++), name: nm, players: [], started: false, seq: 0 };
+        const r = { id: 'r' + (roomSeq++), name: nm, players: [], started: false, seq: 0, manual: m.manual !== false };
         rooms.set(r.id, r);
         r.players.push({ ws, id: ws._userId, deck, seat: 0 });
         ws._room = r;
@@ -370,7 +370,7 @@ wss.on('connection', (ws, req) => {
         r.started = true;
         const seed = crypto.randomBytes(4).readUInt32LE(0);
         r.players.forEach(pl => wsSend(pl.ws, {
-          t: 'start', seed, yourSeat: pl.seat,
+          t: 'start', seed, yourSeat: pl.seat, manual: r.manual !== false,
           players: r.players.map(q => ({ id: q.id, deck: q.deck })),
         }));
         broadcastLobby();

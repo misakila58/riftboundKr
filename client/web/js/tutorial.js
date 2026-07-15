@@ -197,6 +197,7 @@ TUT.start = function(){
 
   newGame({
     seed: 12345,
+    manual: false, // 튜토리얼은 규칙 자동 처리 필요
     players:[
       { name:'수련생(나)', legendN:TUT_P0.legendN, champN:TUT_P0.champN, deck:tutFill(TUT_P0.deckTop,40), runes:TUT_P0.runeTop },
       { name:'연습 봇', legendN:TUT_P1.legendN, champN:TUT_P1.champN, deck:tutFill(TUT_P1.deckTop,40), runes:TUT_P1.runeTop },

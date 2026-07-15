@@ -2,11 +2,28 @@
 const UI = {};
 
 // ---------- 로그/토스트 ----------
+// 「카드명」 → 카드 매핑 (로그 호버 인스펙트용)
+let _name2card=null;
+function nameToCard(nm){
+  if(!_name2card){ _name2card={}; CARDS.forEach(c=>{ if(!_name2card[c.ko]) _name2card[c.ko]=c; }); }
+  return _name2card[nm]||null;
+}
 UI.log = function(msg, cls){
   const el=document.getElementById('log');
   const d=document.createElement('div');
   d.className='log-entry log-'+(cls||'sys');
-  d.textContent=msg;
+  // 「카드명」 부분은 마우스를 올리면 사이드바 인스펙터에 효과 표시 (textContent로 안전하게 구성)
+  String(msg).split(/(「[^」]+」)/).forEach(seg=>{
+    const m=seg.match(/^「([^」]+)」$/);
+    const c = m && nameToCard(m[1]);
+    if(c){
+      const span=document.createElement('span');
+      span.className='log-card'; span.textContent=seg;
+      span.onmouseenter=()=>UI.inspect(c);
+      span.onclick=()=>UI.showZoom(c);
+      d.appendChild(span);
+    } else d.appendChild(document.createTextNode(seg));
+  });
   el.appendChild(d);
   el.scrollTop=el.scrollHeight;
 };

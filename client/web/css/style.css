@@ -503,3 +503,11 @@ button { cursor:pointer; font-family:inherit; }
   padding:5px 14px; max-height:22vh; overflow-y:auto;
 }
 #legal-footer .legal-en { color:#5a6a90; }
+
+/* 규칙 처리 모드 체크박스 */
+.mode-chk { display:inline-flex; align-items:center; gap:5px; font-size:13px; color:#c8d2ea; cursor:pointer; }
+.mode-chk input { width:15px; height:15px; }
+
+/* 로그 안의 카드명: 호버 시 인스펙터 표시 */
+.log-card { color:#d8c27a; text-decoration:underline dotted; cursor:help; }
+.log-card:hover { color:#ffe6a0; }

@@ -27,8 +27,8 @@ P2P._enc = o=>btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 P2P._dec = s=>JSON.parse(decodeURIComponent(escape(atob(String(s).replace(/\s+/g,'')))));
 
 // ---------- 호스트 (방 만들기) ----------
-P2P.host = async function(name, deck){
-  P2P.reset(); P2P.isHost=true; P2P.myName=name; P2P.myDeck=deck;
+P2P.host = async function(name, deck, manual){
+  P2P.reset(); P2P.isHost=true; P2P.myName=name; P2P.myDeck=deck; P2P.manual=manual!==false;
   const pc=P2P._newPc(); P2P.pc=pc;
   P2P._bindChannel(pc.createDataChannel('game',{ordered:true}));
   P2P._watchConn(pc);
@@ -93,8 +93,9 @@ P2P._onMsg = function(m){
         P2P.peerName = String(m.name||'상대').slice(0,16);
         const seed = crypto.getRandomValues(new Uint32Array(1))[0];
         const players = [ {id:P2P.myName, deck:P2P.myDeck}, {id:P2P.peerName, deck:m.deck} ];
-        P2P.ch.send(JSON.stringify({t:'start', seed, players, yourSeat:1}));
-        NET.onStart && NET.onStart({t:'start', seed, players, yourSeat:0});
+        const manual = P2P.manual!==false;
+        P2P.ch.send(JSON.stringify({t:'start', seed, players, yourSeat:1, manual}));
+        NET.onStart && NET.onStart({t:'start', seed, players, yourSeat:0, manual});
         break;
       }
       case 'act': case 'choice': P2P.relay(m, 1); break;

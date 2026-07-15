@@ -41,6 +41,8 @@ function newGame(cfg){
   };
   // 전장 상시: 승리 점수 +1
   G.victory = VICTORY + G.bfs.filter(bf=>bf.n===BF_STATIC.VICTORY_PLUS).length;
+  // 규칙 처리 모드: manual(수동, 기본) — 카드 효과·전투·득점을 자동 처리하지 않음
+  G.manual = (cfg.manual===undefined) ? true : !!cfg.manual;
   // 시작 손패 4장
   G.players.forEach(p=>{ for(let i=0;i<4;i++) drawCard(p.idx, true); });
 }
@@ -352,29 +354,34 @@ async function startTurn(){
   UI.render();
 
   // B: 시작 단계 — [일시] 처치 (득점 전) → 점유 득점 → 시작 트리거 (공식 순서)
+  // 수동 모드에서는 규칙 자동 처리를 하지 않음(득점·트리거·[일시] 모두 플레이어가 직접 처리)
   G.phase='beginning'; UI.render();
-  for(const u of everyUnit().filter(u=>u.ctrl===p && effKw(u).temporary)){
-    UI.log(`[일시] ${unitName(u)} 처치됨`, 'sys');
-    await killUnit(u);
-  }
-  // 점유(Hold) 득점
-  for(let i=0;i<G.bfs.length;i++){
-    const bf=G.bfs[i];
-    if(bf.controller===p && G.winner===null){
-      P.scoredBf[i]=true; bf.scored[p]=true;
-      addPoints(p,1,'hold',i);
-      await fireTriggers('onHold', {p, bfIdx:i});
-      await fireBfTrigger(i,'onHoldHere',{p,bfIdx:i});
+  if(!G.manual){
+    for(const u of everyUnit().filter(u=>u.ctrl===p && effKw(u).temporary)){
+      UI.log(`[일시] ${unitName(u)} 처치됨`, 'sys');
+      await killUnit(u);
     }
+    // 점유(Hold) 득점
+    for(let i=0;i<G.bfs.length;i++){
+      const bf=G.bfs[i];
+      if(bf.controller===p && G.winner===null){
+        P.scoredBf[i]=true; bf.scored[p]=true;
+        addPoints(p,1,'hold',i);
+        await fireTriggers('onHold', {p, bfIdx:i});
+        await fireBfTrigger(i,'onHoldHere',{p,bfIdx:i});
+      }
+    }
+    if(G.winner!==null) return;
+    // 시작 트리거 (전장 첫 시작 단계 포함)
+    if(G.turnCount<=2){
+      for(let i=0;i<G.bfs.length;i++)
+        await fireBfTrigger(i,'onFirstBeginning',{p, bfIdx:i});
+    }
+    await fireTriggers('onBeginning', {p});
+    if(G.winner!==null) return;
+  } else if(G.bfs.some(bf=>bf.controller===p)){
+    UI.log('※ 수동 모드: 점유 득점·시작 효과는 직접 처리하세요 (유닛 우클릭/점수 버튼)', 'sys');
   }
-  if(G.winner!==null) return;
-  // 시작 트리거 (전장 첫 시작 단계 포함)
-  if(G.turnCount<=2){
-    for(let i=0;i<G.bfs.length;i++)
-      await fireBfTrigger(i,'onFirstBeginning',{p, bfIdx:i});
-  }
-  await fireTriggers('onBeginning', {p});
-  if(G.winner!==null) return;
 
   // C: 충전
   G.phase='channel'; UI.render();
@@ -487,6 +494,28 @@ async function playCardFromHand(p, handIdx, opts={}){
 
   const restr = playRestriction(c,p);
   if(restr){ UI.toast(restr,'warn'); return false; }
+
+  // ── 수동 모드: 규칙 자동 처리 없이 카드만 배치, 효과는 로그로 안내 ──
+  if(G.manual){
+    let loc='base';
+    if(c.type==='Unit'){
+      const locs=[{v:'base',label:'본진'}];
+      G.bfs.forEach((bf,i)=>locs.push({v:i,label:`전장: ${card(bf.n).ko}`}));
+      loc = await UI.pickOption(p,'유닛을 배치할 위치', locs);
+      if(loc===null) return false;
+    }
+    if(opts.champZone) P.champInZone=false;
+    else if(handIdx>=0) P.hand.splice(handIdx,1);
+    P.playedCards++;
+    UI.log(`${pname(p)} 「${c.ko}」 플레이 (수동)`, 'p'+p);
+    if(c.type==='Unit'){ placeUnit(makeUnit(n,p,{loc,ready:false}), loc); }
+    else if(c.type==='Gear'){ P.gear.push({n,ex:false,attachedTo:null}); }
+    else { trashCard(p,n); } // 주문 등
+    const txt=(c.tko||c.text||'').trim();
+    if(txt) UI.log(`↳ 효과(직접 처리): ${txt}`, 'sys');
+    UI.render();
+    return true;
+  }
 
   // ── 추가 비용 (선택/강제) ──
   const AC = fx.addCost;
@@ -839,6 +868,7 @@ async function moveUnits(p, units, dest){
   }
   const destName = dest==='base'?'본진':`「${card(G.bfs[dest].n).ko}」`;
   UI.log(`${pname(p)} 유닛 ${units.length}개 ${destName}(으)로 이동`, 'p'+p);
+  if(G.manual){ UI.render(); return true; } // 수동: 이동 트리거·전투 자동 처리 없음
   // 유닛별 이동 트리거 (떠돌이 상인, 야스오, 군악병 등)
   for(const u of units){
     await runTriggerList(unitFx(u).triggers?.onMoveSelf, {p, unit:u, it:u, bfIdx:(dest!=='base'?dest:null), dest});
@@ -872,6 +902,7 @@ async function moveUnits(p, units, dest){
 
 // ---------- 클린업: 사망 처리 & 경합 확인 ----------
 async function cleanup(actor){
+  if(G.manual) return; // 수동 모드: 자동 사망·격돌·전투 없음 (플레이어가 직접 처리)
   // 치명 피해 사망 (+ 황제의 칙령 표식)
   for(const u of everyUnit()){
     if((u.dmg>0 && u.dmg>=might(u)) || u._decree) await killUnit(u);
