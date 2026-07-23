@@ -1,0 +1,16 @@
+{
+  "name": "리프트바운드 시뮬레이터",
+  "short_name": "리프트바운드",
+  "description": "리프트바운드 Origins 한글판 대전 시뮬레이터 (비공식 팬 프로젝트)",
+  "lang": "ko",
+  "start_url": ".",
+  "scope": ".",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0e1420",
+  "theme_color": "#0e1420",
+  "icons": [
+    { "src": "assets/logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

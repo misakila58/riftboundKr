@@ -17,6 +17,33 @@ const DATA_DIR = path.join(BASE, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
+// ---------- 모바일/브라우저용 웹앱 제공 경로 ----------
+// 배포판(dist): exe 옆 web/ · 개발: ../client/web
+const WEB_ROOT = fs.existsSync(path.join(BASE, 'web', 'index.html'))
+  ? path.join(BASE, 'web')
+  : path.join(__dirname, '..', 'client', 'web');
+const SERVE_WEB = fs.existsSync(path.join(WEB_ROOT, 'index.html'));
+
+// ---------- 접근 암호(입장 통제) ----------
+// 우선순위: 환경변수 ACCESS_CODE > access-code.txt 파일. 값이 있으면 '아는 사람만' 입장.
+function loadAccessCode() {
+  if (process.env.ACCESS_CODE && process.env.ACCESS_CODE.trim()) return process.env.ACCESS_CODE.trim();
+  for (const f of [path.join(BASE, 'access-code.txt'), path.join(__dirname, 'access-code.txt')]) {
+    try { const v = fs.readFileSync(f, 'utf8').trim(); if (v) return v; } catch (e) {}
+  }
+  return null;
+}
+let ACCESS_CODE = loadAccessCode();
+// 파일 변경 즉시 반영(암호 변경/회수) — 30초마다 재로딩
+setInterval(() => { ACCESS_CODE = loadAccessCode(); }, 30000).unref?.();
+// 입력한 접근 코드가 일치하는지 (상수시간 비교)
+function accessCodeOK(code) {
+  if (!ACCESS_CODE) return true; // 미설정 = 공개
+  if (typeof code !== 'string') return false;
+  const a = Buffer.from(code), b = Buffer.from(ACCESS_CODE);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 const LIMITS = {
   MAX_DECKS: 20,
   MAX_USERS: 5000,
@@ -215,16 +242,35 @@ const server = http.createServer(async (req, res) => {
   // CORS 프리플라이트
   if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
 
-  // 헬스체크 (클라이언트가 서버 주소 유효성 확인용)
+  // 헬스체크 (클라이언트가 서버 주소 유효성 확인 + 접근 코드 필요 여부 확인용)
   if (p === '/api/health' && req.method === 'GET')
-    return json(res, 200, { ok: true, name: 'riftbound-sim', version: 2 });
+    return json(res, 200, { ok: true, name: 'riftbound-sim', version: 2, requiresAccess: !!ACCESS_CODE });
 
-  // 루트: 사람이 브라우저로 들어왔을 때 안내
-  if (p === '/' || p === '') {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', ...CORS });
-    return res.end('리프트바운드 시뮬레이터 서버가 실행 중입니다.\n데스크톱 클라이언트 프로그램에서 이 주소를 입력해 접속하세요.');
+  // 정적 웹앱 제공 (모바일/브라우저용). 화이트리스트만 — data/·소스는 노출 안 함
+  if (!p.startsWith('/api/')) {
+    if (!SERVE_WEB) {
+      if (p === '/' || p === '') {
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', ...CORS });
+        return res.end('리프트바운드 시뮬레이터 서버 실행 중. (웹앱 파일 없음 — 데스크톱 클라이언트로 접속)');
+      }
+      res.writeHead(404, CORS); return res.end();
+    }
+    let rel = (p === '/' || p === '') ? 'index.html' : decodeURIComponent(p).replace(/^\/+/, '');
+    if (!/^(index\.html|manifest\.webmanifest|(css|js|assets)\/[\w\-./]+)$/.test(rel) || rel.includes('..')) {
+      res.writeHead(404, CORS); return res.end();
+    }
+    const full = path.join(WEB_ROOT, rel);
+    if (!full.startsWith(WEB_ROOT + path.sep) && full !== path.join(WEB_ROOT, 'index.html')) { res.writeHead(403); return res.end(); }
+    return fs.readFile(full, (err, data) => {
+      if (err) { res.writeHead(404, CORS); return res.end(); }
+      const ext = path.extname(full);
+      const mime = ext === '.html' ? 'text/html' : ext === '.js' ? 'text/javascript'
+                 : ext === '.css' ? 'text/css' : ext === '.webmanifest' ? 'application/manifest+json'
+                 : ext === '.png' ? 'image/png' : 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': mime + '; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
+      res.end(data);
+    });
   }
-  if (!p.startsWith('/api/')) { res.writeHead(404, CORS); return res.end(); }
 
   const ip = clientIp(req);
   try {
@@ -232,7 +278,8 @@ const server = http.createServer(async (req, res) => {
       if (!rateHit('auth:' + ip, LIMITS.AUTH_WINDOW_MS, LIMITS.AUTH_MAX) ||
           !rateHit('reg:' + ip, LIMITS.REG_WINDOW_MS, LIMITS.REG_MAX))
         return json(res, 429, { error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' });
-      const { id, pw } = await readBody(req);
+      const { id, pw, invite } = await readBody(req);
+      if (!accessCodeOK(invite)) return json(res, 403, { error: '접근 코드가 올바르지 않습니다. 방장에게 받은 코드를 입력하세요.' });
       if (typeof id !== 'string' || !ID_RE.test(id)) return json(res, 400, { error: '아이디는 2~16자 (한글/영문/숫자/_)' });
       if (typeof pw !== 'string' || pw.length < LIMITS.MIN_PW || pw.length > LIMITS.MAX_PW)
         return json(res, 400, { error: `비밀번호는 ${LIMITS.MIN_PW}~${LIMITS.MAX_PW}자` });
@@ -304,6 +351,16 @@ const rooms = new Map();
 let roomSeq = 1;
 function wsSend(ws, obj) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
 function roomInfo(r) { return { id: r.id, name: r.name, host: r.players[0]?.id, count: r.players.length, started: r.started }; }
+// 방 생성/입장 시 사용할 덱 결정: 기기 로컬 덱(원본 전달, 서버 미저장) 또는 계정 저장 덱(deckIdx)
+// 로컬 덱을 허용하면 무료 호스팅에서 서버 데이터가 초기화돼도 플레이어의 덱은 유지된다.
+function resolveDeck(ws, m) {
+  if (m.deck && typeof m.deck === 'object') {
+    if (validDeck(m.deck)) return null; // 검증 실패
+    return sanitizeDeck(m.deck);
+  }
+  const u = db.users[ws._userId];
+  return (u && u.decks[m.deckIdx]) || null;
+}
 function broadcastLobby() {
   const list = [...rooms.values()].filter(r => !r.started).map(roomInfo);
   wss.clients.forEach(c => { if (c._authed && !c._room) wsSend(c, { t: 'rooms', rooms: list }); });
@@ -345,9 +402,8 @@ wss.on('connection', (ws, req) => {
       case 'createRoom': {
         if (ws._room) return;
         if (rooms.size >= LIMITS.MAX_ROOMS) return wsSend(ws, { t: 'err', msg: '서버 방이 가득 찼습니다.' });
-        const u = db.users[ws._userId];
-        const deck = u && u.decks[m.deckIdx];
-        if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요' });
+        const deck = resolveDeck(ws, m);
+        if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요 (덱 형식 오류 포함)' });
         const nm = (typeof m.name === 'string' && m.name.trim()) ? m.name.trim().slice(0, LIMITS.MAX_ROOM_NAME) : (ws._userId + '의 방');
         const r = { id: 'r' + (roomSeq++), name: nm, players: [], started: false, seq: 0, manual: m.manual !== false };
         rooms.set(r.id, r);
@@ -362,9 +418,8 @@ wss.on('connection', (ws, req) => {
         const r = rooms.get(m.roomId);
         if (!r || r.started || r.players.length >= 2) return wsSend(ws, { t: 'err', msg: '입장할 수 없는 방입니다' });
         if (r.players[0].id === ws._userId) return wsSend(ws, { t: 'err', msg: '자신의 방에는 입장할 수 없습니다' });
-        const u = db.users[ws._userId];
-        const deck = u && u.decks[m.deckIdx];
-        if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요' });
+        const deck = resolveDeck(ws, m);
+        if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요 (덱 형식 오류 포함)' });
         r.players.push({ ws, id: ws._userId, deck, seat: 1 });
         ws._room = r;
         r.started = true;

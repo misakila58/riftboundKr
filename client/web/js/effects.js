@@ -72,7 +72,7 @@ function parseOp(s){
     return { op:'channel', n:+m[1], exhausted:!!m[2] };
   if((m = s.match(/^[Tt]hat player gains (\d+) points?$/)))
     return { op:'gainPoints', n:+m[1] };
-  // 룬 준비/재충전
+  // 룬 준비/재활용
   if((m = s.match(/^[Rr]eady up to (\d+) runes?/)))
     return { op:'readyRunes', n:+m[1] };
   if(/^[Yy]ou must recycle one of your runes$/.test(s))
@@ -113,7 +113,7 @@ function parseOp(s){
     return { op:'buff', count: two?2:1, spec:parseTargetSpec(m[1]||'a friendly unit') };
   }
 
-  // 전투력 증감
+  // 위력 증감
   if((m = s.match(/^[Gg]ive (me|it|a unit|an enemy unit|a friendly unit|each friendly unit(?: here)?|all friendly units(?: here)?) ([+-]\d+) :rb_might:( this turn)?/))){
     const who = m[1];
     const op = { op:'might', n:+m[2], dur:'turn' };
@@ -136,14 +136,14 @@ function parseOp(s){
   if((m = s.match(/^[Ii]t gains \[(\w[\w-]*)( \d+)?\]( this (turn|combat))?$/)))
     return { op:'grantKw', who:'it', kws:[[m[1], m[2]?+m[2]:1]], dur:'turn' };
 
-  // 스턴
+  // 기절
   if((m = s.match(/^[Ss]tun (.+)$/))){
     const tgt=m[1];
     if(/each|all/.test(tgt)) return { op:'stunAll', spec:parseTargetSpec(tgt) };
     return { op:'stun', spec:parseTargetSpec(tgt) };
   }
 
-  // 충전
+  // 전개
   if((m = s.match(/^[Cc]hannel (\d+|a) runes?( exhausted)?/)))
     return { op:'channel', n:numOf(m[1]), exhausted:!!m[2] };
 
@@ -158,7 +158,7 @@ function parseOp(s){
   // 분할 피해 ('to' 없는 형태)
   if((m = s.match(/^[Dd]eal (\d+) damage split among any number of enemy units( here)?$/)))
     return { op:'dealSplit', n:+m[1], spec:{side:'enemy', where:m[2]?'here':'any'} };
-  // 전장 아군 유닛 → 본진
+  // 전장 아군 유닛 → 기지
   if(/^[Mm]ove a friendly unit at a battlefield to its base$/.test(s))
     return { op:'moveSpec', spec:{side:'friendly',where:'bf'}, to:'base' };
   // 추가 턴 / 자기 추방
@@ -192,7 +192,7 @@ function parseOp(s){
     return { op:'bounce', who:m[1] };
   }
 
-  // 준비/소진
+  // 준비/탈진
   if(/^[Rr]eady me$/.test(s)) return { op:'readySelf' };
   if(/^[Rr]eady it$/.test(s)) return { op:'readyIt' };
   if((m = s.match(/^[Rr]eady (a|an|each)? ?(.+)$/))){
@@ -364,7 +364,7 @@ function compileCard(c){
     }
     fx.manual.push(cl);
   }
-  // 전장 카드: 정복/점유 트리거를 전장 전용 이벤트로 재매핑
+  // 전장 카드: 정복/유지 트리거를 전장 전용 이벤트로 재매핑
   if(c.type==='Battlefield' && fx.triggers.onConquerYou){
     fx.triggers.onConquerHere = fx.triggers.onConquerYou;
     delete fx.triggers.onConquerYou;
@@ -463,47 +463,47 @@ function compileAllCards(){
 // ---------- 전설(레전드) 수동 스크립트 ----------
 // 각 함수는 컴파일된 fx를 받아 수정/반환한다.
 const SCRIPTS = {
-  // 카이사 — 공허의 딸: 소진: 파워(✳) 1 추가(주문 전용 — 단순화: 범용 파워로 처리)
+  // 카이사 — 공허의 딸: 탈진: 힘(✳) 1 추가(주문 전용 — 단순화: 범용 힘로 처리)
   247: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},
-        ops:[{op:'addPower',dom:'Any',n:1}], label:'✳ 파워 1 추가 (주문 전용)', reaction:true}]; return fx; },
-  // 볼리베어 — 강대 유닛 플레이 시: 전설 소진→룬 1 소진 충전 (선택)
+        ops:[{op:'addPower',dom:'Any',n:1}], label:'✳ 힘 1 추가 (주문 전용)', reaction:true}]; return fx; },
+  // 볼리베어 — 위력적 유닛 플레이 시: 전설 탈진→룬 1 탈진 전개 (선택)
   249: fx=>{ fx.manual=[]; fx.hookMightyPlay = { ops:[{op:'channel',n:1,exhausted:true}], mayExhaustLegend:true }; return fx; },
-  // 징크스 — 시작 단계: 손패 1장 이하면 드로우 1
+  // 징크스 — 개시 단계: 손패 1장 이하면 드로우 1
   251: fx=>{ fx.manual=[]; fx.triggers.onBeginning=[{ops:[{op:'drawIfHandLE',limit:1,n:1}]}]; return fx; },
-  // 다리우스 — 소진(군단): 에너지 1 추가
+  // 다리우스 — 탈진(군단): 에너지 1 추가
   253: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true}, legion:true,
         ops:[{op:'addEnergy',n:1}], label:'에너지 1 추가 (군단)', reaction:true}]; return fx; },
-  // 아리 — 적 유닛이 내 전장 공격 시 -1 전투력 (최소 1)
+  // 아리 — 적 유닛이 내 전장 공격 시 -1 위력 (최소 1)
   255: fx=>{ fx.manual=[]; fx.hookEnemyAttackMyBf = { ops:[{op:'might',n:-1,dur:'turn',min:1,it:true}] }; return fx; },
-  // 리 신 — 1+소진: 아군 유닛 버프
+  // 리 신 — 1+탈진: 아군 유닛 버프
   257: fx=>{ fx.manual=[]; fx.activated=[{cost:{energy:1,exhaustSelf:true},
         ops:[{op:'buff',count:1,spec:{type:'unit',side:'friendly',where:'any'}}], label:'아군 유닛 버프'}]; return fx; },
-  // 야스오 — 2+소진: 아군 유닛을 본진으로/본진에서 이동
+  // 야스오 — 2+탈진: 아군 유닛을 기지으로/기지에서 이동
   259: fx=>{ fx.manual=[]; fx.activated=[{cost:{energy:2,exhaustSelf:true},
-        ops:[{op:'yasuoMove'}], label:'아군 유닛 이동 (본진↔전장)'}]; return fx; },
-  // 레오나 — 스턴 시 버프
+        ops:[{op:'yasuoMove'}], label:'아군 유닛 이동 (기지↔전장)'}]; return fx; },
+  // 레오나 — 기절 시 버프
   261: fx=>{ fx.manual=[]; fx.hookYouStun = { ops:[{op:'buff',count:1,spec:{type:'unit',side:'friendly'}}] }; return fx; },
-  // 티모 — 1+소진: 티모 유닛을 손패로 (챔피언 존/보드에서)
+  // 티모 — 1+탈진: 티모 유닛을 손패로 (챔피언 존/보드에서)
   263: fx=>{ fx.manual=[]; fx.activated=[{cost:{energy:1,exhaustSelf:true},
         ops:[{op:'teemoFetch'}], label:'티모 유닛을 손패로'}]; fx.altHideCost=true; return fx; },
-  // 빅토르 — 1+소진: 1⚔ 신병 토큰 플레이
+  // 빅토르 — 1+탈진: 1⚔ 신병 토큰 플레이
   265: fx=>{ fx.manual=[]; fx.activated=[{cost:{energy:1,exhaustSelf:true},
         ops:[{op:'token',count:1,might:1,name:'Recruit',where:'base'}], label:'신병 토큰 1개 플레이'}]; return fx; },
-  // 세트 — 소진: 유닛에게 이번 턴 [갱킹] 부여
+  // 세트 — 탈진: 유닛에게 이번 턴 [개입] 부여
   267: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},
-        ops:[{op:'grantKw',who:'a unit',kws:[['Ganking',1]],dur:'turn'}], label:'유닛에게 [갱킹] 부여'}]; return fx; },
+        ops:[{op:'grantKw',who:'a unit',kws:[['Ganking',1]],dur:'turn'}], label:'유닛에게 [개입] 부여'}]; return fx; },
   // 미스 포츈 — 버프된 아군 유닛 사망 시 대체 회수 (프롬프트) / 정복 시 준비
   269: fx=>{ fx.manual=[]; fx.hookBuffedDeathSave = true;
         fx.triggers.onConquerYou=[{ops:[{op:'readyLegend'}]}]; return fx; },
 
   // ── 전장 특수 카드 ──
-  // 신성한 무덤: 점유 시 파기 더미의 챔피언을 챔피언 존으로
+  // 신성한 무덤: 유지 시 폐기장의 챔피언을 챔피언 존으로
   281: fx=>{ fx.manual=[]; fx.triggers.onHoldHere=[{ops:[{op:'champBack'}]}]; return fx; },
-  // 심판의 투기장: 점유 시 이곳 유닛들의 정복 효과 발동
+  // 심판의 투기장: 유지 시 이곳 유닛들의 정복 효과 발동
   286: fx=>{ fx.manual=[]; fx.triggers.onHoldHere=[{ops:[{op:'conquerEffectsHere'}]}]; return fx; },
-  // 촛불 성소: 정복 시 덱 위 2장 확인/재충전
+  // 촛불 성소: 정복 시 덱 위 2장 확인/재활용
   291: fx=>{ fx.manual=[]; fx.triggers.onConquerHere=[{ops:[{op:'scryTop',n:2}]}]; return fx; },
-  // 대광장: 점유 시 이곳에 유닛 7개 이상이면 승리
+  // 대광장: 유지 시 이곳에 유닛 7개 이상이면 승리
   293: fx=>{ fx.manual=[]; fx.triggers.onHoldHere=[{ops:[{op:'winIf7Here'}]}]; return fx; },
   // 폭풍의 인장: 정복 시 룬 2개까지 준비 (근사: 즉시)
   289: fx=>{ fx.manual=[]; fx.triggers.onConquerHere=[{ops:[{op:'readyRunes',n:2}]}]; return fx; },
@@ -517,6 +517,6 @@ const SCRIPTS = {
 };
 
 // 전장 상시 효과 (엔진에서 카드 번호로 직접 참조)
-// 276: 승리 점수 +1 · 278: 은신 슬롯 2개 · 294: 이곳 유닛 +1⚔
-// 295: 이곳→본진 이동 불가 · 296: 주문/능력 피해 +1 · 297: 이곳 유닛 [갱킹]
+// 276: 승리 점수 +1 · 278: 숨겨짐 슬롯 2개 · 294: 이곳 유닛 +1⚔
+// 295: 이곳→기지 이동 불가 · 296: 주문/능력 피해 +1 · 297: 이곳 유닛 [개입]
 const BF_STATIC = { VICTORY_PLUS:276, DOUBLE_HIDE:278, MIGHT_PLUS:294, NO_RETREAT:295, BONUS_DMG:296, GANKING:297 };

@@ -50,7 +50,7 @@ UI.promptShowdown = function(){
   const bf=G.bfs[sd.bfIdx];
   document.getElementById('showdown-banner').style.display='';
   document.getElementById('showdown-banner').innerHTML =
-    `⚔️ 격돌: ${esc(card(bf.n).ko)}<br>공격 ${esc(pname(sd.attacker))} → 방어 ${esc(pname(sd.defender))}`;
+    `⚔️ 결전: ${esc(card(bf.n).ko)}<br>공격 ${esc(pname(sd.attacker))} → 방어 ${esc(pname(sd.defender))}`;
   UI.prompt(`${pname(G.actingPlayer)}: [행동]/[반응] 카드·능력을 사용하거나 패스하세요`);
   document.getElementById('btn-pass').style.display='';
   document.getElementById('btn-endturn').style.display='none';
@@ -342,7 +342,7 @@ UI.cardInfoHTML = function(c){
     ${c.img?`<img src="${c.img}" alt="">`:''}
     <div class="insp-name">${esc(c.ko)}</div>
     <div class="insp-name-en">${esc(c.name)} · #${c.n}</div>
-    <div class="insp-type">${esc(typeLine(c))}${c.m!==null&&c.m!==undefined?` · 전투력 ${c.m}`:''}${c.e!==null&&c.e!==undefined?` · 비용 ${c.e}${c.p?'+파워'+c.p:''}`:''}</div>
+    <div class="insp-type">${esc(typeLine(c))}${c.m!==null&&c.m!==undefined?` · 위력 ${c.m}`:''}${c.e!==null&&c.e!==undefined?` · 비용 ${c.e}${c.p?'+힘'+c.p:''}`:''}</div>
     <div class="insp-text">${renderIcons(esc(c.tko||c.text||'(효과 없음)'))}</div>
     ${kwNote}
     ${c.tags&&c.tags.length?`<div class="insp-tags">태그: ${c.tags.map(esc).join(', ')}</div>`:''}
@@ -355,7 +355,7 @@ UI.inspectUnit = function(u){
   if(u.isToken){
     document.getElementById('inspector').innerHTML=`
       <div class="insp-name">${esc(unitName(u))}</div>
-      <div class="insp-type">토큰 유닛 · 전투력 ${might(u)}</div>
+      <div class="insp-type">토큰 유닛 · 위력 ${might(u)}</div>
       <div class="insp-text">토큰은 죽으면 소멸합니다.</div>`;
     return;
   }
@@ -379,8 +379,8 @@ UI.showZoom = function(c){
     .map(k=>KEYWORDS_KO[k]?`<div class="cz-kw">· <b>[${KEYWORDS_KO[k].ko}]</b> ${KEYWORDS_KO[k].desc}</div>`:'')
     .join('');
   const statBits = [];
-  if(c.m!==null && c.m!==undefined) statBits.push(`전투력 ${c.m}`);
-  if(c.e!==null && c.e!==undefined) statBits.push(`비용 ${c.e}${c.p?'+파워'+c.p:''}`);
+  if(c.m!==null && c.m!==undefined) statBits.push(`위력 ${c.m}`);
+  if(c.e!==null && c.e!==undefined) statBits.push(`비용 ${c.e}${c.p?'+힘'+c.p:''}`);
   ov.innerHTML = `
     <div class="cz-box" onclick="event.stopPropagation()">
       ${c.img?`<img class="cz-img" src="${c.img}" alt="">`:'<div class="cz-noimg">🃏</div>'}
@@ -480,7 +480,7 @@ function showUnitMenu(u, e){
         ()=>activateAbility(u.ctrl,{kind:'unit',u},ab)); };
     menu.appendChild(item);
   });
-  // 하이머딩거: 모든 아군 전설/유닛/장비의 소진 능력 사용 가능
+  // 하이머딩거: 모든 아군 전설/유닛/도구의 탈진 능력 사용 가능
   if(fx.copyAllExhaust && (!NET.online || u.ctrl===NET.seat)){
     const seen=new Set();
     const addCopied=(srcFx, srcName)=>{
@@ -540,7 +540,7 @@ function onHandClick(p, idx, e){
   const title=document.createElement('div'); title.className='ctx-title'; title.textContent=c.ko;
   menu.appendChild(title);
   const play=document.createElement('div'); play.className='ctx-item';
-  play.textContent=`▶ 플레이 (비용 ${c.e??0}${c.p?'+파워'+c.p:''})`;
+  play.textContent=`▶ 플레이 (비용 ${c.e??0}${c.p?'+힘'+c.p:''})`;
   play.onclick=()=>{
     hideMenu();
     NET.dispatch({k:'play',p,handIdx:idx,opts:{}},
@@ -549,7 +549,7 @@ function onHandClick(p, idx, e){
   menu.appendChild(play);
   if(fx.kw.hidden){
     const hide=document.createElement('div'); hide.className='ctx-item';
-    hide.textContent='🕶 숨기기 (파워 1)';
+    hide.textContent='🕶 숨기기 (힘 1)';
     hide.onclick=()=>{ hideMenu(); NET.dispatch({k:'hide',p,handIdx:idx}, ()=>hideCard(p,idx)); };
     menu.appendChild(hide);
   }
@@ -567,8 +567,8 @@ function onHandClick(p, idx, e){
 let _phaseKey=null;
 const PHASE_FX={
   awaken:   ['🌅','각성 단계'],
-  beginning:['☀️','시작 단계'],
-  channel:  ['🔋','충전 단계'],
+  beginning:['☀️','개시 단계'],
+  channel:  ['🔋','전개 단계'],
   draw:     ['🃏','드로우 단계'],
   action:   ['⚔️','행동 단계'],
 };
@@ -594,9 +594,9 @@ UI.render = function(){
   if(typeof TUT!=='undefined' && TUT.active && TUT.tickSoon) TUT.tickSoon();
   // 상단바
   document.getElementById('turn-info').textContent=`${pname(G.turn)}의 턴`;
-  const phaseKo={setup:'준비',awaken:'각성',beginning:'시작',channel:'충전',draw:'드로우',action:'행동'}[G.phase]||G.phase;
+  const phaseKo={setup:'준비',awaken:'각성',beginning:'시작',channel:'전개',draw:'드로우',action:'행동'}[G.phase]||G.phase;
   document.getElementById('phase-info').textContent=
-    `${phaseKo} 단계` + (G.state==='showdown'?' · ⚔️격돌 중':'');
+    `${phaseKo} 단계` + (G.state==='showdown'?' · ⚔️결전 중':'');
   announcePhase();
   document.getElementById('score-info').innerHTML=
     `<span style="color:#9fc8ff">${esc(pname(0))} ${G.players[0].points}점</span> : <span style="color:#ffc89f">${esc(pname(1))} ${G.players[1].points}점</span> (선취 ${G.victory}점)`;
@@ -640,7 +640,7 @@ UI.render = function(){
         const menu=document.getElementById('ctx-menu');
         menu.innerHTML='';
         const play=document.createElement('div'); play.className='ctx-item';
-        play.textContent=`▶ 챔피언 플레이 (비용 ${cc.e??0}${cc.p?'+파워'+cc.p:''})`;
+        play.textContent=`▶ 챔피언 플레이 (비용 ${cc.e??0}${cc.p?'+힘'+cc.p:''})`;
         play.onclick=()=>{ hideMenu();
           NET.dispatch({k:'play',p,handIdx:-1,opts:{champZone:true}},
             ()=>playCardFromHand(p,-1,{champZone:true})); };
@@ -661,7 +661,7 @@ UI.render = function(){
       const dom=runeDomain(r.n);
       rel.textContent=DOMAIN_ICON[dom]||'◆';
       rel.style.borderColor=DOMAIN_COLOR[dom]||'#556';
-      rel.title=card(r.n).ko+(r.ex?' (소진)':'');
+      rel.title=card(r.n).ko+(r.ex?' (탈진)':'');
       rel.onmouseenter=()=>UI.inspect(card(r.n));
       rz.appendChild(rel);
     });
@@ -670,12 +670,12 @@ UI.render = function(){
     document.querySelector('#runedeck-'+p+' .pile-count').textContent=Pl.runeDeck.length;
     document.querySelector('#trash-'+p+' .pile-count').textContent=Pl.trash.length;
     document.getElementById('counts-'+p).innerHTML=`덱: ${Pl.deck.length}<br>손패: ${Pl.hand.length}`;
-    // 본진
+    // 기지
     const bz=document.getElementById('base-'+p);
-    bz.innerHTML='<div class="zone-label">본진</div>';
-    attachDropZone(bz, 'base'); // 드래그 이동: 자기 본진으로 귀환 (moveUnits가 소유자 검증)
+    bz.innerHTML='<div class="zone-label">기지</div>';
+    attachDropZone(bz, 'base'); // 드래그 이동: 자기 기지으로 귀환 (moveUnits가 소유자 검증)
     Pl.base.forEach(u=>bz.appendChild(unitEl(u)));
-    // 장비 (본진에 표시)
+    // 도구 (기지에 표시)
     Pl.gear.forEach(g=>{
       const gel=cardMiniEl(card(g.n));
       gel.style.borderColor='#8a7a4a';
@@ -782,7 +782,7 @@ function showLegendMenu(p, e){
   (fx.activated||[]).forEach((ab,abIdx)=>{
     if(NET.online && p!==NET.seat) return;
     const item=document.createElement('div'); item.className='ctx-item';
-    item.textContent='⚡ '+ab.label + (Pl.legendEx&&ab.cost&&ab.cost.exhaustSelf?' (소진됨)':'');
+    item.textContent='⚡ '+ab.label + (Pl.legendEx&&ab.cost&&ab.cost.exhaustSelf?' (탈진됨)':'');
     item.onclick=()=>{ hideMenu();
       NET.dispatch({k:'ability',p,src:{kind:'legend'},abIdx},
         ()=>activateAbility(p,{kind:'legend'},ab)); };
@@ -797,7 +797,7 @@ function showLegendMenu(p, e){
   menu.style.top=Math.min(e.clientY,innerHeight-180)+'px';
 }
 
-// ---------- 장비 메뉴 ----------
+// ---------- 도구 메뉴 ----------
 function showGearMenu(p, g, e){
   if(e && e.stopPropagation) e.stopPropagation();
   if(NET.online && p!==NET.seat) return;
@@ -859,12 +859,12 @@ window.addEventListener('DOMContentLoaded', ()=>{
     NET.dispatch({k:'endTurn'}, ()=>endTurn());
   };
   document.getElementById('btn-move').onclick=()=>{
-    if(G.state==='showdown'){ UI.toast('격돌 중에는 이동할 수 없습니다','warn'); return; }
+    if(G.state==='showdown'){ UI.toast('결전 중에는 이동할 수 없습니다','warn'); return; }
     if(G.turn!==G.actingPlayer){ return; }
     if(NET.online && G.turn!==NET.seat){ UI.toast('자신의 턴이 아닙니다','warn'); return; }
     _moveArmed=!_moveArmed;
     if(!_moveArmed) _moveSel.clear();
-    else UI.toast('이동할 아군 유닛들을 클릭한 뒤, 목적지(전장/본진)를 클릭하세요');
+    else UI.toast('이동할 아군 유닛들을 클릭한 뒤, 목적지(전장/기지)를 클릭하세요');
     UI.render();
   };
   document.getElementById('btn-pass').onclick=()=>{
@@ -877,17 +877,17 @@ window.addEventListener('DOMContentLoaded', ()=>{
     const box=document.getElementById('modal-box');
     box.innerHTML=`<h3>도움말</h3>
     <div style="font-size:13px;line-height:1.9">
-    · <b>승리</b>: 8점 선취. 전장 <b>정복</b>(빼앗기) 1점, 자기 시작 단계까지 <b>점유</b> 유지 1점.<br>
-    · 마지막 1점은 점유로만, 또는 그 턴에 모든 전장을 득점한 경우의 정복으로만 얻습니다.<br>
-    · <b>비용</b>: 에너지는 룬 소진, 파워는 룬 재충전(룬 덱으로 반환)으로 자동 지불됩니다.<br>
-    · <b>이동</b>: 유닛을 <b>드래그해서 전장/본진에 놓기</b>, 또는 [이동] 버튼 → 유닛들 클릭 → 목적지 클릭. 이동한 유닛은 소진됩니다.<br>
+    · <b>승리</b>: 8점 선취. 전장 <b>정복</b>(빼앗기) 1점, 자기 개시 단계까지 <b>유지</b> 유지 1점.<br>
+    · 마지막 1점은 유지로만, 또는 그 턴에 모든 전장을 득점한 경우의 정복으로만 얻습니다.<br>
+    · <b>비용</b>: 에너지는 룬 탈진, 힘는 룬 재활용(룬 덱으로 반환)으로 자동 지불됩니다.<br>
+    · <b>이동</b>: 유닛을 <b>드래그해서 전장/기지에 놓기</b>, 또는 [이동] 버튼 → 유닛들 클릭 → 목적지 클릭. 이동한 유닛은 탈진됩니다.<br>
     · 여러 유닛을 함께 보내려면 [이동] 버튼으로 유닛들을 선택한 뒤 그중 하나를 드래그하세요.<br>
-    · 상대 전장/유닛이 있는 곳으로 이동하면 <b>격돌</b>이 열립니다. [행동]/[반응] 카드로 응수한 뒤 패스하면 전투가 벌어집니다.<br>
-    · <b>전투</b>: 양측 전투력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 본진 귀환.<br>
+    · 상대 전장/유닛이 있는 곳으로 이동하면 <b>결전</b>이 열립니다. [행동]/[반응] 카드로 응수한 뒤 패스하면 전투가 벌어집니다.<br>
+    · <b>전투</b>: 양측 위력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 기지 귀환.<br>
     · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동.<br>
     · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 클릭/Esc).<br>
     · 자동화가 안 되는 효과는 ⚙️ 알림이 뜹니다.<br>
-    · 본진은 안전지대이며 유닛은 본진↔전장으로 이동합니다. [갱킹]은 전장 간 이동 가능.<br>
+    · 기지은 안전지대이며 유닛은 기지↔전장으로 이동합니다. [개입]은 전장 간 이동 가능.<br>
     </div>
     <div class="modal-btns"><button class="primary" onclick="closeModal()">닫기</button></div>`;
     openModal();

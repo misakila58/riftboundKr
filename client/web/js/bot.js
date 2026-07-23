@@ -5,8 +5,8 @@
 const BOT = { active:false, seat:1, style:null, busy:false, tried:new Set(), lastTC:-1, movedTC:-1 };
 
 const BOT_PRESETS = [
-  { id:'aggro',  name:'🗡️ 돌격봇', desc:'유닛을 내는 족족 전장으로 보내 격돌을 겁니다' },
-  { id:'turtle', name:'🛡️ 수비봇', desc:'비어있는 전장만 점유하고 본진에 유닛을 모읍니다' },
+  { id:'aggro',  name:'🗡️ 돌격봇', desc:'유닛을 내는 족족 전장으로 보내 결전을 겁니다' },
+  { id:'turtle', name:'🛡️ 수비봇', desc:'비어있는 전장만 유지하고 기지에 유닛을 모읍니다' },
   { id:'random', name:'🎲 랜덤봇', desc:'플레이·이동을 무작위로 합니다' },
 ];
 
@@ -67,7 +67,7 @@ setInterval(()=>{
   if(document.getElementById('modal-overlay').style.display!=='none') return;
   if(BOT.lastTC!==G.turnCount){ BOT.lastTC=G.turnCount; BOT.tried.clear(); }
 
-  // 격돌: 봇 응답 차례면 패스
+  // 결전: 봇 응답 차례면 패스
   if(G.state==='showdown'){
     if(G.actingPlayer===BOT.seat){
       BOT.busy=true;

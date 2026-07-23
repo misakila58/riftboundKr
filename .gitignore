@@ -30,3 +30,6 @@ tools/data/ogn_*.json
 .DS_Store
 Thumbs.db
 *.log
+
+# 접근 코드(입장 통제) — 절대 커밋 금지
+**/access-code.txt

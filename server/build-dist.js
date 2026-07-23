@@ -33,6 +33,13 @@ fs.copyFileSync(path.join(SRV, 'cards.json'), path.join(DIST, 'cards.json'));
 // 3) 실행 도우미 (bat/가이드)
 copyDir(path.join(SRV, 'dist-assets'), DIST);
 
+// 3.5) 모바일/브라우저용 웹앱 (exe 옆 web/ 에 넣어 서버가 제공)
+const webSrc = path.join(SRV, '..', 'client', 'web');
+if (fs.existsSync(path.join(webSrc, 'index.html'))) {
+  copyDir(webSrc, path.join(DIST, 'web'));
+  console.log('웹앱 포함(web/): 모바일은 서버 주소를 브라우저로 열어 접속');
+}
+
 // 4) 독립 실행 파일
 if (process.argv.includes('--exe')) {
   console.log('독립 실행 파일(.exe) 빌드 중...');

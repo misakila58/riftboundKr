@@ -26,15 +26,21 @@ function newGame(cfg){
   UID = 1;
   seedRng(cfg.seed || (Date.now()&0xffffffff));
   G = {
-    players: cfg.players.map((pc,i)=>({
+    players: cfg.players.map((pc,i)=>{
+      // 공식 룰: 주 덱 40장에는 선발 챔피언 1장이 포함되며, 시작 시 챔피언 구역으로 이동 → 덱 39장 시작
+      const deck=shuffle([...pc.deck]);
+      const ci=deck.indexOf(pc.champN);
+      if(ci>=0) deck.splice(ci,1);
+      return {
       idx:i, name:pc.name, legendN:pc.legendN, legendEx:false,
       champN:pc.champN, champInZone:true,
-      deck:shuffle([...pc.deck]), hand:[], trash:[], banish:[],
+      deck, hand:[], trash:[], banish:[],
       runeDeck:shuffle([...pc.runes]), runes:[],
       base:[], gear:[],
       points:0, energy:0, power:{Fury:0,Calm:0,Mind:0,Body:0,Order:0,Chaos:0,Any:0},
       playedCards:0, scoredBf:{}, drewFromEmpty:false,
-    })),
+      };
+    }),
     bfs: cfg.bfs.map((n,i)=>({ n, owner:i, controller:null, units:[], hiddenCards:[], scored:{} })),
     turn:0, turnCount:0, phase:'setup', state:'neutral',
     showdown:null, winner:null, actingPlayer:0,
@@ -47,7 +53,7 @@ function newGame(cfg){
   G.players.forEach(p=>{ for(let i=0;i<4;i++) drawCard(p.idx, true); });
 }
 
-// ---------- 유닛 인스턴스 ----------
+// ---------- 유닛 인기절스 ----------
 function makeUnit(n, ctrl, opts={}){
   const c = card(n);
   return {
@@ -74,7 +80,7 @@ function freshTF(){ return {
 function TF(){ return (G && (G.tflags || (G.tflags=freshTF()))) || freshTF(); }
 
 // ---------- 상시(정적) 효과 레이어 ----------
-// 보드의 유닛/장비/전장이 제공하는 statics를 순회한다.
+// 보드의 유닛/도구/전장이 제공하는 statics를 순회한다.
 function collectStatics(){
   const out=[];
   for(const u of everyUnit()){
@@ -110,7 +116,7 @@ function aloneAt(u){
   return G.bfs[u.loc].units.filter(x=>x.ctrl===u.ctrl).length===1;
 }
 
-// 유효 전투력 (전투 상황 반영)
+// 유효 위력 (전투 상황 반영)
 function might(u, combatRole){
   if(u.stunned && combatRole) return 0;
   const c = unitCard(u);
@@ -146,7 +152,7 @@ function effKw(u){
     if(typeof v==='number' && typeof base[k]==='number') base[k]+=v;
     else base[k]=v;
   });
-  // 전장 상시: 이곳 유닛 [갱킹]
+  // 전장 상시: 이곳 유닛 [개입]
   if(u.loc!=='base' && G.bfs[u.loc] && G.bfs[u.loc].n===BF_STATIC.GANKING) base.ganking=true;
   if(!_inKw){
     _inKw=true;
@@ -182,7 +188,7 @@ function placeUnit(u, loc){
   else G.bfs[loc].units.push(u);
 }
 
-// ---------- 드로우/파기 ----------
+// ---------- 드로우/폐기 ----------
 function drawCard(p, silent){
   const P=G.players[p];
   if(P.deck.length===0){ burnOut(p); }
@@ -192,7 +198,7 @@ function drawCard(p, silent){
 }
 function burnOut(p){
   const P=G.players[p];
-  UI.log(`⚠️ ${pname(p)} 번아웃! 파기 더미를 덱으로 되돌리고 상대가 1점을 얻습니다.`, 'sys');
+  UI.log(`⚠️ ${pname(p)} 번아웃! 폐기장를 덱으로 되돌리고 상대가 1점을 얻습니다.`, 'sys');
   P.deck = shuffle([...P.trash]); P.trash=[];
   addPoints(opp(p), 1, 'effect');
 }
@@ -215,14 +221,15 @@ function addPoints(p, n, method, bfIdx){
   const P=G.players[p];
   const V=G.victory;
   if(method==='conquer'||method==='hold'){
-    // 최종 득점 제한
-    if(P.points===V-1){
-      if(method==='hold'){ P.points++; }
+    // 최종 점수 제한 (공식 RUP4: 정복에만 적용 — 점거/효과 점수는 무제한)
+    // "승리 점수까지 1점 남았거나 그보다 더 근접한" 정복 시도: 이번 턴 모든 전장 득점 시에만 획득, 아니면 대신 1장 뽑기
+    if(P.points>=V-1){
+      if(method==='hold'){ P.points=Math.min(V,P.points+n); }
       else {
         const scoredAll = G.bfs.every((bf,i)=>P.scoredBf[i]);
-        if(scoredAll){ P.points++; }
+        if(scoredAll){ P.points=Math.min(V,P.points+n); }
         else {
-          UI.log(`${pname(p)} 최종 득점 조건 미달(모든 전장 미득점) → 대신 카드 1장 드로우`, 'score');
+          UI.log(`${pname(p)} 최종 점수 조건 미달(이번 턴 모든 전장 미득점) → 대신 카드 1장 뽑기`, 'score');
           drawCard(p);
           return;
         }
@@ -231,7 +238,7 @@ function addPoints(p, n, method, bfIdx){
   } else {
     P.points = Math.min(V, P.points+n);
   }
-  UI.log(`🏆 ${pname(p)} ${method==='conquer'?'정복':method==='hold'?'점유':'효과'} 득점! (${P.points}점)`, 'score');
+  UI.log(`🏆 ${pname(p)} ${method==='conquer'?'정복':method==='hold'?'유지':'효과'} 득점! (${P.points}점)`, 'score');
   checkWin();
 }
 function checkWin(){
@@ -247,41 +254,48 @@ function channelRunes(p, n, exhausted){
     if(rn===undefined) break;
     P.runes.push({n:rn, ex:!!exhausted});
   }
-  UI.log(`${pname(p)} 룬 ${n}개 충전${exhausted?' (소진 상태)':''}`, 'p'+p);
+  UI.log(`${pname(p)} 룬 ${n}개 전개${exhausted?' (탈진 상태)':''}`, 'p'+p);
 }
 function runeDomain(n){ const c=card(n); return c.dom[0]||'Colorless'; }
 
 // 지불 가능성 검사: energy + powerPips(도메인 배열, 'Any' 포함)
+// 공식 룰: 룬 하나로 에너지 1(탈진) + 힘 1(재활용)을 모두 낼 수 있다.
+// "재활용: 힘 추가" 스킬은 탈진 여부와 무관하므로, 에너지로 탈진시킨 룬을 그대로 재활용해 힘을 지불할 수 있음.
+// → 에너지와 힘은 독립 조건: 에너지 ≤ 풀+준비 룬 수, 힘 핍마다 영역 일치 룬(상태 무관) 1개.
 function canPay(p, energy, pips){
   const P=G.players[p];
-  let poolE = P.energy;
   const poolP = {...P.power};
-  const runes = P.runes.map(r=>({...r}));
-  // 파워 핍: 풀 → 소진 룬 재충전 → 준비 룬 재충전 순으로 가상 할당
+  const used = new Set();
+  // 힘 핍: 풀 → 영역 일치 룬 (준비/탈진 무관, 핍당 서로 다른 룬)
   for(const pip of pips){
     if(pip==='Any'){
       const anyDom = Object.keys(poolP).find(d=>poolP[d]>0);
       if(anyDom){ poolP[anyDom]--; continue; }
-      let ri = runes.findIndex(r=>r.ex && !r.used);
-      if(ri<0) ri = runes.findIndex(r=>!r.used);
+      const ri = P.runes.findIndex((r,i)=>!used.has(i));
       if(ri<0) return false;
-      runes[ri].used=true;
+      used.add(ri);
     } else {
       if(poolP[pip]>0){ poolP[pip]--; continue; }
       if(poolP.Any>0){ poolP.Any--; continue; }
-      let ri = runes.findIndex(r=>r.ex && !r.used && runeDomain(r.n)===pip);
-      if(ri<0) ri = runes.findIndex(r=>!r.used && runeDomain(r.n)===pip);
+      const ri = P.runes.findIndex((r,i)=>!used.has(i) && runeDomain(r.n)===pip);
       if(ri<0) return false;
-      runes[ri].used=true;
+      used.add(ri);
     }
   }
-  const readyLeft = runes.filter(r=>!r.ex && !r.used).length;
-  return poolE + readyLeft >= energy;
+  // 에너지: 재활용 예정 룬도 먼저 탈진시켜 에너지를 낼 수 있으므로 준비 룬 전체가 후보
+  const ready = P.runes.filter(r=>!r.ex).length;
+  return P.energy + ready >= energy;
 }
 
 // 실제 지불 (canPay 선행 가정)
+// 순서 중요: ① 에너지(준비 룬 탈진) → ② 힘(탈진 룬 우선 재활용 — 방금 에너지에 쓴 룬 포함)
 function payCost(p, energy, pips, silent){
   const P=G.players[p];
+  // ① 에너지: 풀 → 준비 룬 탈진
+  let need = energy;
+  const useE = Math.min(P.energy, need); P.energy-=useE; need-=useE;
+  for(const r of P.runes){ if(need<=0) break; if(!r.ex){ r.ex=true; need--; } }
+  // ② 힘 핍: 풀 → 탈진 룬 재활용(룬 덱 반환) → 준비 룬 재활용
   const recycled=[];
   for(const pip of pips){
     if(pip!=='Any' && P.power[pip]>0){ P.power[pip]--; continue; }
@@ -289,7 +303,7 @@ function payCost(p, energy, pips, silent){
       const d=Object.keys(P.power).find(d=>P.power[d]>0);
       if(d){ P.power[d]--; continue; }
     } else if(P.power.Any>0){ P.power.Any--; continue; }
-    // 룬 재충전
+    // 룬 재활용
     let match = r=> pip==='Any' ? true : runeDomain(r.n)===pip;
     let ri = P.runes.findIndex(r=>r.ex && match(r));
     if(ri<0) ri = P.runes.findIndex(match);
@@ -298,14 +312,11 @@ function payCost(p, energy, pips, silent){
       P.runeDeck.push(r.n); recycled.push(card(r.n).ko);
     }
   }
-  let need = energy;
-  const useE = Math.min(P.energy, need); P.energy-=useE; need-=useE;
-  for(const r of P.runes){ if(need<=0) break; if(!r.ex){ r.ex=true; need--; } }
   if(!silent && (energy||pips.length))
-    UI.log(`${pname(p)} 비용 지불: 에너지 ${energy}${pips.length?' + 파워 '+pips.length:''}${recycled.length?' (룬 재충전: '+recycled.join(', ')+')':''}`, 'p'+p);
+    UI.log(`${pname(p)} 비용 지불: 에너지 ${energy}${pips.length?' + 힘 '+pips.length:''}${recycled.length?' (룬 재활용: '+recycled.join(', ')+')':''}`, 'p'+p);
 }
 
-// 카드의 파워 핍 목록
+// 카드의 힘 핍 목록
 function powerPips(c){
   const n = c.p||0;
   if(n<=0) return [];
@@ -346,22 +357,29 @@ async function startTurn(){
   G.phase='awaken'; UI.render();
   UI.log(`━━ ${pname(p)}의 턴 ${Math.ceil(G.turnCount/2)} ━━`, 'sys');
 
-  // A: 각성 — 룬/유닛/장비/전설 모두 준비 (공식: Ready all your Runes, Units, and Gear)
+  // A: 각성 — 룬/유닛/도구/전설 모두 준비 (공식: Ready all your Runes, Units, and Gear)
   P.legendEx=false; P.legendUsed=false;
   P.runes.forEach(r=>r.ex=false);
   allUnits(p).forEach(u=>{ u.ex=false; });
   P.gear.forEach(g=>{ g.ex=false; });
   UI.render();
 
-  // B: 시작 단계 — [일시] 처치 (득점 전) → 점유 득점 → 시작 트리거 (공식 순서)
-  // 수동 모드에서는 규칙 자동 처리를 하지 않음(득점·트리거·[일시] 모두 플레이어가 직접 처리)
+  // B: 개시 단계 — 공식 순서: ① 개시 절차(시작 시 효과: [일시적] 처치·개시 트리거) → ② 득점 절차(유지)
+  // 수동 모드에서는 규칙 자동 처리를 하지 않음(득점·트리거·[일시적] 모두 플레이어가 직접 처리)
   G.phase='beginning'; UI.render();
   if(!G.manual){
+    // ① 개시 절차 — 개시 단계 시작 시 효과
     for(const u of everyUnit().filter(u=>u.ctrl===p && effKw(u).temporary)){
-      UI.log(`[일시] ${unitName(u)} 처치됨`, 'sys');
+      UI.log(`[일시적] ${unitName(u)} 처치됨`, 'sys');
       await killUnit(u);
     }
-    // 점유(Hold) 득점
+    if(G.turnCount<=2){
+      for(let i=0;i<G.bfs.length;i++)
+        await fireBfTrigger(i,'onFirstBeginning',{p, bfIdx:i});
+    }
+    await fireTriggers('onBeginning', {p});
+    if(G.winner!==null) return;
+    // ② 득점 절차 — 통제 중인 전장 점거(유지)
     for(let i=0;i<G.bfs.length;i++){
       const bf=G.bfs[i];
       if(bf.controller===p && G.winner===null){
@@ -372,18 +390,11 @@ async function startTurn(){
       }
     }
     if(G.winner!==null) return;
-    // 시작 트리거 (전장 첫 시작 단계 포함)
-    if(G.turnCount<=2){
-      for(let i=0;i<G.bfs.length;i++)
-        await fireBfTrigger(i,'onFirstBeginning',{p, bfIdx:i});
-    }
-    await fireTriggers('onBeginning', {p});
-    if(G.winner!==null) return;
   } else if(G.bfs.some(bf=>bf.controller===p)){
-    UI.log('※ 수동 모드: 점유 득점·시작 효과는 직접 처리하세요 (유닛 우클릭/점수 버튼)', 'sys');
+    UI.log('※ 수동 모드: 유지 득점·시작 효과는 직접 처리하세요 (유닛 우클릭/점수 버튼)', 'sys');
   }
 
-  // C: 충전
+  // C: 전개
   G.phase='channel'; UI.render();
   const chN = (G.turnCount===2)?3:2;
   channelRunes(p, chN);
@@ -396,7 +407,7 @@ async function startTurn(){
   P.energy=0; Object.keys(P.power).forEach(k=>P.power[k]=0);
 
   G.phase='action'; G.state='neutral';
-  G.actingPlayer=p; // 이전 턴 격돌 해결 시점의 행동 권한이 남지 않도록 턴 주인으로 초기화
+  G.actingPlayer=p; // 이전 턴 결전 해결 시점의 행동 권한이 남지 않도록 턴 주인으로 초기화
   UI.render();
   UI.prompt(`${pname(p)}의 행동 단계 — 카드 플레이 / 이동 / 능력 발동 / 턴 종료`);
 }
@@ -405,7 +416,7 @@ async function endTurn(){
   const p=G.turn, P=G.players[p];
   // 턴 종료 트리거 (소나, 눈부신 오로라 등)
   await fireEvent('onEndTurn', {p});
-  // 종료 단계: 스턴 해제, 지속 효과 만료, 표시 피해 제거, 풀 비우기
+  // 종료 단계: 기절 해제, 지속 효과 만료, 표시 피해 제거, 풀 비우기
   // (공식: 유닛의 표시 피해는 전투 종료 시와 매 턴 종료 시 제거된다)
   everyUnit().forEach(u=>{
     u.stunned=false;
@@ -423,7 +434,7 @@ async function endTurn(){
   await startTurn();
 }
 
-// ---------- 공용 헬퍼: 피해/버프/준비/이동/장비 파기 ----------
+// ---------- 공용 헬퍼: 피해/버프/준비/이동/도구 폐기 ----------
 // 피해 적용 (치환·방지·칙령 처리). kind: 'spell'|'ability'|'effect'|'combat'
 function dealDamage(u, n, kind){
   if(n<=0) return 0;
@@ -443,7 +454,7 @@ async function buffUnit(u, byP){
   await fireEvent('onYouBuff', {p:byP, it:u});
 }
 async function readyUnit(u, byP){
-  // 마법사냥꾼 간수: 적 유닛/장비는 준비 불가
+  // 마법사냥꾼 간수: 적 유닛/도구는 준비 불가
   if(byP!==undefined && u.ctrl!==byP && everyUnit().some(x=>x.ctrl===u.ctrl && x.loc!=='base' && unitFx(x).jailerReady)){
     UI.log(`「마법사냥꾼 간수」: 준비시킬 수 없습니다`, 'sys'); return;
   }
@@ -465,7 +476,7 @@ async function killGear(p, gearIdx){
   const P=G.players[p];
   const g=P.gear[gearIdx]; if(!g) return;
   P.gear.splice(gearIdx,1);
-  UI.log(`장비 「${card(g.n).ko}」 파기됨`, 'p'+p);
+  UI.log(`도구 「${card(g.n).ko}」 폐기됨`, 'p'+p);
   const gf=FX[g.n];
   if(gf&&gf.triggers&&gf.triggers.onGearLeave) for(const t of gf.triggers.onGearLeave) await execOps(t.ops, {p, gear:g});
   trashCard(p, g.n);
@@ -474,11 +485,11 @@ async function killGear(p, gearIdx){
 
 // ---------- 카드 플레이 ----------
 function playRestriction(c, p){
-  // 유닛/장비: 자기 턴 중립 상태에서만 (행동/반응 키워드 예외)
+  // 유닛/도구: 자기 턴 중립 상태에서만 (행동/반응 키워드 예외)
   const fx=FX[c.n]||{kw:{}};
   if(TF().noPlay[p]) return '이번 턴에는 카드를 플레이할 수 없습니다 (효과)';
   if(G.state==='showdown'){
-    if(!(fx.kw.action||fx.kw.reaction)) return '격돌 중에는 [행동]/[반응] 카드만 플레이할 수 있습니다';
+    if(!(fx.kw.action||fx.kw.reaction)) return '결전 중에는 [행동]/[반응] 카드만 플레이할 수 있습니다';
     return null;
   }
   if(G.turn!==p) return '자신의 턴에만 플레이할 수 있습니다';
@@ -499,7 +510,7 @@ async function playCardFromHand(p, handIdx, opts={}){
   if(G.manual){
     let loc='base';
     if(c.type==='Unit'){
-      const locs=[{v:'base',label:'본진'}];
+      const locs=[{v:'base',label:'기지'}];
       G.bfs.forEach((bf,i)=>locs.push({v:i,label:`전장: ${card(bf.n).ko}`}));
       loc = await UI.pickOption(p,'유닛을 배치할 위치', locs);
       if(loc===null) return false;
@@ -526,11 +537,11 @@ async function playCardFromHand(p, handIdx, opts={}){
         addPaid = await UI.confirmP(p, `추가 비용: ${AC.label||'카드 1장 버리기'} — 지불할까요?`);
     } else if(AC.kind==='pip'){
       if(canPay(p, 0, [AC.dom]))
-        addPaid = await UI.confirmP(p, `추가 비용: ${AC.label||AC.dom+' 파워 1'} — 지불할까요?`);
+        addPaid = await UI.confirmP(p, `추가 비용: ${AC.label||AC.dom+' 힘 1'} — 지불할까요?`);
     } else if(AC.kind==='exhaustUnit'){
       const cands=everyUnit().filter(u=>u.ctrl===p&&!u.ex);
-      if(cands.length && await UI.confirmP(p, `추가 비용: ${AC.label||'아군 유닛 소진'} — 지불할까요?`)){
-        addSel=await UI.pickUnitFrom(p,cands,'소진할 아군 유닛'); addPaid=!!addSel;
+      if(cands.length && await UI.confirmP(p, `추가 비용: ${AC.label||'아군 유닛 탈진'} — 지불할까요?`)){
+        addSel=await UI.pickUnitFrom(p,cands,'탈진할 아군 유닛'); addPaid=!!addSel;
       }
     } else if(AC.kind==='spendBuff'){
       const cands=everyUnit().filter(u=>u.ctrl===p&&u.buff>0);
@@ -574,7 +585,7 @@ async function playCardFromHand(p, handIdx, opts={}){
   if(c.type==='Unit' && fx.kw.accelerate && !opts.fromHidden){
     const accPips = [ (c.dom&&c.dom.length===1)?c.dom[0]:'Any' ];
     if(canPay(p, energy+1, [...pips, ...accPips])){
-      accel = await UI.confirmP(p, `[가속] 추가 비용(에너지 1+파워 1)을 지불하고 준비 상태로 등장시킬까요?`);
+      accel = await UI.confirmP(p, `[가속] 추가 비용(에너지 1+힘 1)을 지불하고 준비 상태로 등장시킬까요?`);
       if(accel){ energy+=1; pips=[...pips,...accPips]; }
     }
   }
@@ -585,9 +596,9 @@ async function playCardFromHand(p, handIdx, opts={}){
   if(c.type==='Unit'){
     if(opts.fromHidden) loc=opts.bfIdx;
     else {
-      // 마법사냥꾼 간수: 상대는 유닛을 본진에만
+      // 마법사냥꾼 간수: 상대는 유닛을 기지에만
       const jailed = everyUnit().some(u=>u.ctrl!==p && u.loc!=='base' && unitFx(u).jailerUnits);
-      const locs=[{v:'base',label:'본진'}];
+      const locs=[{v:'base',label:'기지'}];
       if(!jailed){
         const openOK = fx.playToOpenBf || everyUnit().some(u=>u.ctrl===p && unitFx(u).openBfAura);
         G.bfs.forEach((bf,i)=>{
@@ -611,7 +622,7 @@ async function playCardFromHand(p, handIdx, opts={}){
   // 추가 비용의 실제 지불 (손패 정리 후)
   if(AC && addPaid){
     if(AC.kind==='discard' && P.hand.length){ const di=await UI.pickHandCard(p,'버릴 카드 (추가 비용)'); if(di!==null) await discardFromHand(p,di); }
-    else if(AC.kind==='exhaustUnit' && addSel){ addSel.ex=true; UI.log(`${unitName(addSel)} 소진 (추가 비용)`, 'p'+p); }
+    else if(AC.kind==='exhaustUnit' && addSel){ addSel.ex=true; UI.log(`${unitName(addSel)} 탈진 (추가 비용)`, 'p'+p); }
     else if(AC.kind==='spendBuff' && addSel){ addSel.buff=Math.max(0,addSel.buff-1); }
     else if(AC.kind==='spendBuffs'){ let left=addCount;
       for(const u of everyUnit().filter(u=>u.ctrl===p&&u.buff>0)){ const t=Math.min(left,u.buff); u.buff-=t; left-=t; if(!left) break; } }
@@ -639,11 +650,11 @@ async function playCardFromHand(p, handIdx, opts={}){
     placedU=u;
     placeUnit(u, loc);
     UI.render();
-    // 시야 (자체 키워드 또는 오라)
+    // 통찰 (자체 키워드 또는 오라)
     if(fx.kw.vision || effKw(u).vision) await visionCheck(p);
     // 플레이 트리거
     await runTriggerList(fx.triggers.onPlay, {p, unit:u, bfIdx: (loc!=='base'?loc:null), legionOK, paidAdd:addPaid, addCount});
-    // 강대 유닛 훅 (볼리베어)
+    // 위력적 유닛 훅 (볼리베어)
     if(isMighty(u)) await legendHook(p,'hookMightyPlay',{p, unit:u});
     if(fx.manual.length) UI.manualNotice(c);
   }
@@ -656,7 +667,7 @@ async function playCardFromHand(p, handIdx, opts={}){
       if(cw && cw.countered) countered=true;
       else if(cw && cw.steal!==undefined) execAs=cw.steal;
     }
-    if(fx.counter||fx.steal){ UI.log(`「${c.ko}」 — 대응할 상대 주문이 없어 효과 없이 파기됩니다`, 'sys'); }
+    if(fx.counter||fx.steal){ UI.log(`「${c.ko}」 — 대응할 상대 주문이 없어 효과 없이 폐기됩니다`, 'sys'); }
     if(!countered){
       G._casting=p; G._spellKilled=false; G._banishSpell=false;
       if(fx.playOps.length){
@@ -667,16 +678,16 @@ async function playCardFromHand(p, handIdx, opts={}){
       }
       // 소모형 플래그 해제 (다음 주문 할인/보너스)
       TF().nextSpellDisc[p]=0; TF().nextSpellBonus[p]=0;
-      // 주문으로 유닛 처치 시: 파기 더미 반응 (불멸의 불사조 등)
+      // 주문으로 유닛 처치 시: 폐기장 반응 (불멸의 불사조 등)
       if(G._spellKilled){
         for(const tn of [...new Set(P.trash)]){
           const tfx=FX[tn];
           if(tfx && tfx.fromTrashOnSpellKill && canPay(p, tfx.fromTrashOnSpellKill.energy||0, tfx.fromTrashOnSpellKill.pips||[])){
-            const yes=await UI.confirmP(p, `「${card(tn).ko}」을(를) 파기 더미에서 플레이할까요? (비용 지불)`);
+            const yes=await UI.confirmP(p, `「${card(tn).ko}」을(를) 폐기장에서 플레이할까요? (비용 지불)`);
             if(yes){ payCost(p, tfx.fromTrashOnSpellKill.energy||0, tfx.fromTrashOnSpellKill.pips||[]);
               P.trash.splice(P.trash.indexOf(tn),1);
               const uu=makeUnit(tn,p,{loc:'base'}); placeUnit(uu,'base');
-              UI.log(`「${card(tn).ko}」 파기 더미에서 플레이!`, 'p'+p); }
+              UI.log(`「${card(tn).ko}」 폐기장에서 플레이!`, 'p'+p); }
           }
         }
       }
@@ -755,32 +766,32 @@ async function counterWindow(caster, c){
   return null;
 }
 
-// 시야: 덱 맨 위 확인 → 재충전 여부
+// 통찰: 덱 맨 위 확인 → 재활용 여부
 async function visionCheck(p){
   const P=G.players[p];
   if(!P.deck.length) return;
   const top=P.deck[0];
-  const yes = await UI.confirmP(p, `[시야] 덱 맨 위: 「${card(top).ko}」 — 덱 맨 아래로 되돌릴까요?`, card(top));
-  if(yes){ P.deck.shift(); P.deck.push(top); UI.log(`${pname(p)} [시야]로 덱 맨 위 카드를 재충전`, 'p'+p); await fireEvent('onYouRecycle',{p}); }
+  const yes = await UI.confirmP(p, `[통찰] 덱 맨 위: 「${card(top).ko}」 — 덱 맨 아래로 되돌릴까요?`, card(top));
+  if(yes){ P.deck.shift(); P.deck.push(top); UI.log(`${pname(p)} [통찰]로 덱 맨 위 카드를 재활용`, 'p'+p); await fireEvent('onYouRecycle',{p}); }
 }
 
-// ---------- 숨기기 (은신) ----------
+// ---------- 숨기기 (숨겨짐) ----------
 async function hideCard(p, handIdx){
   const P=G.players[p];
   const n=P.hand[handIdx]; const c=card(n);
   const fx=FX[n]||{kw:{}};
-  if(!fx.kw.hidden){ UI.toast('[은신] 카드가 아닙니다','warn'); return; }
+  if(!fx.kw.hidden){ UI.toast('[숨겨짐] 카드가 아닙니다','warn'); return; }
   if(G.turn!==p || G.state!=='neutral'){ UI.toast('자신의 턴 중립 상태에서만 숨길 수 있습니다','warn'); return; }
   const cap = bf => bf.n===BF_STATIC.DOUBLE_HIDE?2:1;
   const myBfs = G.bfs.map((bf,i)=>({bf,i})).filter(x=>x.bf.controller===p && x.bf.hiddenCards.length<cap(x.bf));
   if(!myBfs.length){ UI.toast('숨길 수 있는 (통제 중 + 빈 슬롯) 전장이 없습니다','warn'); return; }
-  // 비용: 파워 1 (티모 전설: 에너지 1 대체 / 게릴라전: 무료)
+  // 비용: 힘 1 (티모 전설: 에너지 1 대체 / 게릴라전: 무료)
   const teemo = FX[P.legendN] && FX[P.legendN].altHideCost;
   let paid=false;
   if(TF().freeHide[p]) paid=true;
   else if(canPay(p,0,['Any'])){ payCost(p,0,['Any']); paid=true; }
   else if(teemo && canPay(p,1,[])){ payCost(p,1,[]); paid=true; }
-  if(!paid){ UI.toast('자원이 부족합니다 (파워 1 필요)','warn'); return; }
+  if(!paid){ UI.toast('자원이 부족합니다 (힘 1 필요)','warn'); return; }
   const sel = myBfs.length===1? myBfs[0].i : await UI.pickOption(p,'카드를 숨길 전장', myBfs.map(x=>({v:x.i,label:card(x.bf.n).ko})));
   if(sel===null) return;
   P.hand.splice(handIdx,1);
@@ -791,7 +802,7 @@ async function hideCard(p, handIdx){
 
 async function playHidden(p, bfIdx){
   const bf=G.bfs[bfIdx];
-  // 녹서스 파괴공작원: 이곳의 상대 [은신] 카드는 공개 불가
+  // 녹서스 파괴공작원: 이곳의 상대 [숨겨짐] 카드는 공개 불가
   if(bf.units.some(u=>u.ctrl!==p && unitFx(u).blockReveal)){
     UI.toast('「녹서스 파괴공작원」: 이곳의 숨긴 카드를 공개할 수 없습니다','warn'); return;
   }
@@ -810,7 +821,7 @@ async function playHidden(p, bfIdx){
   if(c.type==='Unit'){
     await playCardFromHand(p, -1, {fromHidden:true, bfIdx, directN:n});
   } else {
-    // 주문/장비: 기본 비용 무시하고 실행
+    // 주문/도구: 기본 비용 무시하고 실행
     UI.log(`${pname(p)} 숨겨둔 「${c.ko}」 플레이 (비용 무시)`, 'p'+p);
     const fx=FX[n]||{playOps:[],manual:[]};
     const P=G.players[p];
@@ -847,13 +858,13 @@ playCardFromHand = async function(p, handIdx, opts={}){
 async function moveUnits(p, units, dest){
   // dest: 'base' | bfIdx
   for(const u of units){
-    if(u.ex){ UI.toast('소진된 유닛은 이동할 수 없습니다','warn'); return false; }
+    if(u.ex){ UI.toast('탈진된 유닛은 이동할 수 없습니다','warn'); return false; }
     if(u.loc===dest){ UI.toast('이미 그 위치에 있습니다','warn'); return false; }
     if(u.loc!=='base' && dest!=='base' && !effKw(u).ganking){
-      UI.toast(`${unitName(u)}: 전장 간 이동은 [갱킹]이 필요합니다`,'warn'); return false;
+      UI.toast(`${unitName(u)}: 전장 간 이동은 [개입]이 필요합니다`,'warn'); return false;
     }
     if(u.loc!=='base' && dest==='base' && G.bfs[u.loc].n===BF_STATIC.NO_RETREAT){
-      UI.toast(`「${card(G.bfs[u.loc].n).ko}」: 이곳에서 본진으로 이동할 수 없습니다`,'warn'); return false;
+      UI.toast(`「${card(G.bfs[u.loc].n).ko}」: 이곳에서 기지으로 이동할 수 없습니다`,'warn'); return false;
     }
   }
   const origins = units.map(u=>u.loc);
@@ -866,7 +877,7 @@ async function moveUnits(p, units, dest){
   for(let i=0;i<units.length;i++){
     if(origins[i]!=='base') await fireBfTrigger(origins[i],'onMoveFromHere',{p, it:units[i], bfIdx:origins[i]});
   }
-  const destName = dest==='base'?'본진':`「${card(G.bfs[dest].n).ko}」`;
+  const destName = dest==='base'?'기지':`「${card(G.bfs[dest].n).ko}」`;
   UI.log(`${pname(p)} 유닛 ${units.length}개 ${destName}(으)로 이동`, 'p'+p);
   if(G.manual){ UI.render(); return true; } // 수동: 이동 트리거·전투 자동 처리 없음
   // 유닛별 이동 트리거 (떠돌이 상인, 야스오, 군악병 등)
@@ -902,13 +913,13 @@ async function moveUnits(p, units, dest){
 
 // ---------- 클린업: 사망 처리 & 경합 확인 ----------
 async function cleanup(actor){
-  if(G.manual) return; // 수동 모드: 자동 사망·격돌·전투 없음 (플레이어가 직접 처리)
+  if(G.manual) return; // 수동 모드: 자동 사망·결전·전투 없음 (플레이어가 직접 처리)
   // 치명 피해 사망 (+ 황제의 칙령 표식)
   for(const u of everyUnit()){
     if((u.dmg>0 && u.dmg>=might(u)) || u._decree) await killUnit(u);
   }
   if(G.winner!==null) return;
-  // 경합 확인 (중립 상태에서만 새 격돌 개시)
+  // 경합 확인 (중립 상태에서만 새 결전 개시)
   if(G.state!=='neutral') return;
   for(let i=0;i<G.bfs.length;i++){
     const bf=G.bfs[i];
@@ -922,13 +933,13 @@ async function cleanup(actor){
   }
 }
 
-// ---------- 격돌 (Showdown) ----------
+// ---------- 결전 (Showdown) ----------
 async function startShowdown(bfIdx, attacker, hasCombat){
   const bf=G.bfs[bfIdx];
   G.state='showdown';
   G.showdown={ bfIdx, attacker, defender:opp(attacker), hasCombat, passes:0 };
   G.actingPlayer=attacker;
-  UI.log(`⚔️ 격돌 개시! 「${card(bf.n).ko}」 — 공격: ${pname(attacker)}`, 'combat');
+  UI.log(`⚔️ 결전 개시! 「${card(bf.n).ko}」 — 공격: ${pname(attacker)}`, 'combat');
   // 전장 트리거: 방어 시 (방어자가 이 전장의 통제자일 때)
   if(bf.controller===opp(attacker))
     await fireBfTrigger(bfIdx,'onDefendHere',{p:opp(attacker), bfIdx});
@@ -949,7 +960,7 @@ async function startShowdown(bfIdx, attacker, hasCombat){
   UI.promptShowdown();
 }
 
-// 격돌 중 패스
+// 결전 중 패스
 async function showdownPass(){
   const sd=G.showdown; if(!sd) return;
   sd.passes++;
@@ -957,7 +968,7 @@ async function showdownPass(){
   G.actingPlayer=opp(G.actingPlayer);
   UI.render(); UI.promptShowdown();
 }
-// 격돌 중 행동하면 패스 카운트 리셋
+// 결전 중 행동하면 패스 카운트 리셋
 function showdownActed(){ if(G.showdown){ G.showdown.passes=0; G.actingPlayer=opp(G.actingPlayer); UI.render(); UI.promptShowdown(); } }
 
 async function resolveShowdown(){
@@ -969,7 +980,7 @@ async function resolveShowdown(){
   if(atkUnits().length && defUnits().length){
     const atkSum = atkUnits().reduce((s,u)=>s+might(u,'attacker'),0);
     const defSum = defUnits().reduce((s,u)=>s+might(u,'defender'),0);
-    UI.log(`전투! 공격 전투력 합 ${atkSum} vs 방어 전투력 합 ${defSum}`, 'combat');
+    UI.log(`전투! 공격 위력 합 ${atkSum} vs 방어 위력 합 ${defSum}`, 'combat');
 
     // 초과 피해 (트린다미어): 방어측 총 체력 대비
     const defHealth = defUnits().reduce((s,u)=>s+Math.max(0,might(u,'defender')-u.dmg),0);
@@ -987,19 +998,19 @@ async function resolveShowdown(){
       const role = u.ctrl===sd.attacker?'attacker':'defender';
       return (u.dmg>0 && u.dmg>=might(u,role)) || u._decree;
     });
-    // 솔라리의 상징: 공격측 보유 + 무승부(모두 사망)면 모두 본진 귀환
+    // 솔라리의 상징: 공격측 보유 + 무승부(모두 사망)면 모두 기지 귀환
     if(dead.length===bf.units.length && dead.length>0 && G.players[sd.attacker].gear.some(g=>g.n===227)){
-      UI.log(`「솔라리의 상징」: 무승부 — 모든 유닛이 본진으로 귀환합니다`, 'combat');
+      UI.log(`「솔라리의 상징」: 무승부 — 모든 유닛이 기지으로 귀환합니다`, 'combat');
       [...bf.units].forEach(u=>{ u.dmg=0; u._decree=false; removeUnit(u); placeUnit(u,'base'); });
     } else {
       for(const u of dead) await killUnit(u);
     }
   }
 
-  // 해결 단계: 생존자 치유, 방어자 잔존 시 공격자 본진 귀환
+  // 해결 단계: 생존자 치유, 방어자 잔존 시 공격자 기지 귀환
   bf.units.forEach(u=>u.dmg=0);
   if(defUnits().length && atkUnits().length){
-    UI.log(`방어 성공 — 공격 유닛은 본진으로 귀환합니다`, 'combat');
+    UI.log(`방어 성공 — 공격 유닛은 기지으로 귀환합니다`, 'combat');
     atkUnits().forEach(u=>{ removeUnit(u); placeUnit(u,'base'); });
   }
 
@@ -1013,7 +1024,7 @@ async function resolveShowdown(){
     // 숨김 카드 소유권 상실 처리
     bf.hiddenCards = bf.hiddenCards.filter(h=>{
       if(h.by!==remaining){
-        UI.log(`숨겨둔 카드가 파기되었습니다 (전장 상실)`, 'sys');
+        UI.log(`숨겨둔 카드가 폐기되었습니다 (전장 상실)`, 'sys');
         G.players[h.by].trash.push(h.n);
         return false;
       }
@@ -1078,9 +1089,9 @@ async function killUnit(u){
   const P=G.players[u.ctrl];
   const wasBuffed=u.buff>0, wasStunned=u.stunned, deathLoc=u.loc;
 
-  // 무허가 무기고: 사망 대체 (분노 파워 1 지불)
+  // 무허가 무기고: 사망 대체 (분노 힘 1 지불)
   if(u._armory && canPay(u.ctrl,0,['Fury'])){
-    const yes=await UI.confirmP(u.ctrl, `[무허가 무기고] 분노 파워 1을 지불하고 「${unitName(u)}」을(를) 회수할까요?`);
+    const yes=await UI.confirmP(u.ctrl, `[무허가 무기고] 분노 힘 1을 지불하고 「${unitName(u)}」을(를) 회수할까요?`);
     if(yes){
       payCost(u.ctrl,0,['Fury']); u._armory=false;
       u.dmg=0; u.ex=true; u._dead=false; u._decree=false;
@@ -1089,11 +1100,11 @@ async function killUnit(u){
       UI.render(); return;
     }
   }
-  // 존야의 모래시계: 장비를 대신 파기하고 회수
+  // 존야의 모래시계: 도구를 대신 폐기하고 회수
   {
     const zi=P.gear.findIndex(g=>FX[g.n]&&FX[g.n].zhonya);
     if(zi>=0){
-      const yes=await UI.confirmP(u.ctrl, `[존야의 모래시계] 장비를 대신 파기하고 「${unitName(u)}」을(를) 회수할까요?`);
+      const yes=await UI.confirmP(u.ctrl, `[존야의 모래시계] 도구를 대신 폐기하고 「${unitName(u)}」을(를) 회수할까요?`);
       if(yes){
         await killGear(u.ctrl, zi);
         u.dmg=0; u.ex=true; u._dead=false; u._decree=false;
@@ -1107,12 +1118,12 @@ async function killUnit(u){
   if(u.buff>0){
     const lfx=FX[P.legendN];
     if(lfx && lfx.hookBuffedDeathSave && !P.legendEx && canPay(u.ctrl,0,['Any'])){
-      const yes = await UI.confirmP(u.ctrl, `[미스 포츈] ✳1 지불+전설 소진+버프 소모로 「${unitName(u)}」을(를) 회수할까요?`);
+      const yes = await UI.confirmP(u.ctrl, `[미스 포츈] ✳1 지불+전설 탈진+버프 소모로 「${unitName(u)}」을(를) 회수할까요?`);
       if(yes){
         payCost(u.ctrl,0,['Any']); P.legendEx=true; u.buff=Math.max(0,u.buff-1);
         u.dmg=0; u.ex=true; u._dead=false;
         removeUnit(u); placeUnit(u,'base');
-        UI.log(`「${unitName(u)}」 사망 대신 본진으로 회수됨`, 'p'+u.ctrl);
+        UI.log(`「${unitName(u)}」 사망 대신 기지으로 회수됨`, 'p'+u.ctrl);
         UI.render(); return;
       }
     }
@@ -1120,32 +1131,28 @@ async function killUnit(u){
 
   removeUnit(u);
   UI.log(`💀 ${unitName(u)} 사망`, 'combat');
-  // 장비는 파기
+  // 도구는 폐기
   u.gear.forEach(gn=>trashCard(u.ctrl,gn));
 
   if(!u.isToken){
-    const c=card(u.n);
-    if(c.super==='Champion' && P.champN===u.n && !P.champInZone){
-      P.champInZone=true; // 챔피언은 챔피언 존으로 (비어있으면)
-      UI.log(`챔피언 「${c.ko}」 챔피언 존으로 귀환`, 'p'+u.ctrl);
-    } else {
-      trashCard(u.ctrl, u.n);
-    }
+    // 공식 룰: 선발 챔피언도 사망 시 폐기장으로 간다.
+    // 챔피언 존 복귀는 일반적 수단으로는 불가 — 특정 효과(예: 신성한 무덤)로만 가능.
+    trashCard(u.ctrl, u.n);
   }
   // 턴 플래그: 상대 관점의 '적 유닛 사망'
   TF().enemyDied[opp(u.ctrl)]=true;
   if(G._casting!==undefined && G._casting!==null && u.ctrl!==G._casting) G._spellKilled=true;
   UI.render();
-  // 유언 (카서스: 추가 1회)
+  // 죽음의 종소리 (카서스: 추가 1회)
   const ctxD={p:u.ctrl, unit:u, bfIdx:(deathLoc!=='base'?deathLoc:null), dead:true};
   await runTriggerList(fx.triggers?.onDeath, ctxD);
   if(fx.triggers?.onDeath && allUnits(u.ctrl).some(x=>unitFx(x).deathknellTwice)){
-    UI.log(`[카서스] 유언 효과 1회 추가 발동!`, 'p'+u.ctrl);
+    UI.log(`[카서스] 죽음의 종소리 효과 1회 추가 발동!`, 'p'+u.ctrl);
     await runTriggerList(fx.triggers?.onDeath, ctxD);
   }
   // 전역 사망 이벤트 (메아리의 망령, 선봉대 투구, 빅토르 등)
   await fireEvent('onUnitDeath', {p:u.ctrl, dead:u, buffed:wasBuffed, isToken:u.isToken, tokenName:u.tokenName});
-  // 스턴 상태로 처치됨 → 처치자 이벤트 (솔라리 성소)
+  // 기절 상태로 처치됨 → 처치자 이벤트 (솔라리 성소)
   if(wasStunned){
     const killer = u.ctrl===G.actingPlayer ? opp(u.ctrl) : G.actingPlayer;
     await fireEvent('onYouKillStunned', {p:killer});
@@ -1167,7 +1174,7 @@ async function runTriggerList(list, ctx){
     await execOps(t.ops, ctx);
   }
 }
-// 보드 전체 이벤트: 양측의 전설/유닛/장비 리스너를 스캔한다.
+// 보드 전체 이벤트: 양측의 전설/유닛/도구 리스너를 스캔한다.
 // t.who: 'self'(기본, 이벤트 주체 본인) | 'opp'(상대의 행동에 반응)
 async function fireEvent(ev, ctx){
   if(!G || G.winner!==null) return;
@@ -1217,7 +1224,7 @@ async function legendHook(p, hookName, ctx){
   if(hook===true) return;
   if(hook.mayExhaustLegend){
     if(G.players[p].legendEx) return;
-    const yes=await UI.confirmP(p, `[전설] ${card(G.players[p].legendN).ko}을(를) 소진하고 효과를 발동할까요?`);
+    const yes=await UI.confirmP(p, `[전설] ${card(G.players[p].legendN).ko}을(를) 탈진하고 효과를 발동할까요?`);
     if(!yes) return;
     G.players[p].legendEx=true;
   }
@@ -1234,22 +1241,22 @@ async function activateAbility(p, source, ab){
   // source: {kind:'unit',u} | {kind:'legend'} | {kind:'gear',g}
   const P=G.players[p];
   // 타이밍
-  if(G.state==='showdown' && !(ab.reaction||ab.action)){ UI.toast('격돌 중에는 [행동]/[반응] 능력만 발동할 수 있습니다','warn'); return; }
+  if(G.state==='showdown' && !(ab.reaction||ab.action)){ UI.toast('결전 중에는 [행동]/[반응] 능력만 발동할 수 있습니다','warn'); return; }
   if(G.state==='neutral' && G.turn!==p){ UI.toast('자신의 턴에만 발동할 수 있습니다','warn'); return; }
   if(ab.legion && !(P.playedCards>=1)){ UI.toast('[군단] 조건: 이번 턴에 카드를 플레이해야 합니다','warn'); return; }
   if(ab.onlyAtBf && source.kind==='unit' && source.u.loc==='base'){ UI.toast('전장에 있을 때만 사용할 수 있습니다','warn'); return; }
 
   const cost=ab.cost||{};
-  // 소진 비용
+  // 탈진 비용
   if(cost.exhaustSelf){
-    if(source.kind==='unit' && source.u.ex){ UI.toast('이미 소진되었습니다','warn'); return; }
-    if(source.kind==='legend' && P.legendEx){ UI.toast('전설이 이미 소진되었습니다','warn'); return; }
-    if(source.kind==='gear' && source.g.ex){ UI.toast('이미 소진되었습니다','warn'); return; }
+    if(source.kind==='unit' && source.u.ex){ UI.toast('이미 탈진되었습니다','warn'); return; }
+    if(source.kind==='legend' && P.legendEx){ UI.toast('전설이 이미 탈진되었습니다','warn'); return; }
+    if(source.kind==='gear' && source.g.ex){ UI.toast('이미 탈진되었습니다','warn'); return; }
   }
   const pips=[...(cost.pips||[])]; for(let i=0;i<(cost.power||0);i++) pips.push('Any');
   if(!canPay(p, cost.energy||0, pips)){ UI.toast('자원이 부족합니다','warn'); return; }
-  if(cost.killFriendlyOrGear && !everyUnit().some(u=>u.ctrl===p) && !P.gear.length){ UI.toast('처치할 아군 유닛/장비가 없습니다','warn'); return; }
-  if(cost.recycleTrash && P.trash.length<cost.recycleTrash){ UI.toast('파기 더미가 부족합니다','warn'); return; }
+  if(cost.killFriendlyOrGear && !everyUnit().some(u=>u.ctrl===p) && !P.gear.length){ UI.toast('처치할 아군 유닛/도구가 없습니다','warn'); return; }
+  if(cost.recycleTrash && P.trash.length<cost.recycleTrash){ UI.toast('폐기장가 부족합니다','warn'); return; }
   if(cost.discard && P.hand.length<cost.discard){ UI.toast('손패가 부족합니다','warn'); return; }
 
   // 지불
@@ -1264,7 +1271,7 @@ async function activateAbility(p, source, ab){
       const idx=Math.floor(rng()*P.trash.length);
       P.deck.push(P.trash.splice(idx,1)[0]);
     }
-    UI.log(`${pname(p)} 파기 더미에서 ${cost.recycleTrash}장 재충전`, 'p'+p);
+    UI.log(`${pname(p)} 폐기장에서 ${cost.recycleTrash}장 재활용`, 'p'+p);
   }
   if(cost.discard){
     for(let i=0;i<cost.discard;i++){
@@ -1277,11 +1284,11 @@ async function activateAbility(p, source, ab){
     source.u.buff--;
   }
   if(cost.killFriendlyOrGear){
-    // 아군 유닛 또는 장비 하나 처치 (말자하)
+    // 아군 유닛 또는 도구 하나 처치 (말자하)
     const opts=[];
     everyUnit().filter(u=>u.ctrl===p).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitName(u)}));
-    P.gear.forEach((g,i)=>opts.push({v:{t:'g',i},label:'장비: '+card(g.n).ko}));
-    const sel=await UI.pickOption(p,'처치할 아군 유닛/장비 (비용)',opts);
+    P.gear.forEach((g,i)=>opts.push({v:{t:'g',i},label:'도구: '+card(g.n).ko}));
+    const sel=await UI.pickOption(p,'처치할 아군 유닛/도구 (비용)',opts);
     if(!sel) return;
     if(sel.t==='u') await killUnit(sel.u); else await killGear(p, sel.i);
   }
@@ -1329,8 +1336,8 @@ async function pickBySpec(p, spec, promptText){
     const defl=effKw(u).deflect;
     if(defl){
       const pips=[]; for(let i=0;i<defl;i++) pips.push('Any');
-      if(!canPay(p,0,pips)){ UI.toast(`[굴절 ${defl}] 파워가 부족해 선택할 수 없습니다`,'warn'); return null; }
-      const yes=await UI.confirmP(p,`[굴절 ${defl}] 파워 ${defl}를 추가 지불해야 합니다. 지불할까요?`);
+      if(!canPay(p,0,pips)){ UI.toast(`[굴절 ${defl}] 힘가 부족해 선택할 수 없습니다`,'warn'); return null; }
+      const yes=await UI.confirmP(p,`[굴절 ${defl}] 힘 ${defl}를 추가 지불해야 합니다. 지불할까요?`);
       if(!yes) return null;
       payCost(p,0,pips);
     }
@@ -1414,8 +1421,8 @@ async function execOps(ops, ctx){
         if(op.self && ctx.unit) targets=[ctx.unit];
         else if(op.it && (it||ctx.it)) targets=[it||ctx.it];
         else if(op.all){ targets=await pickBySpec(p,{...op.spec,count:'all'}); }
-        else { const u=await pickBySpec(p, op.spec, `전투력 ${op.n>0?'+':''}${op.n} 대상 선택`); if(u){targets=[u]; it=u;} }
-        targets.forEach(u=>{ u.tempM.push({v:op.n, dur:'turn', min:op.min}); UI.log(`${unitName(u)} 전투력 ${op.n>0?'+':''}${op.n} (이번 턴)`, 'p'+p); });
+        else { const u=await pickBySpec(p, op.spec, `위력 ${op.n>0?'+':''}${op.n} 대상 선택`); if(u){targets=[u]; it=u;} }
+        targets.forEach(u=>{ u.tempM.push({v:op.n, dur:'turn', min:op.min}); UI.log(`${unitName(u)} 위력 ${op.n>0?'+':''}${op.n} (이번 턴)`, 'p'+p); });
         break; }
       case 'grantKw': {
         let u=null;
@@ -1432,8 +1439,8 @@ async function execOps(ops, ctx){
         }
         break; }
       case 'stun': {
-        const u=await pickBySpec(p, {...op.spec, side: op.spec.side==='any'?'enemy':op.spec.side}, '스턴할 유닛 선택');
-        if(u && !u.stunned){ u.stunned=true; it=u; UI.log(`${unitName(u)} 스턴됨 💫`, 'p'+p);
+        const u=await pickBySpec(p, {...op.spec, side: op.spec.side==='any'?'enemy':op.spec.side}, '기절할 유닛 선택');
+        if(u && !u.stunned){ u.stunned=true; it=u; UI.log(`${unitName(u)} 기절됨 💫`, 'p'+p);
           await legendHook(p,'hookYouStun',{p});
           await fireEvent('onYouStun',{p}); }
         break; }
@@ -1445,12 +1452,12 @@ async function execOps(ops, ctx){
         break; }
       case 'channel': channelRunes(p, op.n, op.exhausted); break;
       case 'addEnergy': G.players[p].energy+=op.n; UI.log(`${pname(p)} 에너지 +${op.n}`, 'p'+p); break;
-      case 'addPower': G.players[p].power[op.dom]+=op.n; UI.log(`${pname(p)} 파워 +${op.n}`, 'p'+p); break;
+      case 'addPower': G.players[p].power[op.dom]+=op.n; UI.log(`${pname(p)} 힘 +${op.n}`, 'p'+p); break;
       case 'token': {
         let loc='base';
         if(op.where==='here' && _ctxBf!==null) loc=_ctxBf;
         else if(op.where==='at a battlefield'){
-          const sel=await UI.pickOption(p,'토큰을 배치할 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})).concat([{v:'base',label:'본진'}]));
+          const sel=await UI.pickOption(p,'토큰을 배치할 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})).concat([{v:'base',label:'기지'}]));
           if(sel!==null) loc=sel;
         }
         for(let i=0;i<op.count;i++){
@@ -1460,11 +1467,11 @@ async function execOps(ops, ctx){
         }
         UI.log(`${pname(p)} ${op.might}⚔ ${op.name==='Recruit'?'신병':op.name} 토큰 ${op.count}개 플레이`, 'p'+p);
         break; }
-      case 'recallSelf': if(ctx.unit){ removeUnit(ctx.unit); placeUnit(ctx.unit,'base'); UI.log(`${unitName(ctx.unit)} 본진으로 귀환`, 'p'+p); } break;
+      case 'recallSelf': if(ctx.unit){ removeUnit(ctx.unit); placeUnit(ctx.unit,'base'); UI.log(`${unitName(ctx.unit)} 기지으로 귀환`, 'p'+p); } break;
       case 'recallIt': if(it){ removeUnit(it); placeUnit(it,'base'); } break;
       case 'recall': {
-        const u=await pickBySpec(p, op.spec, '본진으로 되돌릴 유닛 선택');
-        if(u){ removeUnit(u); placeUnit(u,'base'); it=u; UI.log(`${unitName(u)} 본진으로 귀환`, 'p'+p); }
+        const u=await pickBySpec(p, op.spec, '기지으로 되돌릴 유닛 선택');
+        if(u){ removeUnit(u); placeUnit(u,'base'); it=u; UI.log(`${unitName(u)} 기지으로 귀환`, 'p'+p); }
         break; }
       case 'recallAll': {
         const us=await pickBySpec(p,{...op.spec,count:'all'});
@@ -1507,11 +1514,11 @@ async function execOps(ops, ctx){
         if(spec.count==='all'){
           const us=await pickBySpec(p,spec);
           us.forEach(u=>{ u.ex=true; });
-          if(us.length) UI.log(`유닛 ${us.length}개 소진됨`, 'p'+p);
+          if(us.length) UI.log(`유닛 ${us.length}개 탈진됨`, 'p'+p);
           break;
         }
-        const u=await pickBySpec(p, spec, '소진시킬 유닛 선택');
-        if(u){ u.ex=true; it=u; UI.log(`${unitName(u)} 소진됨`, 'p'+p); }
+        const u=await pickBySpec(p, spec, '탈진시킬 유닛 선택');
+        if(u){ u.ex=true; it=u; UI.log(`${unitName(u)} 탈진됨`, 'p'+p); }
         break; }
       case 'discard': {
         for(let i=0;i<op.n;i++){
@@ -1594,14 +1601,14 @@ async function execOps(ops, ctx){
         const P=G.players[p];
         if(P.runes.length){
           const r=P.runes.pop(); P.runeDeck.push(r.n);
-          UI.log(`${pname(p)} 룬 1개 재충전 (강제)`, 'p'+p);
+          UI.log(`${pname(p)} 룬 1개 재활용 (강제)`, 'p'+p);
         }
         break; }
       case 'gainPoints': addPoints(p,op.n,'effect'); break;
       case 'champBack': {
         const P=G.players[p];
         if(!P.champInZone && P.trash.includes(P.champN)){
-          const yes=await UI.confirmP(p,`파기 더미의 챔피언 「${card(P.champN).ko}」을(를) 챔피언 존으로 되돌릴까요?`);
+          const yes=await UI.confirmP(p,`폐기장의 챔피언 「${card(P.champN).ko}」을(를) 챔피언 존으로 되돌릴까요?`);
           if(yes){ P.trash.splice(P.trash.indexOf(P.champN),1); P.champInZone=true;
             UI.log(`${pname(p)} 챔피언이 챔피언 존으로 귀환`, 'p'+p); }
         }
@@ -1665,22 +1672,22 @@ function describeOps(ops){
       case 'kill': return '유닛 처치';
       case 'killAll': return '전체 처치';
       case 'buff': return '버프';
-      case 'might': return `전투력 ${o.n>0?'+':''}${o.n}`;
-      case 'stun': return '스턴';
-      case 'channel': return `룬 ${o.n}개 충전`;
+      case 'might': return `위력 ${o.n>0?'+':''}${o.n}`;
+      case 'stun': return '기절';
+      case 'channel': return `룬 ${o.n}개 전개`;
       case 'token': return `${o.might}⚔ 토큰 ${o.count}개`;
-      case 'recall': return '유닛 본진 귀환';
+      case 'recall': return '유닛 기지 귀환';
       case 'bounce': return '손패로 되돌림';
       case 'discard': return `${o.n}장 버리기`;
       case 'discardOpp': return `상대 ${o.n}장 버리기`;
-      case 'exhaust': return '유닛 소진';
+      case 'exhaust': return '유닛 탈진';
       case 'ready': return '유닛 준비';
       default: return o.op;
     }
   }).join(' → ');
 }
 
-// ---------- 장비 장착 ----------
+// ---------- 도구 장착 ----------
 async function equipGear(p, gearIdx){
   const P=G.players[p];
   const g=P.gear[gearIdx]; if(!g) return;
@@ -1703,7 +1710,7 @@ const ManualTools = {
   heal(u){ u.dmg=0; UI.render(); },
   buff(u){ u.buff++; UI.log(`(수동) ${unitName(u)} 버프`, 'sys'); UI.render(); },
   unbuff(u){ u.buff=Math.max(0,u.buff-1); UI.render(); },
-  might(u,n){ u.tempM.push({v:n,dur:'turn'}); UI.log(`(수동) ${unitName(u)} 전투력 ${n>0?'+':''}${n}`, 'sys'); UI.render(); },
+  might(u,n){ u.tempM.push({v:n,dur:'turn'}); UI.log(`(수동) ${unitName(u)} 위력 ${n>0?'+':''}${n}`, 'sys'); UI.render(); },
   kill(u){ killUnit(u).then(()=>UI.render()); },
   stun(u){ u.stunned=!u.stunned; UI.render(); },
   toggleEx(u){ u.ex=!u.ex; UI.render(); },

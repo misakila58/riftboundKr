@@ -23,6 +23,7 @@ NET.health = async function(){
   if(!r.ok) throw new Error('서버 응답 오류 ('+r.status+')');
   const d = await r.json();
   if(!d || !d.ok) throw new Error('리프트바운드 서버가 아닙니다');
+  NET.requiresAccess = !!d.requiresAccess;
   return d;
 };
 
@@ -37,7 +38,8 @@ NET.api = async function(path, method='GET', body){
   if(!r.ok) throw new Error(data.error||('HTTP '+r.status));
   return data;
 };
-NET.register = (id,pw)=>NET.api('/api/register','POST',{id,pw}).then(d=>{NET.token=d.token;NET.userId=d.id;localStorage.setItem('rb_token',d.token);localStorage.setItem('rb_id',d.id);return d;});
+NET.requiresAccess=false; // 서버가 접근 코드를 요구하는지 (health에서 갱신)
+NET.register = (id,pw,invite)=>NET.api('/api/register','POST',{id,pw,invite}).then(d=>{NET.token=d.token;NET.userId=d.id;localStorage.setItem('rb_token',d.token);localStorage.setItem('rb_id',d.id);return d;});
 NET.login    = (id,pw)=>NET.api('/api/login','POST',{id,pw}).then(d=>{NET.token=d.token;NET.userId=d.id;localStorage.setItem('rb_token',d.token);localStorage.setItem('rb_id',d.id);return d;});
 NET.getDecks = ()=>NET.api('/api/decks').then(d=>d.decks);
 NET.saveDeck = (deck,index)=>NET.api('/api/decks','POST',{deck,index}).then(d=>d.decks);
@@ -105,11 +107,11 @@ NET._authorized = function(a, seat){
     case 'pass':      return G.state === 'showdown' && seat === G.actingPlayer;
     case 'move':      return seat === G.turn && G.turn === G.actingPlayer;
     case 'play': case 'hide': case 'playHidden': case 'ability': case 'equip':
-      // 자기 카드/능력만 (a.p 검증으로 이미 보장). 격돌 중엔 acting 좌석만.
+      // 자기 카드/능력만 (a.p 검증으로 이미 보장). 결전 중엔 acting 좌석만.
       if(G.state==='showdown') return seat === G.actingPlayer;
       return seat === G.turn;
     case 'manual':
-      // 수동 도구는 현재 행동 좌석(자기 턴 또는 격돌 응답 차례)만 사용 가능
+      // 수동 도구는 현재 행동 좌석(자기 턴 또는 결전 응답 차례)만 사용 가능
       return seat === G.actingPlayer;
     default: return true;
   }

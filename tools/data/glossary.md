@@ -14,30 +14,30 @@
 | [Action] | [행동] |
 | [Reaction] | [반응] |
 | [Add] | [추가] |
-| [Assault] / [Assault N] | [강습] / [강습 N] |
-| [Deathknell] | [유언] |
+| [Assault] / [Assault N] | [맹공] / [맹공 N] |
+| [Deathknell] | [죽음의 종소리] |
 | [Deflect] / [Deflect N] | [굴절] / [굴절 N] |
-| [Ganking] | [갱킹] |
-| [Hidden] | [은신] |
+| [Ganking] | [개입] |
+| [Hidden] | [숨겨짐] |
 | [Legion] | [군단] |
-| [Mighty] | [강대] |
+| [Mighty] | [위력적] |
 | [Shield] / [Shield N] | [보호막] / [보호막 N] |
 | [Tank] | [탱커] |
-| [Temporary] | [일시] |
-| [Vision] | [시야] |
+| [Temporary] | [일시적] |
+| [Vision] | [통찰] |
 
 ## 게임 용어
-unit=유닛, spell=주문, gear=장비, rune=룬, battlefield=전장, Legend=전설, Champion=챔피언, token=토큰,
-energy=에너지, power=파워, might=전투력, exhaust(ed)=소진, ready=준비(된),
-channel=충전 (예: "Channel 1 rune"=룬 1개를 충전한다), kill=처치, die=죽다, death=죽음,
-buff=버프, damage=피해, play=플레이, draw=뽑는다, discard=버린다, trash=파기한다,
-conquer=정복, hold=점유, control=통제(하다), score=득점, point=점수, base=본진,
+unit=유닛, spell=주문, gear=도구, rune=룬, battlefield=전장, Legend=전설, Champion=챔피언, token=토큰,
+energy=에너지, power=힘, might=위력, exhaust(ed)=탈진, ready=준비(된),
+channel=전개 (예: "Channel 1 rune"=룬 1개를 전개한다), kill=처치, die=죽다, death=죽음,
+buff=버프, damage=피해, play=플레이, draw=뽑는다, discard=버린다, trash=폐기한다,
+conquer=정복, hold=유지, control=통제(하다), score=득점, point=점수, base=기지,
 here=이곳, move=이동, Recruit token=신병 토큰, facedown=뒷면으로, hand=손패, deck=덱,
-showdown=격돌, combat=전투, turn=턴, cost=비용, ally/allied=아군, enemy=적(의), friendly=아군의,
+showdown=결전, combat=전투, turn=턴, cost=비용, ally/allied=아군, enemy=적(의), friendly=아군의,
 Rune deck=룬 덱, pool=풀, target=대상, chosen=선택된, choose=선택한다
 
-## 속성(도메인)
-Fury=분노, Calm=평온, Mind=정신, Body=신체, Order=질서, Chaos=혼돈, Colorless=무색
+## 영역(도메인)
+Fury=분노, Calm=평정, Mind=정신, Body=신체, Order=질서, Chaos=혼돈, Colorless=무색
 
 ## 고유명사 (LoL 공식 한국어 명칭 사용)
 아리(Ahri), 야스오(Yasuo), 징크스(Jinx), 다리우스(Darius), 볼리베어(Volibear), 카이사(Kai'Sa),
@@ -60,5 +60,5 @@ Fury=분노, Calm=평온, Mind=정신, Body=신체, Order=질서, Chaos=혼돈, 
 삼두정(Trifarian), 정예(Elite), 신병(Recruit), 정령(Spirit), 드래곤(Dragon), 해적(Pirate),
 새(Bird), 개(Dog), 고양이(Cat), 요정(Fae), 기계(Mech)
 
-룬 카드명: Order Rune=질서 룬, Chaos Rune=혼돈 룬, Calm Rune=평온 룬, Fury Rune=분노 룬,
+룬 카드명: Order Rune=질서 룬, Chaos Rune=혼돈 룬, Calm Rune=평정 룬, Fury Rune=분노 룬,
 Body Rune=신체 룬, Mind Rune=정신 룬

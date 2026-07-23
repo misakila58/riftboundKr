@@ -58,6 +58,8 @@ function buildDeck(legendN){
     if(counts[c.n]>=max) return false;
     counts[c.n]++; deck.push(c.n); return true;
   }
+  // 공식 룰: 주 덱 40장에 선발 챔피언 1장 포함 (게임 시작 시 챔피언 구역으로 이동)
+  if(champN) add(card(champN),1);
   preferred.forEach(c=>{ for(let i=0;i<3&&deck.length<12;i++) add(c,3); });
   for(const c of rest){
     if(deck.length>=40) break;
@@ -145,7 +147,14 @@ function initLogin(){
     catch(e){ msg.textContent=e.message; }
   };
   document.getElementById('btn-login').onclick=()=>doAuth(NET.login);
-  document.getElementById('btn-register').onclick=()=>doAuth(NET.register);
+  document.getElementById('btn-register').onclick=()=>{
+    // 서버가 접근 코드를 요구하면 회원가입 시 코드 입력받아 전달
+    if(NET.requiresAccess){
+      const code=(prompt('이 서버는 접근 코드가 필요합니다.\n방장에게 받은 접근 코드를 입력하세요.')||'').trim();
+      if(!code){ document.getElementById('login-msg').textContent='접근 코드가 필요합니다.'; return; }
+      doAuth((id,pw)=>NET.register(id,pw,code));
+    } else doAuth(NET.register);
+  };
   document.getElementById('login-pw').addEventListener('keydown',e=>{ if(e.key==='Enter') doAuth(NET.login); });
   document.getElementById('btn-change-server').onclick=()=>{
     NET.token=null; localStorage.removeItem('rb_token');
@@ -153,9 +162,24 @@ function initLogin(){
   };
 }
 
+// 서버 덱을 이 기기에 자동 백업 (무료 호스팅의 서버 초기화 대비)
+function srvBackupKey(){ return 'rb_srv_backup_'+(NET.base||'local'); }
+function syncSrvBackup(list){
+  try{ if(list && list.length) localStorage.setItem(srvBackupKey(), JSON.stringify(list)); }catch(e){}
+}
+
 async function enterMenu(){
   DeckStore.local=false; DeckStore.returnTo='menu-screen';
   myDecks = await DeckStore.list();
+  // 서버가 초기화되어 덱이 비었으면, 이 기기에 백업해 둔 덱 복원 제안
+  if(!myDecks.length){
+    let bak=[]; try{ bak=JSON.parse(localStorage.getItem(srvBackupKey())||'[]'); }catch(e){}
+    if(bak.length && confirm(`서버에 저장된 덱이 없습니다.\n이 기기에 백업된 덱 ${bak.length}개를 서버 계정으로 복원할까요?`)){
+      for(const d of bak){ try{ myDecks=await NET.saveDeck(d); }catch(e){ break; } }
+      UI.toast(`덱 ${myDecks.length}개 복원됨`);
+    }
+  }
+  syncSrvBackup(myDecks);
   document.getElementById('menu-welcome').textContent=`${NET.userId}님, 환영합니다!`;
   document.getElementById('deck-count').textContent=myDecks.length;
   showScreen('menu-screen');
@@ -183,7 +207,7 @@ function initMenu(){
 // ---------- 덱 목록 ----------
 function deckSummary(d){
   const l=card(d.legendN);
-  return `전설: ${l.ko}<br>속성: ${l.dom.map(x=>DOMAIN_KO[x]).join('/')} · 챔피언: ${d.champN?card(d.champN).ko:'-'}`;
+  return `전설: ${l.ko}<br>영역: ${l.dom.map(x=>DOMAIN_KO[x]).join('/')} · 챔피언: ${d.champN?card(d.champN).ko:'-'}`;
 }
 function renderDeckList(){
   const el=document.getElementById('deck-list');
@@ -201,6 +225,7 @@ function renderDeckList(){
     bd.onclick=async ()=>{
       if(!confirm(`「${d.name}」 덱을 삭제할까요?`)) return;
       myDecks=await DeckStore.del(i);
+      if(!DeckStore.local) syncSrvBackup(myDecks);
       document.getElementById('deck-count').textContent=myDecks.length;
       renderDeckList();
     };
@@ -260,7 +285,7 @@ function edAutoChampN(){
   return cu.length?cu[0].n:null;
 }
 function edChampN(){ return ED.champOverride ?? edAutoChampN(); }
-// 나만의 덱: 챔피언에 맞는 전설 자동 연결 (태그 짝 → 없으면 속성이 가장 겹치는 전설)
+// 나만의 덱: 챔피언에 맞는 전설 자동 연결 (태그 짝 → 없으면 영역이 가장 겹치는 전설)
 function edLegendForChamp(champN){
   if(champN==null) return null;
   const c=card(champN);
@@ -285,7 +310,7 @@ function edAddCard(c){
   const cnt=ED.main.filter(n=>n===c.n).length;
   if(cnt>=3){ UI.toast('같은 카드는 3장까지입니다','warn'); return false; }
   if(ED.main.length>=40){ UI.toast('메인 덱은 40장입니다','warn'); return false; }
-  if(c.n===edChampN()){ UI.toast('선택 챔피언은 자동 배정됩니다 (챔피언 존)','warn'); return false; }
+  if(c.n===edChampN()){ UI.toast('선발 챔피언은 자동 배정됩니다 (챔피언 존)','warn'); return false; }
   ED.main.push(c.n); return true;
 }
 function edRemoveCard(c){
@@ -304,7 +329,7 @@ function edCardCount(c){
 
 function renderEditor(){
   const legend=edLegend();
-  const doms=legend?legend.dom:null;   // 나만의 덱: 속성 제한 없음
+  const doms=legend?legend.dom:null;   // 나만의 덱: 영역 제한 없음
   const typeF=document.getElementById('ed-type-filter').value;
   const search=document.getElementById('ed-search').value.trim().toLowerCase();
   const domOnly=document.getElementById('ed-dom-only').checked;
@@ -432,7 +457,7 @@ function initEditor(){
     const n=edChampN();
     const before=ED.main.length;
     ED.main=ED.main.filter(x=>x!==n);
-    if(ED.main.length<before) UI.toast('선택 챔피언과 같은 카드는 메인 덱에서 제외했습니다','warn');
+    if(ED.main.length<before) UI.toast('선발 챔피언과 같은 카드는 메인 덱에서 제외했습니다','warn');
     renderEditor();
   };
   ['ed-type-filter','ed-search','ed-dom-only'].forEach(id=>{
@@ -454,7 +479,7 @@ function initEditor(){
     Object.entries(ED.runes).forEach(([n,cnt])=>{ for(let i=0;i<cnt;i++) runes.push(+n); });
     const champN=edChampN();
     if(!champN){
-      msg.textContent = edIsCustom() ? '나만의 덱은 선택 챔피언을 골라야 합니다' : '이 전설의 챔피언 유닛을 찾을 수 없습니다';
+      msg.textContent = edIsCustom() ? '나만의 덱은 선발 챔피언을 골라야 합니다' : '이 전설의 챔피언 유닛을 찾을 수 없습니다';
       return;
     }
     const deck={
@@ -468,6 +493,7 @@ function initEditor(){
     if(deck.bfs.length!==3){ msg.textContent='전장은 정확히 3개여야 합니다'; return; }
     try{
       myDecks=await DeckStore.save(deck, ED.index);
+      if(!DeckStore.local) syncSrvBackup(myDecks);
       renderDeckList(); showScreen('decks-screen');
     }catch(e){ msg.textContent=e.message; }
   };
@@ -477,11 +503,26 @@ function initEditor(){
 function renderLobbyDeckSelect(){
   const sel=document.getElementById('lobby-deck');
   sel.innerHTML='';
+  // 계정(서버) 덱 + 이 기기(로컬) 덱 — 로컬 덱은 서버 초기화와 무관하게 유지됨
   myDecks.forEach((d,i)=>{
     const o=document.createElement('option');
-    o.value=i; o.textContent=`${d.name} (${card(d.legendN).ko})`;
+    o.value='s'+i; o.textContent=`${d.name} (${card(d.legendN).ko})`;
     sel.appendChild(o);
   });
+  DeckStore._read().forEach((d,i)=>{
+    const o=document.createElement('option');
+    o.value='l'+i; o.textContent=`📱 ${d.name} (${card(d.legendN).ko}) — 이 기기`;
+    sel.appendChild(o);
+  });
+}
+// 로비 덱 선택값 → 서버로 보낼 페이로드 ({deckIdx} 또는 {deck: 로컬 덱 원본})
+function lobbyDeckPayload(){
+  const v=document.getElementById('lobby-deck').value;
+  if(v && v[0]==='l'){
+    const d=DeckStore._read()[+v.slice(1)];
+    return d ? {deck:d} : null;
+  }
+  return {deckIdx:+String(v).replace(/^s/,'')};
 }
 function renderRooms(roomsArr){
   const el=document.getElementById('room-list');
@@ -496,8 +537,9 @@ function renderRooms(roomsArr){
     const btns=document.createElement('div'); btns.className='dk-btns';
     const bj=document.createElement('button'); bj.className='join-btn'; bj.textContent='선택한 덱으로 입장';
     bj.onclick=()=>{
-      const deckIdx=+document.getElementById('lobby-deck').value;
-      NET.send({t:'joinRoom', roomId:r.id, deckIdx});
+      const pay=lobbyDeckPayload();
+      if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
+      NET.send({t:'joinRoom', roomId:r.id, ...pay});
     };
     btns.appendChild(bj);
     div.appendChild(btns);
@@ -511,9 +553,10 @@ function initLobby(){
     showScreen('menu-screen');
   };
   document.getElementById('btn-create-room').onclick=()=>{
-    const deckIdx=+document.getElementById('lobby-deck').value;
+    const pay=lobbyDeckPayload();
+    if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
     const manual = !document.getElementById('lobby-auto').checked;
-    NET.send({t:'createRoom', deckIdx, manual, name:document.getElementById('lobby-room-name').value.trim()});
+    NET.send({t:'createRoom', ...pay, manual, name:document.getElementById('lobby-room-name').value.trim()});
   };
   NET.onRooms=renderRooms;
   NET.onRoomCreated=(room)=>{

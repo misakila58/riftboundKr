@@ -2,11 +2,19 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <!-- 데스크톱(Electron) 보안 정책: 스크립트는 로컬만, 이미지는 Riot CDN, 접속은 사용자가 지정한 서버 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src *;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src *; manifest-src 'self';">
 <title>리프트바운드 시뮬레이터 — Origins (한글판)</title>
 <link rel="icon" type="image/png" href="assets/logo.png">
+<!-- PWA / 모바일 (홈 화면 설치) -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1420">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="리프트바운드">
+<link rel="apple-touch-icon" href="assets/logo.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -101,11 +109,11 @@
           <option value="">전체 타입</option>
           <option value="Unit">유닛</option>
           <option value="Spell">주문</option>
-          <option value="Gear">장비</option>
+          <option value="Gear">도구</option>
           <option value="Battlefield">전장</option>
         </select>
         <input id="ed-search" type="text" placeholder="카드 검색...">
-        <label><input type="checkbox" id="ed-dom-only" checked> 전설 속성만</label>
+        <label><input type="checkbox" id="ed-dom-only" checked> 전설 영역만</label>
       </div>
       <div id="ed-pool" class="ed-pool"></div>
     </div>
@@ -119,7 +127,7 @@
       <div class="ed-section"><b>전장 <span id="ed-bf-count">0</span>/3</b> (클릭=제거)
         <div id="ed-bfs" class="ed-cardlist"></div>
       </div>
-      <div class="ed-section"><b>선택 챔피언</b>
+      <div class="ed-section"><b>선발 챔피언</b>
         <select id="ed-champ-select" style="max-width:100%;margin:4px 0"></select>
         <span id="ed-champ" style="font-size:12px;color:#9aa4bd"></span>
       </div>
@@ -223,7 +231,7 @@
     <label class="mode-chk" style="justify-content:center;margin:10px 0"><input type="checkbox" id="hs-auto"> 자동 규칙 처리 (효과·전투·득점 자동)</label>
     <button id="btn-start" class="big-btn">게임 시작</button>
     <button class="link-btn" id="btn-setup-back">← 돌아가기</button>
-    <p class="hint">덱은 선택한 전설의 속성에 맞춰 자동 구성됩니다.</p>
+    <p class="hint">덱은 선택한 전설의 영역에 맞춰 자동 구성됩니다.</p>
   </div>
 </div>
 
@@ -239,10 +247,10 @@
         <div class="piles">
           <div class="pile deck" id="deck-1"><span class="pile-label">덱</span><span class="pile-count"></span></div>
           <div class="pile runedeck" id="runedeck-1"><span class="pile-label">룬</span><span class="pile-count"></span></div>
-          <div class="pile trash" id="trash-1"><span class="pile-label">파기</span><span class="pile-count"></span></div>
+          <div class="pile trash" id="trash-1"><span class="pile-label">폐기</span><span class="pile-count"></span></div>
         </div>
       </div>
-      <div class="base-zone" id="base-1"><div class="zone-label">본진</div></div>
+      <div class="base-zone" id="base-1"><div class="zone-label">기지</div></div>
       <div class="hand-zone opp" id="hand-1"></div>
       <div class="count-display" id="counts-1"></div>
     </div>
@@ -261,7 +269,7 @@
     <div class="player-area bottom" id="parea-0">
       <div class="count-display" id="counts-0"></div>
       <div class="hand-zone" id="hand-0"></div>
-      <div class="base-zone" id="base-0"><div class="zone-label">본진</div></div>
+      <div class="base-zone" id="base-0"><div class="zone-label">기지</div></div>
       <div class="side-zone">
         <div class="legend-slot" id="legend-0"></div>
         <div class="champ-slot" id="champzone-0"></div>
@@ -269,7 +277,7 @@
         <div class="piles">
           <div class="pile deck" id="deck-0"><span class="pile-label">덱</span><span class="pile-count"></span></div>
           <div class="pile runedeck" id="runedeck-0"><span class="pile-label">룬</span><span class="pile-count"></span></div>
-          <div class="pile trash" id="trash-0"><span class="pile-label">파기</span><span class="pile-count"></span></div>
+          <div class="pile trash" id="trash-0"><span class="pile-label">폐기</span><span class="pile-count"></span></div>
         </div>
       </div>
     </div>
