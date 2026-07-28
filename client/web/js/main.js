@@ -717,7 +717,7 @@ function initHotseat(){
     const preview=()=>{
       const l=card(+sel.value);
       document.getElementById(pid+'-legend-preview').innerHTML=
-        `<img src="${l.img}" alt=""><div class="lp-text">${renderIcons(esc(l.tko||l.text))}</div>`;
+        `<img src="${cardImgUrl(l.img,480)}" alt=""><div class="lp-text">${renderIcons(esc(l.tko||l.text))}</div>`;
     };
     sel.onchange=preview; preview();
   });

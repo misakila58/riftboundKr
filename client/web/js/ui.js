@@ -196,8 +196,8 @@ function _pickHandLocal(p, title){
   });
 }
 
-function openModal(){ document.getElementById('modal-overlay').style.display='flex'; }
-function closeModal(){ document.getElementById('modal-overlay').style.display='none'; }
+function openModal(){ document.getElementById('modal-overlay').style.display='flex'; document.body.classList.add('modal-open'); }
+function closeModal(){ document.getElementById('modal-overlay').style.display='none'; document.body.classList.remove('modal-open'); }
 
 // 멀리건: 교체할 카드 다중 선택 (게임 시작 시)
 UI.pickMulligan = function(p){
@@ -233,11 +233,19 @@ function _pickMulliganLocal(p){
   });
 }
 
+// ---------- 카드 이미지 URL ----------
+// Riot CDN(Sanity 이미지 파이프라인)은 쿼리 파라미터로 webp 변환·리사이즈를 지원한다.
+// 원본 PNG(~780KB)를 표시 크기에 맞는 webp(~20KB)로 받아 로딩 속도와 축소 화질을 개선.
+function cardImgUrl(url, w){
+  if(!url || !/rgpub\.io\/sanity\/images\//.test(url)) return url;
+  return url + (url.includes('?')?'&':'?') + 'fm=webp&q=80' + (w?'&w='+w:'');
+}
+
 // ---------- 카드 미니 요소 ----------
 function cardMiniEl(c, opts={}){
   const el=document.createElement('div');
   el.className='card-mini';
-  if(c.img) el.style.backgroundImage=`url("${c.img}")`;
+  if(c.img) el.style.backgroundImage=`url("${cardImgUrl(c.img,280)}")`;
   const name=document.createElement('div'); name.className='cm-name'; name.textContent=c.ko;
   el.appendChild(name);
   if(c.e!==null && c.e!==undefined && c.type!=='Rune' && c.type!=='Battlefield'){
@@ -262,7 +270,7 @@ function unitEl(u){
   if(_moveSel.has(u.uid)) el.classList.add('selected');
   if(u.isToken){
     el.style.background='linear-gradient(135deg,#2a3a2a,#1a2a1a)';
-  } else if(c.img) el.style.backgroundImage=`url("${c.img}")`;
+  } else if(c.img) el.style.backgroundImage=`url("${cardImgUrl(c.img,280)}")`;
   const name=document.createElement('div'); name.className='cm-name'; name.textContent=unitName(u);
   el.appendChild(name);
   const m=document.createElement('div');
@@ -339,7 +347,7 @@ UI.cardInfoHTML = function(c){
     .map(k=>KEYWORDS_KO[k]?`<div style="font-size:11px;color:#9aa4bd">· <b>[${KEYWORDS_KO[k].ko}]</b> ${KEYWORDS_KO[k].desc}</div>`:'')
     .join('');
   return `
-    ${c.img?`<img src="${c.img}" alt="">`:''}
+    ${c.img?`<img src="${cardImgUrl(c.img,280)}" alt="">`:''}
     <div class="insp-name">${esc(c.ko)}</div>
     <div class="insp-name-en">${esc(c.name)} · #${c.n}</div>
     <div class="insp-type">${esc(typeLine(c))}${c.m!==null&&c.m!==undefined?` · 위력 ${c.m}`:''}${c.e!==null&&c.e!==undefined?` · 비용 ${c.e}${c.p?'+힘'+c.p:''}`:''}</div>
@@ -382,8 +390,8 @@ UI.showZoom = function(c){
   if(c.m!==null && c.m!==undefined) statBits.push(`위력 ${c.m}`);
   if(c.e!==null && c.e!==undefined) statBits.push(`비용 ${c.e}${c.p?'+힘'+c.p:''}`);
   ov.innerHTML = `
-    <div class="cz-box" onclick="event.stopPropagation()">
-      ${c.img?`<img class="cz-img" src="${c.img}" alt="">`:'<div class="cz-noimg">🃏</div>'}
+    <div class="cz-box">
+      ${c.img?`<img class="cz-img" src="${cardImgUrl(c.img)}" alt="">`:'<div class="cz-noimg">🃏</div>'}
       <div class="cz-info">
         <div class="cz-name">${esc(c.ko||'')}</div>
         <div class="cz-en">${esc(c.name||'')}${c.n?` · #${c.n}`:''}</div>
@@ -391,9 +399,10 @@ UI.showZoom = function(c){
         <div class="cz-text">${renderIcons(esc(c.tko||c.text||'(효과 없음)'))}</div>
         ${kwNote}
         ${c.tags&&c.tags.length?`<div class="cz-tags">태그: ${c.tags.map(esc).join(', ')}</div>`:''}
-        <div class="cz-hint">아무 곳이나 클릭하거나 Esc로 닫기</div>
+        <div class="cz-hint">바깥을 클릭하거나 Esc로 닫기</div>
       </div>
     </div>`;
+  ov.querySelector('.cz-box').addEventListener('click', e=>e.stopPropagation()); // CSP가 인라인 onclick 차단 → 리스너로 연결
   ov.style.display = 'flex';
 };
 UI.hideZoom = function(){
@@ -426,6 +435,13 @@ function attachZoom(el){
   el.addEventListener('click', (e)=>{
     if(e.altKey){ e.preventDefault(); e.stopImmediatePropagation(); UI.showZoom(el._card); }
   }, true);
+  // 우클릭 즉시 확대 (유닛처럼 자체 우클릭 메뉴가 있는 요소는 그쪽 우선)
+  el.addEventListener('contextmenu', (e)=>{
+    if(el.oncontextmenu) return;
+    e.preventDefault(); e.stopPropagation();
+    clearTimeout(_lpTimer);
+    UI.showZoom(el._card);
+  });
 }
 
 // 롱프레스 직후의 클릭을 한 번 무시 (플레이/선택 오동작 방지)
@@ -706,7 +722,7 @@ UI.render = function(){
     el.innerHTML='';
     const head=document.createElement('div'); head.className='bf-header';
     if(bc.img){
-      const im=document.createElement('img'); im.src=bc.img;
+      const im=document.createElement('img'); im.src=cardImgUrl(bc.img,280);
       im.onmouseenter=()=>UI.inspect(bc);
       // 전장 카드 클릭 → 확대 (단, 이동 목적지 선택 중에는 이동 우선)
       im.onclick=(e)=>{
@@ -885,11 +901,14 @@ window.addEventListener('DOMContentLoaded', ()=>{
     · 상대 전장/유닛이 있는 곳으로 이동하면 <b>결전</b>이 열립니다. [행동]/[반응] 카드로 응수한 뒤 패스하면 전투가 벌어집니다.<br>
     · <b>전투</b>: 양측 위력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 기지 귀환.<br>
     · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동.<br>
-    · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 클릭/Esc).<br>
+    · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>우클릭</b>, <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 바깥 클릭/Esc). 유닛은 우클릭이 능력 메뉴라 꾹 누르기/Alt+클릭.<br>
     · 자동화가 안 되는 효과는 ⚙️ 알림이 뜹니다.<br>
     · 기지은 안전지대이며 유닛은 기지↔전장으로 이동합니다. [개입]은 전장 간 이동 가능.<br>
-    </div>
-    <div class="modal-btns"><button class="primary" onclick="closeModal()">닫기</button></div>`;
+    </div>`;
+    const hbtns=document.createElement('div'); hbtns.className='modal-btns';
+    const hclose=document.createElement('button'); hclose.className='primary'; hclose.textContent='닫기';
+    hclose.onclick=closeModal;                    // CSP(script-src 'self')가 인라인 onclick을 차단하므로 프로퍼티로 연결
+    hbtns.appendChild(hclose); box.appendChild(hbtns);
     openModal();
   };
   document.getElementById('modal-overlay').onclick=(e)=>{
