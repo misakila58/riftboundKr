@@ -27,8 +27,8 @@ P2P._enc = o=>btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 P2P._dec = s=>JSON.parse(decodeURIComponent(escape(atob(String(s).replace(/\s+/g,'')))));
 
 // ---------- 호스트 (방 만들기) ----------
-P2P.host = async function(name, deck, manual){
-  P2P.reset(); P2P.isHost=true; P2P.myName=name; P2P.myDeck=deck; P2P.manual=manual!==false;
+P2P.host = async function(name, deck, manual, ban){
+  P2P.reset(); P2P.isHost=true; P2P.myName=name; P2P.myDeck=deck; P2P.manual=manual!==false; P2P.ban=ban===true;
   const pc=P2P._newPc(); P2P.pc=pc;
   P2P._bindChannel(pc.createDataChannel('game',{ordered:true}));
   P2P._watchConn(pc);
@@ -43,8 +43,8 @@ P2P.acceptAnswer = async function(code){
 };
 
 // ---------- 게스트 (참여하기) ----------
-P2P.join = async function(name, deck, hostCode){
-  P2P.reset(); P2P.isHost=false; P2P.myName=name; P2P.myDeck=deck;
+P2P.join = async function(name, deck, hostCode, ban){
+  P2P.reset(); P2P.isHost=false; P2P.myName=name; P2P.myDeck=deck; P2P.ban=ban===true;
   const m=P2P._dec(hostCode);
   if(m.t!=='offer') throw new Error('초대 코드가 아닙니다. 방장이 만든 "초대 코드"를 붙여넣으세요.');
   const pc=P2P._newPc(); P2P.pc=pc;
@@ -63,7 +63,7 @@ P2P._bindChannel = function(ch){
     P2P.active=true;
     P2P.onStatus && P2P.onStatus('connected');
     if(!P2P.isHost){
-      ch.send(JSON.stringify({t:'hello', name:P2P.myName, deck:P2P.myDeck}));
+      ch.send(JSON.stringify({t:'hello', name:P2P.myName, deck:P2P.myDeck, ban:P2P.ban===true}));
     }
   };
   ch.onmessage=(ev)=>{
@@ -91,11 +91,25 @@ P2P._onMsg = function(m){
       case 'hello': {
         // 게스트 정보 수신 → 시드 생성, 양측 게임 시작 (호스트=좌석0)
         P2P.peerName = String(m.name||'상대').slice(0,16);
+        // 밴 규칙: 양쪽 모두 선택했을 때만 적용 — 위반 덱이 있으면 시작하지 않음
+        const banRule = P2P.ban===true && m.ban===true;
+        if(banRule){
+          const offenders=[];
+          if(deckBannedCards(P2P.myDeck).length) offenders.push(P2P.myName+'(방장)');
+          if(deckBannedCards(m.deck||{}).length) offenders.push(P2P.peerName);
+          if(offenders.length){
+            const msg='🚫 밴 적용 대전: 밴 카드가 포함된 덱은 사용할 수 없습니다 — '+offenders.join(', ')+'. 덱을 바꾼 뒤 처음부터 다시 연결하세요.';
+            try{ P2P.ch.send(JSON.stringify({t:'err', msg})); }catch(e){}
+            P2P.active=false;  // 미시작 종료 — 이후 연결이 끊겨도 '상대가 나갔습니다' 리로드가 뜨지 않게
+            NET.onErr && NET.onErr(msg);
+            break;
+          }
+        }
         const seed = crypto.getRandomValues(new Uint32Array(1))[0];
         const players = [ {id:P2P.myName, deck:P2P.myDeck}, {id:P2P.peerName, deck:m.deck} ];
         const manual = P2P.manual!==false;
-        P2P.ch.send(JSON.stringify({t:'start', seed, players, yourSeat:1, manual}));
-        NET.onStart && NET.onStart({t:'start', seed, players, yourSeat:0, manual});
+        P2P.ch.send(JSON.stringify({t:'start', seed, players, yourSeat:1, manual, banRule}));
+        NET.onStart && NET.onStart({t:'start', seed, players, yourSeat:0, manual, banRule});
         break;
       }
       case 'act': case 'choice': P2P.relay(m, 1); break;
@@ -103,7 +117,20 @@ P2P._onMsg = function(m){
     }
   } else {
     switch(m.t){
-      case 'start': P2P.peerName=m.players[0].id; NET.onStart && NET.onStart(m); break;
+      case 'start': {
+        // 게스트도 밴 규칙을 검증한다 (호스트 클라이언트만 믿지 않음 — 서버 모드와 대칭)
+        if(m.banRule){
+          const offenders=m.players.filter(pl=>deckBannedCards(pl.deck||{}).length).map(pl=>pl.id);
+          if(offenders.length){
+            P2P.active=false;
+            NET.onErr && NET.onErr('🚫 밴 적용 대전: 밴 카드가 포함된 덱은 사용할 수 없습니다 — '+offenders.join(', '));
+            break;
+          }
+        }
+        P2P.peerName=m.players[0].id; NET.onStart && NET.onStart(m);
+        break;
+      }
+      case 'err': P2P.active=false; NET.onErr && NET.onErr(m.msg); break;
       case 'act': NET._enqueueAction(m); break;
       case 'choice': NET._resolveChoice(m); break;
       case 'chat': NET.onChat && NET.onChat(m); break;
@@ -133,5 +160,5 @@ P2P.netSend = function(m){
 P2P.reset = function(){
   try{ P2P.ch && P2P.ch.close(); }catch(e){}
   try{ P2P.pc && P2P.pc.close(); }catch(e){}
-  P2P.pc=null; P2P.ch=null; P2P.active=false; P2P.seq=0; P2P.isHost=false;
+  P2P.pc=null; P2P.ch=null; P2P.active=false; P2P.seq=0; P2P.isHost=false; P2P.ban=false;
 };

@@ -384,6 +384,18 @@ body.modal-open #inspector {
 #ctx-menu .ctx-sep { border-top:1px solid #33436a; margin:3px 0; }
 #ctx-menu .ctx-title { padding:4px 12px; font-size:11px; color:#8a94b0; }
 
+/* 밴 카드 표시 */
+.card-mini.banned { outline:2px solid #d05050; outline-offset:-2px; }
+.cm-ban {
+  position:absolute; top:-6px; right:-6px; font-size:13px;
+  background:#4a1a1a; border:1px solid #d05050; border-radius:50%;
+  width:20px; height:20px; display:flex; align-items:center; justify-content:center;
+}
+.ban-flag { color:#ff8a8a; font-weight:bold; }
+
+/* 빌드 버전 표시 (우하단, 클릭 통과) */
+#build-tag { position:fixed; right:8px; bottom:6px; z-index:50; font-size:11px; color:#5a6a90; pointer-events:none; }
+
 /* 토스트 */
 #toast-area { position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:300; display:flex; flex-direction:column; gap:6px; align-items:center; }
 .toast {

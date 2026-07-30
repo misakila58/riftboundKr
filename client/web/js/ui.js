@@ -350,6 +350,7 @@ UI.cardInfoHTML = function(c){
     ${c.img?`<img src="${cardImgUrl(c.img,280)}" alt="">`:''}
     <div class="insp-name">${esc(c.ko)}</div>
     <div class="insp-name-en">${esc(c.name)} · #${c.n}</div>
+    ${isBanned(c.n)?`<div class="ban-flag" style="font-size:12px">🚫 밴 카드 (${esc(BANLIST.region)})</div>`:''}
     <div class="insp-type">${esc(typeLine(c))}${c.m!==null&&c.m!==undefined?` · 위력 ${c.m}`:''}${c.e!==null&&c.e!==undefined?` · 비용 ${c.e}${c.p?'+힘'+c.p:''}`:''}</div>
     <div class="insp-text">${renderIcons(esc(c.tko||c.text||'(효과 없음)'))}</div>
     ${kwNote}
@@ -395,6 +396,7 @@ UI.showZoom = function(c){
       <div class="cz-info">
         <div class="cz-name">${esc(c.ko||'')}</div>
         <div class="cz-en">${esc(c.name||'')}${c.n?` · #${c.n}`:''}</div>
+        ${c.n&&isBanned(c.n)?`<div class="ban-flag" style="font-size:14px;margin-bottom:6px">🚫 밴 카드 (${esc(BANLIST.region)})</div>`:''}
         <div class="cz-type">${esc(typeLine(c))}${statBits.length?' · '+statBits.join(' · '):''}</div>
         <div class="cz-text">${renderIcons(esc(c.tko||c.text||'(효과 없음)'))}</div>
         ${kwNote}
@@ -903,6 +905,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동.<br>
     · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>우클릭</b>, <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 바깥 클릭/Esc). 유닛은 우클릭이 능력 메뉴라 꾹 누르기/Alt+클릭.<br>
     · 자동화가 안 되는 효과는 ⚙️ 알림이 뜹니다.<br>
+    · <b>밴 리스트</b>: 덱 관리/덱 편집 화면의 [🚫 밴 리스트] 버튼에서 확인. 온라인 방·P2P에서 <b>양쪽 모두 '밴 적용'을 선택</b>하면 밴 카드 포함 덱은 사용할 수 없습니다.<br>
     · 기지은 안전지대이며 유닛은 기지↔전장으로 이동합니다. [개입]은 전장 간 이동 가능.<br>
     </div>`;
     const hbtns=document.createElement('div'); hbtns.className='modal-btns';

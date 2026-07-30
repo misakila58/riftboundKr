@@ -47,6 +47,7 @@ function buildDeck(legendN){
     ['Unit','Spell','Gear'].includes(c.type) &&
     c.super!=='Token' &&
     c.n!==champN &&
+    !isBanned(c.n) &&
     (c.dom.length===0 || c.dom.every(d=>doms.includes(d)||d==='Colorless'))
   );
   const preferred = pool.filter(c=>c.tags.includes(champTag));
@@ -74,7 +75,7 @@ function buildDeck(legendN){
   const domRunes = doms.map(d=>runeCards.find(r=>r.dom.includes(d))).filter(Boolean);
   for(let i=0;i<12;i++) runes.push(domRunes[i%domRunes.length].n);
 
-  const bfPool = shuffle(CARDS.filter(c=>c.type==='Battlefield').map(c=>c.n));
+  const bfPool = shuffle(CARDS.filter(c=>c.type==='Battlefield' && !isBanned(c.n)).map(c=>c.n));
   const bfs = bfPool.slice(0,3);
 
   return { deck, runes, bfs, champN };
@@ -209,6 +210,44 @@ function deckSummary(d){
   const l=card(d.legendN);
   return `전설: ${l.ko}<br>영역: ${l.dom.map(x=>DOMAIN_KO[x]).join('/')} · 챔피언: ${d.champN?card(d.champN).ko:'-'}`;
 }
+// ---------- 밴 리스트 ----------
+function showBanlist(){
+  const box=document.getElementById('modal-box');
+  box.innerHTML=`<h3>🚫 밴 리스트 — ${esc(BANLIST.region)}</h3>`;
+  const info=document.createElement('div');
+  info.style.cssText='font-size:13px;color:#9aa4bd;margin-bottom:10px;line-height:1.7';
+  info.textContent = BANLIST.cards.length
+    ? `대전에서 양쪽 모두 '🚫 밴 적용'을 선택하면 아래 카드가 포함된 덱은 사용할 수 없습니다. (기준일: ${BANLIST.updated||'-'} · 글로벌 공통 밴리스트, 한국 공식 적용)`
+    : `현재 밴 카드가 없습니다. (기준일: ${BANLIST.updated||'-'})`;
+  box.appendChild(info);
+  if(BANLIST.cards.length){
+    const wrap=document.createElement('div'); wrap.className='modal-cards';
+    BANLIST.cards.forEach(n=>{
+      const el=cardMiniEl(card(n));
+      const bb=document.createElement('div'); bb.className='cm-ban'; bb.textContent='🚫';
+      el.appendChild(bb);
+      wrap.appendChild(el);
+    });
+    box.appendChild(wrap);
+    const names=document.createElement('div');
+    names.style.cssText='font-size:12px;color:#8a94b0;margin-top:8px;text-align:center';
+    names.textContent='카드 우클릭/꾹 누르기로 자세히 볼 수 있습니다 — '
+      +BANLIST.cards.map(n=>card(n).ko).join(' · ');
+    box.appendChild(names);
+  }
+  if(BANLIST.source){
+    const src=document.createElement('div');
+    src.style.cssText='font-size:11px;color:#5a6a90;margin-top:8px;word-break:break-all';
+    src.textContent='출처: '+BANLIST.source;
+    box.appendChild(src);
+  }
+  const btns=document.createElement('div'); btns.className='modal-btns';
+  const close=document.createElement('button'); close.className='primary'; close.textContent='닫기';
+  close.onclick=closeModal;
+  btns.appendChild(close); box.appendChild(btns);
+  openModal();
+}
+
 function renderDeckList(){
   const el=document.getElementById('deck-list');
   el.innerHTML='';
@@ -217,7 +256,9 @@ function renderDeckList(){
   }
   myDecks.forEach((d,i)=>{
     const div=document.createElement('div'); div.className='deck-card';
-    div.innerHTML=`<h3>${esc(d.name)}</h3><div class="dk-info">${deckSummary(d)}</div>`;
+    const banned=deckBannedCards(d);
+    div.innerHTML=`<h3>${esc(d.name)}</h3><div class="dk-info">${deckSummary(d)}</div>`
+      +(banned.length?`<div class="ban-flag" style="font-size:12px">🚫 밴 카드 ${banned.length}종 포함 — ${esc(banned.map(n=>card(n).ko).join(', '))}</div>`:'');
     const btns=document.createElement('div'); btns.className='dk-btns';
     const be=document.createElement('button'); be.textContent='편집';
     be.onclick=()=>openEditor(i);
@@ -268,6 +309,13 @@ function openEditor(index){
     ? myDecks[index].champN : null;
   document.getElementById('ed-champ-select').value = ED.champOverride ? String(ED.champOverride) : '';
   document.getElementById('ed-msg').textContent='';
+  // 기존 덱에 밴 카드가 있으면 편집 진입 시 바로 알림
+  if(index!==null){
+    const banned=deckBannedCards(myDecks[index]);
+    if(banned.length)
+      document.getElementById('ed-msg').textContent =
+        '🚫 밴 카드 포함: '+banned.map(n=>card(n).ko).join(', ')+' — 밴 적용 대전에서는 사용할 수 없습니다';
+  }
   ED.selN=null;
   renderEditor();
   showScreen('editor-screen');
@@ -302,16 +350,18 @@ function edLegendForChamp(champN){
 
 // 카드 1장 추가/제거 (성공 시 true) — 풀 클릭 확대 팝업의 ＋/− 버튼에서 사용
 function edAddCard(c){
+  // 밴 카드는 넣을 수는 있지만 (밴 미적용 대전용), 실제로 추가됐을 때만 경고를 띄운다
+  const warnBan=()=>{ if(isBanned(c.n)) UI.toast(`🚫 「${c.ko}」는 밴 카드입니다 — 밴 적용 대전에서는 이 덱을 쓸 수 없습니다`,'warn'); };
   if(c.type==='Battlefield'){
     if(ED.bfs.includes(c.n)){ UI.toast('같은 전장은 1개까지입니다','warn'); return false; }
     if(ED.bfs.length>=3){ UI.toast('전장은 3개까지입니다','warn'); return false; }
-    ED.bfs.push(c.n); return true;
+    ED.bfs.push(c.n); warnBan(); return true;
   }
   const cnt=ED.main.filter(n=>n===c.n).length;
   if(cnt>=3){ UI.toast('같은 카드는 3장까지입니다','warn'); return false; }
   if(ED.main.length>=40){ UI.toast('메인 덱은 40장입니다','warn'); return false; }
   if(c.n===edChampN()){ UI.toast('선발 챔피언은 자동 배정됩니다 (챔피언 존)','warn'); return false; }
-  ED.main.push(c.n); return true;
+  ED.main.push(c.n); warnBan(); return true;
 }
 function edRemoveCard(c){
   if(c.type==='Battlefield'){
@@ -351,6 +401,11 @@ function renderEditor(){
     const el=cardMiniEl(c);
     const inCnt = c.type==='Battlefield' ? (ED.bfs.includes(c.n)?1:0) : (counts[c.n]||0);
     if(inCnt){ const b=document.createElement('div'); b.className='cm-inpool'; b.textContent=inCnt; el.appendChild(b); }
+    if(isBanned(c.n)){
+      el.classList.add('banned');
+      const bb=document.createElement('div'); bb.className='cm-ban'; bb.textContent='🚫';
+      el.appendChild(bb);
+    }
     // 선택된 카드: 카드 위에 ＋/− 버튼 표시 → 바로 추가/제거
     if(ED.selN===c.n){
       el.classList.add('ed-selected');
@@ -491,6 +546,8 @@ function initEditor(){
     if(deck.main.length!==40){ msg.textContent='메인 덱은 정확히 40장이어야 합니다'; return; }
     if(runes.length!==12){ msg.textContent='룬은 정확히 12개여야 합니다'; return; }
     if(deck.bfs.length!==3){ msg.textContent='전장은 정확히 3개여야 합니다'; return; }
+    const bannedIn=deckBannedCards(deck);
+    if(bannedIn.length) UI.toast('🚫 밴 카드 포함 덱입니다 — 밴 적용 대전에서는 사용할 수 없습니다: '+bannedIn.map(n=>card(n).ko).join(', '),'warn');
     try{
       myDecks=await DeckStore.save(deck, ED.index);
       if(!DeckStore.local) syncSrvBackup(myDecks);
@@ -524,6 +581,20 @@ function lobbyDeckPayload(){
   }
   return {deckIdx:+String(v).replace(/^s/,'')};
 }
+// 현재 선택된 로비 덱 객체 (밴 검사용)
+function lobbySelectedDeck(){
+  const v=document.getElementById('lobby-deck').value;
+  if(v && v[0]==='l') return DeckStore._read()[+v.slice(1)]||null;
+  return myDecks[+String(v).replace(/^s/,'')]||null;
+}
+// 밴 적용을 선택했다면 자기 덱부터 검사 (통과 시 true)
+function banSelfCheck(banChecked, deck){
+  if(!banChecked || !deck) return true;
+  const b=deckBannedCards(deck);
+  if(!b.length) return true;
+  UI.toast('🚫 밴 적용을 선택했지만 덱에 밴 카드가 있습니다: '+b.map(n=>card(n).ko).join(', '),'warn');
+  return false;
+}
 function renderRooms(roomsArr){
   const el=document.getElementById('room-list');
   el.innerHTML='';
@@ -533,13 +604,15 @@ function renderRooms(roomsArr){
   }
   roomsArr.forEach(r=>{
     const div=document.createElement('div'); div.className='deck-card room-card';
-    div.innerHTML=`<h3>${esc(r.name)}</h3><div class="dk-info">방장: ${esc(r.host)} · ${r.count}/2</div>`;
+    div.innerHTML=`<h3>${esc(r.name)}${r.banRule?' <span class="ban-flag" style="font-size:12px">🚫 밴 적용</span>':''}</h3><div class="dk-info">방장: ${esc(r.host)} · ${r.count}/2${r.banRule?' · 방장이 밴 적용을 선택한 방입니다 (나도 선택하면 밴 규칙 적용)':''}</div>`;
     const btns=document.createElement('div'); btns.className='dk-btns';
     const bj=document.createElement('button'); bj.className='join-btn'; bj.textContent='선택한 덱으로 입장';
     bj.onclick=()=>{
       const pay=lobbyDeckPayload();
       if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
-      NET.send({t:'joinRoom', roomId:r.id, ...pay});
+      const ban=document.getElementById('lobby-ban').checked;
+      if(!banSelfCheck(ban, lobbySelectedDeck())) return;
+      NET.send({t:'joinRoom', roomId:r.id, ...pay, banRule:ban});
     };
     btns.appendChild(bj);
     div.appendChild(btns);
@@ -556,7 +629,9 @@ function initLobby(){
     const pay=lobbyDeckPayload();
     if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
     const manual = !document.getElementById('lobby-auto').checked;
-    NET.send({t:'createRoom', ...pay, manual, name:document.getElementById('lobby-room-name').value.trim()});
+    const ban=document.getElementById('lobby-ban').checked;
+    if(!banSelfCheck(ban, lobbySelectedDeck())) return;
+    NET.send({t:'createRoom', ...pay, manual, banRule:ban, name:document.getElementById('lobby-room-name').value.trim()});
   };
   NET.onRooms=renderRooms;
   NET.onRoomCreated=(room)=>{
@@ -624,10 +699,12 @@ function initP2P(){
   document.getElementById('btn-p2p-host').onclick=async ()=>{
     const deck=p2pGetDeck();
     if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+    const ban=document.getElementById('p2p-ban').checked;
+    if(!banSelfCheck(ban, deck)) return;
     hostStatus('초대 코드 생성 중... (몇 초 걸릴 수 있음)');
     try{
       const manual = !document.getElementById('p2p-auto').checked;
-      const code=await P2P.host(p2pNick(), deck, manual);
+      const code=await P2P.host(p2pNick(), deck, manual, ban);
       document.getElementById('p2p-offer-out').value=code;
       hostStatus('① 초대 코드를 친구에게 보내고, ② 응답 코드를 기다리세요.');
     }catch(e){ hostStatus('오류: '+e.message); }
@@ -645,11 +722,13 @@ function initP2P(){
   document.getElementById('btn-p2p-join').onclick=async ()=>{
     const deck=p2pGetDeck();
     if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+    const ban=document.getElementById('p2p-ban').checked;
+    if(!banSelfCheck(ban, deck)) return;
     const code=document.getElementById('p2p-offer-in').value.trim();
     if(!code){ UI.toast('초대 코드를 붙여넣으세요','warn'); return; }
     guestStatus('응답 코드 생성 중... (몇 초 걸릴 수 있음)');
     try{
-      const ans=await P2P.join(p2pNick(), deck, code);
+      const ans=await P2P.join(p2pNick(), deck, code, ban);
       document.getElementById('p2p-answer-out').value=ans;
       guestStatus('응답 코드를 방장에게 보내세요. 방장이 [연결하기]를 누르면 자동 시작!');
     }catch(e){ guestStatus('오류: '+e.message); }
@@ -676,8 +755,9 @@ function startOnlineGame(m){
   });
   showScreen('game-screen');
   const modeLabel = G.manual ? '수동' : '자동';
-  document.getElementById('net-info').textContent=`🌐 온라인(${modeLabel}) — 나: ${m.players[NET.seat].id} (${NET.seat===0?'선공':'후공'})`;
+  document.getElementById('net-info').textContent=`🌐 온라인(${modeLabel}${m.banRule?' · 🚫밴':''}) — 나: ${m.players[NET.seat].id} (${NET.seat===0?'선공':'후공'})`;
   UI.log(`온라인 대전 시작! ${m.players[0].id} vs ${m.players[1].id} · 규칙 처리: ${modeLabel} 모드`, 'sys');
+  if(m.banRule) UI.log(`🚫 밴 리스트 적용 대전입니다 (${BANLIST.region}, 기준일 ${BANLIST.updated})`, 'sys');
   UI.log('승리 조건: '+G.victory+'점 선취!', 'sys');
   mulliganPhase().then(()=>startTurn());
 }
@@ -738,5 +818,9 @@ window.addEventListener('DOMContentLoaded', ()=>{
   initLobby();
   initP2P();
   initHotseat();
+  document.getElementById('btn-banlist-decks').onclick=showBanlist;
+  document.getElementById('btn-banlist-editor').onclick=showBanlist;
+  if(typeof BUILDINFO!=='undefined')
+    document.getElementById('build-tag').textContent=`v${BUILDINFO.version} · ${BUILDINFO.built}`;
   showScreen('connect-screen');
 });

@@ -350,7 +350,15 @@ const wss = new WebSocket.Server({ server, maxPayload: LIMITS.WS_PAYLOAD });
 const rooms = new Map();
 let roomSeq = 1;
 function wsSend(ws, obj) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
-function roomInfo(r) { return { id: r.id, name: r.name, host: r.players[0]?.id, count: r.players.length, started: r.started }; }
+function roomInfo(r) { return { id: r.id, name: r.name, host: r.players[0]?.id, count: r.players.length, started: r.started, banRule: !!r.banRule }; }
+// 밴 리스트 (한국 KR 기준 = 글로벌 공통, 2026-07-29 확인) — client/web/js/banlist.js와 반드시 함께 갱신할 것
+// 168 투쟁 혹은 도피 · 177 은밀한 추적자 · 182 고철 더미 · 276 지망자의 등반
+// 284 힘의 오벨리스크 · 285 약탈자의 거리 · 290 투기장 최고의 강자 · 292 꿈꾸는 나무
+const BANNED = new Set([168, 177, 182, 276, 284, 285, 290, 292]);
+function deckBannedNs(d) {
+  const all = [d.legendN, d.champN, ...(d.main || []), ...(d.bfs || [])];
+  return [...new Set(all)].filter(n => n != null && BANNED.has(n));
+}
 // 방 생성/입장 시 사용할 덱 결정: 기기 로컬 덱(원본 전달, 서버 미저장) 또는 계정 저장 덱(deckIdx)
 // 로컬 덱을 허용하면 무료 호스팅에서 서버 데이터가 초기화돼도 플레이어의 덱은 유지된다.
 function resolveDeck(ws, m) {
@@ -404,8 +412,11 @@ wss.on('connection', (ws, req) => {
         if (rooms.size >= LIMITS.MAX_ROOMS) return wsSend(ws, { t: 'err', msg: '서버 방이 가득 찼습니다.' });
         const deck = resolveDeck(ws, m);
         if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요 (덱 형식 오류 포함)' });
+        const wantBan = m.banRule === true;
+        if (wantBan && deckBannedNs(deck).length)
+          return wsSend(ws, { t: 'err', msg: '🚫 밴 적용을 선택한 경우 밴 카드가 포함된 덱은 사용할 수 없습니다' });
         const nm = (typeof m.name === 'string' && m.name.trim()) ? m.name.trim().slice(0, LIMITS.MAX_ROOM_NAME) : (ws._userId + '의 방');
-        const r = { id: 'r' + (roomSeq++), name: nm, players: [], started: false, seq: 0, manual: m.manual !== false };
+        const r = { id: 'r' + (roomSeq++), name: nm, players: [], started: false, seq: 0, manual: m.manual !== false, banRule: wantBan };
         rooms.set(r.id, r);
         r.players.push({ ws, id: ws._userId, deck, seat: 0 });
         ws._room = r;
@@ -420,12 +431,19 @@ wss.on('connection', (ws, req) => {
         if (r.players[0].id === ws._userId) return wsSend(ws, { t: 'err', msg: '자신의 방에는 입장할 수 없습니다' });
         const deck = resolveDeck(ws, m);
         if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요 (덱 형식 오류 포함)' });
+        // 밴 규칙: 방장과 입장자 모두 선택했을 때만 적용 — 위반 덱은 입장 거부
+        const wantBan = m.banRule === true;
+        const banActive = !!r.banRule && wantBan;
+        if (wantBan && deckBannedNs(deck).length)
+          return wsSend(ws, { t: 'err', msg: '🚫 밴 적용을 선택한 경우 밴 카드가 포함된 덱은 사용할 수 없습니다' });
+        if (banActive && deckBannedNs(r.players[0].deck).length)
+          return wsSend(ws, { t: 'err', msg: '🚫 방장 덱에 밴 카드가 있어 입장할 수 없습니다' });
         r.players.push({ ws, id: ws._userId, deck, seat: 1 });
         ws._room = r;
         r.started = true;
         const seed = crypto.randomBytes(4).readUInt32LE(0);
         r.players.forEach(pl => wsSend(pl.ws, {
-          t: 'start', seed, yourSeat: pl.seat, manual: r.manual !== false,
+          t: 'start', seed, yourSeat: pl.seat, manual: r.manual !== false, banRule: banActive,
           players: r.players.map(q => ({ id: q.id, deck: q.deck })),
         }));
         broadcastLobby();

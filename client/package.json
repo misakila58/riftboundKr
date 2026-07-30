@@ -1,11 +1,13 @@
 {
   "name": "riftbound-sim-client",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "리프트바운드 시뮬레이터 데스크톱 클라이언트 (비공식 팬 프로젝트)",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "predist": "node build-prep.js",
     "dist": "electron-builder --win",
+    "predist:portable": "node build-prep.js",
     "dist:portable": "electron-builder --win portable"
   },
   "author": "",

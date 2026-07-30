@@ -26,6 +26,7 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 | tutorial.js | 튜토리얼 시나리오 | TUT, tutSteps |
 | bot.js | BOT 대전(테스트, 오프라인 전용). UI.pick* 래핑 자동응답 + 900ms 턴 드라이버 | BOT, BOT_PRESETS(3종), botStep, startBotGame |
 | loc.js | 한글화 상수·아이콘 | KEYWORDS_KO, DOMAIN_*, renderIcons |
+| banlist.js | KR 밴 리스트 데이터 (글로벌 공통). **server.js의 BANNED와 함께 갱신** | BANLIST, isBanned, deckBannedCards |
 | cards.js | **생성물** (카드 DB, 읽기 금지) | tools/build-cards.js가 생성 |
 
 - 스타일: `client/web/css/style.css` 단일 파일. 테마 색은 상단 `:root` 변수(우드 테이블 테마)만 수정.
@@ -38,3 +39,4 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 - 클라 개발 실행: `cd client && npm start` / 웹 확인: `npx http-server client/web -p 8777`
 - 서버: `cd server && node server.js`
 - 빌드: 클라 `npm run dist`, 서버 `node build-dist.js --exe`
+- 클라 빌드 시 `predist`(build-prep.js)가 **패치 버전 자동 +1** 하고 `web/js/buildinfo.js`(생성물)에 버전·빌드 일시를 기록 → 첫 화면 우하단에 표시. 빌드 후 package.json/buildinfo.js 변경분도 함께 커밋할 것.
