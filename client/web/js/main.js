@@ -248,6 +248,114 @@ function showBanlist(){
   openModal();
 }
 
+// ---------- 대회 우승 덱 브라우저 (메타별 → 대회별 → 순위) ----------
+function tdPlaceRank(place){
+  if(place==='우승'||place==='1위') return 1;
+  if(/^top\s*4/i.test(place)) return 4;   // 3·4위 미구분 공동 준결승 탈락
+  const m=String(place).match(/^(\d+)/);
+  return m?+m[1]:99;
+}
+function showTourneyDecks(){
+  const box=document.getElementById('modal-box');
+  box.innerHTML=`<h3>🏆 대회 우승 덱</h3>
+    <div style="font-size:13px;color:#9aa4bd;margin-bottom:10px;line-height:1.6">
+    메타(부스터팩) → 대회(참가 인원 순) → 순위로 정렬되어 있습니다. 덱을 클릭하면 전체 리스트를 확인하고 내 덱으로 복사할 수 있습니다.<br>
+    <small>이 시뮬레이터는 Origins 카드풀만 지원하므로 이후 메타(Spiritforged~)의 덱은 아직 수록할 수 없습니다.
+    전적(승-패-무)은 공개 확인된 대회만 표기됩니다.</small></div>`;
+  TOURNAMENT_METAS.forEach(meta=>{
+    const head=document.createElement('div'); head.className='td-meta-head';
+    head.innerHTML=`📦 ${esc(meta.name)} <span class="td-period">${esc(meta.period)}</span>`;
+    box.appendChild(head);
+    // 대회별 그룹 (참가 인원 내림차순), 그룹 안에서 순위 오름차순
+    const byEvent=new Map();
+    meta.decks.forEach(td=>{ if(!byEvent.has(td.event)) byEvent.set(td.event,[]); byEvent.get(td.event).push(td); });
+    [...byEvent.entries()].sort((a,b)=>(b[1][0].players||0)-(a[1][0].players||0)).forEach(([ev,decks])=>{
+      const eh=document.createElement('div'); eh.className='td-event-head';
+      eh.textContent=`${ev} · 참가 ${decks[0].players?decks[0].players.toLocaleString()+'명':'?'}`;
+      box.appendChild(eh);
+      decks.sort((a,b)=>tdPlaceRank(a.place)-tdPlaceRank(b.place)).forEach(td=>{
+        const row=document.createElement('div'); row.className='td-row'+(td.unavailable?' unavail':'');
+        row.innerHTML=`<span class="td-place${tdPlaceRank(td.place)===1?' win':''}">${esc(td.place)}</span>
+          <span class="td-name">${esc(td.name)}</span>
+          <span class="td-info">${td.player?esc(td.player):''}${td.record?' · 전적 '+esc(td.record):''}${td.unavailable?' · 미수록(스타터 OGS 카드 포함 — 시뮬레이터 카드풀 밖)':''}</span>`;
+        if(td.unavailable) row.onclick=()=>UI.toast('이 덱은 Origins 부스터 외 카드(Proving Grounds 스타터)를 포함해 시뮬레이터에서 재현할 수 없습니다','warn');
+        else row.onclick=()=>showTourneyDeckDetail(td);
+        box.appendChild(row);
+      });
+    });
+  });
+  const btns=document.createElement('div'); btns.className='modal-btns';
+  const close=document.createElement('button'); close.className='primary'; close.textContent='닫기';
+  close.onclick=closeModal;
+  btns.appendChild(close); box.appendChild(btns);
+  openModal();
+}
+
+function showTourneyDeckDetail(td){
+  const box=document.getElementById('modal-box');
+  box.innerHTML=`<h3>🏆 ${esc(td.name)}</h3>
+    <div style="font-size:13px;color:#9aa4bd;margin-bottom:8px;line-height:1.6">
+      ${esc(td.event)} — <b class="td-place win">${esc(td.place)}</b>${td.player?' · '+esc(td.player):''}
+      · 참가 ${td.players?td.players.toLocaleString()+'명':'?'}${td.record?' · 전적 <b>'+esc(td.record)+'</b>':''}<br>
+      <small>카드는 우클릭 또는 꾹 누르기로 확대해 볼 수 있습니다 · 아래 순서: 전설 → 선발 챔피언 → 전장 3</small></div>`;
+  // 전설/챔피언/전장 미니 카드
+  const wrap=document.createElement('div'); wrap.className='modal-cards';
+  [td.legendN, td.champN, ...td.bfs].forEach(n=>wrap.appendChild(cardMiniEl(card(n))));
+  box.appendChild(wrap);
+  // 메인 40장 (비용순, 수량 묶음)
+  const grouped={};
+  td.main.forEach(n=>grouped[n]=(grouped[n]||0)+1);
+  const list=document.createElement('div'); list.className='td-cardlist';
+  Object.entries(grouped).sort((a,b)=>(card(+a[0]).e||0)-(card(+b[0]).e||0)).forEach(([n,cnt])=>{
+    const c=card(+n);
+    const row=document.createElement('div'); row.className='ed-row';
+    row.innerHTML=`<span class="cnt">×${cnt}</span> [${c.e??0}] ${esc(c.ko)}${isBanned(c.n)?' 🚫':''}`;
+    row.onmouseenter=()=>UI.inspect(c);
+    row._card=c; attachZoom(row);
+    list.appendChild(row);
+  });
+  box.appendChild(list);
+  // 룬 구성
+  const rc={}; td.runes.forEach(n=>rc[n]=(rc[n]||0)+1);
+  const runes=document.createElement('div');
+  runes.style.cssText='font-size:12px;color:#9aa4bd;margin-top:8px';
+  runes.textContent='룬: '+Object.entries(rc).map(([n,cnt])=>`${DOMAIN_KO[card(+n).dom[0]]||card(+n).ko} ×${cnt}`).join(' · ');
+  box.appendChild(runes);
+  // 밴 카드 안내
+  const bannedIn=[...new Set([td.legendN,td.champN,...td.main,...td.bfs])].filter(isBanned);
+  if(bannedIn.length){
+    const bn=document.createElement('div'); bn.className='ban-flag';
+    bn.style.cssText='font-size:12px;margin-top:6px';
+    bn.textContent='🚫 당시 대회 리스트 그대로라 현행 밴 카드 포함: '+bannedIn.map(n=>card(n).ko).join(', ')+' — 밴 적용 대전에서는 사용할 수 없습니다';
+    box.appendChild(bn);
+  }
+  const src=document.createElement('div');
+  src.style.cssText='font-size:11px;color:#5a6a90;margin-top:6px;word-break:break-all';
+  src.textContent='출처: '+td.source;
+  box.appendChild(src);
+  const btns=document.createElement('div'); btns.className='modal-btns';
+  const copy=document.createElement('button'); copy.className='primary'; copy.textContent='📋 내 덱으로 복사';
+  copy.onclick=async ()=>{
+    const label=`🏆 ${td.name}${td.tag?` (${td.tag}${td.place!=='우승'?' '+td.place:''})`:''}`;
+    const deck={ name:[...label].slice(0,30).join(''), legendN:td.legendN, champN:td.champN,
+      main:[...td.main], runes:[...td.runes], bfs:[...td.bfs] };
+    try{
+      myDecks=await DeckStore.save(deck, null);
+      if(!DeckStore.local) syncSrvBackup(myDecks);
+      renderDeckList();
+      UI.toast(`「${deck.name}」 — 내 덱 목록에 복사되었습니다`);
+      closeModal();
+    }catch(e){ UI.toast(e.message,'warn'); }
+  };
+  const back=document.createElement('button'); back.textContent='← 목록';
+  back.onclick=showTourneyDecks;
+  const close=document.createElement('button'); close.textContent='닫기';
+  close.onclick=closeModal;
+  btns.appendChild(copy); btns.appendChild(back); btns.appendChild(close);
+  box.appendChild(btns);
+  openModal();
+}
+
 function renderDeckList(){
   const el=document.getElementById('deck-list');
   el.innerHTML='';
@@ -820,6 +928,8 @@ window.addEventListener('DOMContentLoaded', ()=>{
   initHotseat();
   document.getElementById('btn-banlist-decks').onclick=showBanlist;
   document.getElementById('btn-banlist-editor').onclick=showBanlist;
+  document.getElementById('btn-tourney-decks').onclick=showTourneyDecks;
+  document.getElementById('btn-tourney-editor').onclick=showTourneyDecks;
   if(typeof BUILDINFO!=='undefined')
     document.getElementById('build-tag').textContent=`v${BUILDINFO.version} · ${BUILDINFO.built}`;
   showScreen('connect-screen');

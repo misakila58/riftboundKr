@@ -24,7 +24,8 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 | cardscripts.js (~500줄) | 파서로 안 되는 카드의 개별 스크립트 + 전용 op | SCRIPTS[n] 추가분, EXTRA_OPS (engine execOps default에서 호출) |
 | net.js / p2p.js | 서버 릴레이 / WebRTC 직결 (락스텝 동기화) | NET 객체 |
 | tutorial.js | 튜토리얼 시나리오 | TUT, tutSteps |
-| bot.js | BOT 대전(테스트, 오프라인 전용). UI.pick* 래핑 자동응답 + 900ms 턴 드라이버 | BOT, BOT_PRESETS(3종), botStep, startBotGame |
+| bot.js | BOT 대전(오프라인 전용). UI.pick* 래핑 자동응답 + 900ms 턴 드라이버. 난이도 3단계(쉬움/보통/어려움 — 대회 플레이 원칙 휴리스틱) | BOT, BOT_LEVELS, botStep, botMovePlanSmart, botCombatTrick, startBotGame |
+| botdecks.js | 실제 대회 덱 데이터 — 메타(부스터팩)별 구조, 원본 검증. 덱 브라우저(showTourneyDecks, main.js)와 봇 상대 덱 공용 | TOURNAMENT_METAS, BOT_DECKS(파생) |
 | loc.js | 한글화 상수·아이콘 | KEYWORDS_KO, DOMAIN_*, renderIcons |
 | banlist.js | KR 밴 리스트 데이터 (글로벌 공통). **server.js의 BANNED와 함께 갱신** | BANLIST, isBanned, deckBannedCards |
 | cards.js | **생성물** (카드 DB, 읽기 금지) | tools/build-cards.js가 생성 |

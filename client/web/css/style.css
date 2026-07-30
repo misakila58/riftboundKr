@@ -393,6 +393,20 @@ body.modal-open #inspector {
 }
 .ban-flag { color:#ff8a8a; font-weight:bold; }
 
+/* 대회 우승 덱 브라우저 */
+.td-meta-head { margin:10px 0 6px; padding:6px 10px; background:#1c2846; border:1px solid #3a4a70; border-radius:8px; color:#d8c27a; font-weight:bold; font-size:14px; }
+.td-meta-head .td-period { color:#8a94b0; font-weight:normal; font-size:12px; margin-left:6px; }
+.td-event-head { margin:8px 0 2px; font-size:12px; color:#9fd8ff; font-weight:bold; }
+.td-row.unavail { opacity:.55; cursor:default; }
+.td-row.unavail:hover { background:#182238; border-color:#2e3d5e; }
+.td-row { display:flex; gap:8px; align-items:center; padding:7px 10px; margin:4px 0; background:#182238; border:1px solid #2e3d5e; border-radius:8px; cursor:pointer; font-size:13px; }
+.td-row:hover { background:#22335a; border-color:#4a6a9a; }
+.td-place { flex:0 0 auto; font-size:11px; padding:2px 8px; border-radius:10px; background:#33436a; color:#c8d2ea; }
+.td-place.win { background:#6a4a1a; color:#ffe6a0; border:1px solid #d8c27a; }
+.td-name { font-weight:bold; color:#e8e6e0; flex:0 0 auto; }
+.td-info { color:#8a94b0; font-size:12px; }
+.td-cardlist { display:flex; flex-wrap:wrap; gap:4px; margin-top:10px; max-width:760px; }
+
 /* 빌드 버전 표시 (우하단, 클릭 통과) */
 #build-tag { position:fixed; right:8px; bottom:6px; z-index:50; font-size:11px; color:#5a6a90; pointer-events:none; }
 
