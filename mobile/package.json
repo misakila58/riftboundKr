@@ -1,0 +1,18 @@
+{
+  "name": "riftbound-sim-mobile",
+  "version": "1.0.0",
+  "description": "리프트바운드 시뮬레이터 모바일(APK) 래퍼 — 서버 없이 봇전/핫시트/튜토리얼/P2P 플레이 (비공식 팬 프로젝트)",
+  "private": true,
+  "scripts": {
+    "prepare-www": "node prepare-www.js",
+    "sync": "npm run prepare-www && npx cap sync android"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}

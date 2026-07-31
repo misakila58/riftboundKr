@@ -8,6 +8,10 @@ release/
 *.bak
 .*.bak
 
+# 모바일(APK) 생성물 — mobile/의 설정 3파일만 커밋, 나머지는 npx cap add android로 재생성
+mobile/www/
+mobile/android/
+
 # 사용자 데이터 (비밀번호 해시 포함 — 절대 커밋 금지)
 server/data/
 data/db.json

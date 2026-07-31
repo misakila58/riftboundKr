@@ -800,8 +800,21 @@ function initP2P(){
   const hostStatus=t=>document.getElementById('p2p-host-status').textContent=t;
   const guestStatus=t=>document.getElementById('p2p-guest-status').textContent=t;
 
-  // 연결 완료 시 상태 표시 (게임 시작은 start 메시지가 처리)
-  P2P.onStatus=(s)=>{ if(s==='connected'){ hostStatus('✅ 연결됨! 게임을 시작합니다...'); guestStatus('✅ 연결됨! 게임을 시작합니다...'); } };
+  // 연결 상태 표시 (게임 시작은 start 메시지가 처리)
+  P2P.onStatus=(s)=>{
+    const set=(t)=>{ (P2P.isHost?hostStatus:guestStatus)(t); };
+    if(s==='connected'){ hostStatus('✅ 연결됨! 게임을 시작합니다...'); guestStatus('✅ 연결됨! 게임을 시작합니다...'); }
+    else if(s==='failed'){
+      set('❌ P2P 연결 실패 — 네트워크가 WebRTC 직결을 차단하는 것 같습니다 (사내망·방화벽·일부 공유기). '
+        +'① Windows 방화벽에서 이 앱 허용 확인 ② 휴대폰 핫스팟으로 재시도 ③ 같은 네트워크라면 서버 모드(방법 B)가 확실합니다.');
+      UI.toast('P2P 연결 실패 — 네트워크가 직결을 차단하는 것 같습니다','warn');
+    }
+    else if(s==='stalled'){
+      set(P2P.isHost
+        ? '⏳ 20초째 연결 중 — 계속 안 되면 사내망/방화벽의 P2P 차단일 가능성이 큽니다. 휴대폰 핫스팟으로 시험해 보거나 서버 모드(방법 B)를 사용하세요.'
+        : '⏳ 아직 연결 대기 중 — 방장이 [연결하기]를 아직 안 눌렀거나, 네트워크가 P2P를 차단 중일 수 있습니다. 1분 넘게 지속되면 서버 모드(방법 B)를 사용하세요.');
+    }
+  };
 
   // ── 호스트 ──
   document.getElementById('btn-p2p-host').onclick=async ()=>{

@@ -1,0 +1,11 @@
+{
+  "appId": "com.fan.riftboundsim",
+  "appName": "리프트바운드 시뮬레이터",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

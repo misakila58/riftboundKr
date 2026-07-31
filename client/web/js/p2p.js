@@ -24,7 +24,15 @@ P2P._waitIce = function(pc){
   });
 };
 P2P._enc = o=>btoa(unescape(encodeURIComponent(JSON.stringify(o))));
-P2P._dec = s=>JSON.parse(decodeURIComponent(escape(atob(String(s).replace(/\s+/g,'')))));
+P2P._dec = function(s){
+  // 메신저를 거치며 섞이는 줄바꿈·쉼표·보이지 않는 문자 등 base64 이외 문자는 전부 제거하고 해석
+  const clean=String(s).replace(/[^A-Za-z0-9+/=]/g,'');
+  try{
+    return JSON.parse(decodeURIComponent(escape(atob(clean))));
+  }catch(e){
+    throw new Error('코드가 손상되어 읽을 수 없습니다. 코드 전체가 빠짐없이 복사됐는지 확인하세요 — 일부 메신저는 긴 글을 자르거나 문자를 바꿉니다 (파일/메모로 전달하면 안전합니다).');
+  }
+};
 
 // ---------- 호스트 (방 만들기) ----------
 P2P.host = async function(name, deck, manual, ban){
@@ -40,6 +48,7 @@ P2P.acceptAnswer = async function(code){
   const m=P2P._dec(code);
   if(m.t!=='answer') throw new Error('응답 코드가 아닙니다. 상대가 만든 "응답 코드"를 붙여넣으세요.');
   await P2P.pc.setRemoteDescription(m.sdp);
+  P2P._startConnWatch(20000);   // 방장: 연결하기 후 20초 내에 안 열리면 안내
 };
 
 // ---------- 게스트 (참여하기) ----------
@@ -53,13 +62,24 @@ P2P.join = async function(name, deck, hostCode, ban){
   await pc.setRemoteDescription(m.sdp);
   await pc.setLocalDescription(await pc.createAnswer());
   await P2P._waitIce(pc);
+  P2P._startConnWatch(60000);   // 게스트: 방장의 [연결하기] 대기 포함이라 넉넉히
   return P2P._enc({t:'answer', sdp:pc.localDescription});
 };
 
 // ---------- 채널/연결 관리 ----------
+// 연결 지연 감시: 일정 시간 내에 데이터채널이 안 열리면 안내 (상태는 'stalled'로 통지)
+P2P._connTimer=null;
+P2P._startConnWatch = function(ms){
+  clearTimeout(P2P._connTimer);
+  P2P._connTimer=setTimeout(()=>{
+    if(!P2P.active) P2P.onStatus && P2P.onStatus('stalled');
+  }, ms);
+};
+
 P2P._bindChannel = function(ch){
   P2P.ch=ch;
   ch.onopen=()=>{
+    clearTimeout(P2P._connTimer);
     P2P.active=true;
     P2P.onStatus && P2P.onStatus('connected');
     if(!P2P.isHost){
@@ -75,7 +95,15 @@ P2P._bindChannel = function(ch){
 };
 P2P._watchConn = function(pc){
   pc.onconnectionstatechange=()=>{
-    if(['failed','disconnected','closed'].includes(pc.connectionState)) P2P._bye();
+    const s=pc.connectionState;
+    if(s==='failed'){
+      clearTimeout(P2P._connTimer);
+      // 연결 수립 전 실패 = ICE 경로를 못 뚫음 (사내망/방화벽/대칭 NAT의 P2P 차단)
+      if(!P2P.active) P2P.onStatus && P2P.onStatus('failed');
+      P2P._bye();
+    } else if(s==='disconnected'||s==='closed'){
+      P2P._bye();
+    }
   };
 };
 P2P._bye = function(){
@@ -158,6 +186,7 @@ P2P.netSend = function(m){
 };
 
 P2P.reset = function(){
+  clearTimeout(P2P._connTimer);
   try{ P2P.ch && P2P.ch.close(); }catch(e){}
   try{ P2P.pc && P2P.pc.close(); }catch(e){}
   P2P.pc=null; P2P.ch=null; P2P.active=false; P2P.seq=0; P2P.isHost=false; P2P.ban=false;
