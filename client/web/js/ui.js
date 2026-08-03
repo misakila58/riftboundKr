@@ -48,10 +48,19 @@ UI.prompt = function(text){
 UI.promptShowdown = function(){
   const sd=G.showdown; if(!sd) return;
   const bf=G.bfs[sd.bfIdx];
+  // 체인 표시: 왼쪽이 먼저 쌓인 것, 오른쪽(마지막)이 먼저 해결됨
+  const chainHtml = (sd.chain&&sd.chain.length)
+    ? `<br>🔗 체인: ${sd.chain.map(it=>{
+        const nm = it.kind==='ability' ? '능력:'+it.srcName : card(it.n).ko;
+        return `<span style="color:${it.p===0?'#9fc8ff':'#ffc89f'}">${esc(nm)}${it.countered?'(무효)':''}</span>`;
+      }).join(' ← ')} <small>(마지막 것부터 해결)</small>`
+    : '';
   document.getElementById('showdown-banner').style.display='';
   document.getElementById('showdown-banner').innerHTML =
-    `⚔️ 결전: ${esc(card(bf.n).ko)}<br>공격 ${esc(pname(sd.attacker))} → 방어 ${esc(pname(sd.defender))}`;
-  UI.prompt(`${pname(G.actingPlayer)}: [행동]/[반응] 카드·능력을 사용하거나 패스하세요`);
+    `⚔️ 결전: ${esc(card(bf.n).ko)}<br>공격 ${esc(pname(sd.attacker))} → 방어 ${esc(pname(sd.defender))}${chainHtml}`;
+  UI.prompt(sd.chain&&sd.chain.length
+    ? `${pname(G.actingPlayer)}: [반응]으로 응수하거나 패스 (양측 패스 시 체인 해결)`
+    : `${pname(G.actingPlayer)}: [행동]/[반응] 카드·능력을 사용하거나 패스하세요`);
   document.getElementById('btn-pass').style.display='';
   document.getElementById('btn-endturn').style.display='none';
 };
@@ -456,8 +465,22 @@ function attachZoom(el){
 document.addEventListener('click', (e)=>{
   if(_suppressClick){ _suppressClick=false; e.stopImmediatePropagation(); e.preventDefault(); }
 }, true);
-// Esc로 확대 닫기
-document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') UI.hideZoom(); });
+// Esc: 확대/메뉴/정보 팝업 닫기 → 아무것도 없으면 게임 화면에서 시스템 메뉴(재대결·나가기)
+document.addEventListener('keydown', (e)=>{
+  if(e.key!=='Escape') return;
+  const zoom=document.getElementById('card-zoom');
+  if(zoom && zoom.style.display==='flex'){ UI.hideZoom(); return; }
+  const menu=document.getElementById('ctx-menu');
+  if(menu && menu.style.display==='block'){ hideMenu(); return; }
+  const ov=document.getElementById('modal-overlay');
+  if(ov.style.display!=='none'){
+    if(ov.dataset.dismiss) closeModal();   // 선택 대기 모달은 보호 (버튼으로만 완료)
+    return;
+  }
+  const gs=document.getElementById('game-screen');
+  if(gs && gs.offsetParent!==null && typeof G!=='undefined' && G && typeof openSystemMenu==='function')
+    openSystemMenu();
+});
 
 // ---------- 유닛 클릭 ----------
 let _moveSel = new Set();
@@ -856,21 +879,25 @@ function showGearMenu(p, g, e){
 UI.showVictory = function(p){
   const box=document.getElementById('modal-box');
   const isBot = typeof BOT!=='undefined' && BOT.active && !NET.online;
-  const btnLabel = NET.online ? '로비로 돌아가기' : (isBot ? '🤖 새 게임 (덱 선택)' : '새 게임');
   box.innerHTML=`<div class="victory-box">
     <h2>🎉 ${esc(pname(p))} 승리!</h2>
     <p>${G.victory}점을 선취했습니다.</p>
-    <div class="modal-btns">
-      <button class="primary" id="btn-victory-next">${btnLabel}</button>
-      ${isBot?'<button id="btn-victory-home">처음 화면으로</button>':''}
-    </div>
+    <div class="modal-btns" id="victory-btns"></div>
   </div>`;
-  document.getElementById('btn-victory-next').onclick=()=>{
-    if(isBot){ BOT.active=false; closeModal(); openBotSelect(); }
-    else location.reload();
-  };
-  const home=document.getElementById('btn-victory-home');
-  if(home) home.onclick=()=>location.reload();
+  const btns=box.querySelector('#victory-btns');
+  const add=(label,fn,primary)=>{ const b=document.createElement('button'); if(primary) b.className='primary';
+    b.textContent=label; b.onclick=fn; btns.appendChild(b); };
+  if(NET.online){
+    // 같은 상대와 즉시 재대결 (덱 다시 선택) — 연결은 유지 중
+    add('🔄 상대와 다시 하기 (덱 선택)', ()=>{ closeModal(); RM.openPick(false); }, true);
+    add(typeof P2P!=='undefined'&&P2P.active?'🚪 나가기':'🚪 로비로 돌아가기', ()=>{ closeModal(); gameLeave(); });
+  } else if(isBot){
+    add('🤖 새 게임 (덱 선택)', ()=>{ BOT.active=false; closeModal(); openBotSelect(); }, true);
+    add('처음 화면으로', ()=>location.reload());
+  } else {
+    add('🔄 새 게임', ()=>{ closeModal(); startHotseat(); }, true);
+    add('처음 화면으로', ()=>location.reload());
+  }
   openModal();
 };
 
@@ -901,12 +928,15 @@ window.addEventListener('DOMContentLoaded', ()=>{
     const box=document.getElementById('modal-box');
     box.innerHTML=`<h3>도움말</h3>
     <div style="font-size:13px;line-height:1.9">
-    · <b>승리</b>: 8점 선취. 전장 <b>정복</b>(빼앗기) 1점, 자기 개시 단계까지 <b>유지</b> 유지 1점.<br>
+    · <b>승리</b>: 8점 선취. 전장 <b>정복</b>(빼앗기) 1점, 유닛을 주둔시켜 자기 개시 단계까지 <b>유지</b> 1점.<br>
+    · 전장에 유닛이 하나도 없으면 <b>통제를 잃고 무주공산</b>이 됩니다 — 비워두면 유지 득점도 없습니다.<br>
     · 마지막 1점은 유지로만, 또는 그 턴에 모든 전장을 득점한 경우의 정복으로만 얻습니다.<br>
     · <b>비용</b>: 에너지는 룬 탈진, 힘는 룬 재활용(룬 덱으로 반환)으로 자동 지불됩니다.<br>
     · <b>이동</b>: 유닛을 <b>드래그해서 전장/기지에 놓기</b>, 또는 [이동] 버튼 → 유닛들 클릭 → 목적지 클릭. 이동한 유닛은 탈진됩니다.<br>
     · 여러 유닛을 함께 보내려면 [이동] 버튼으로 유닛들을 선택한 뒤 그중 하나를 드래그하세요.<br>
-    · 상대 전장/유닛이 있는 곳으로 이동하면 <b>결전</b>이 열립니다. [행동]/[반응] 카드로 응수한 뒤 패스하면 전투가 벌어집니다.<br>
+    · 상대 전장/유닛이 있는 곳으로 이동하면 <b>결전</b>이 열립니다. 결전 중 낸 카드·능력은 <b>체인</b>에 쌓이고,
+      양측이 모두 패스하면 <b>마지막에 낸 것부터 하나씩</b> 해결됩니다. 각 해결 사이에 [반응]으로 다시 응수할 수 있습니다.
+      빈 체인에서 양측이 패스하면 전투가 벌어집니다.<br>
     · <b>전투</b>: 양측 위력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 기지 귀환.<br>
     · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동.<br>
     · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>우클릭</b>, <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 바깥 클릭/Esc). 유닛은 우클릭이 능력 메뉴라 꾹 누르기/Alt+클릭.<br>
@@ -920,7 +950,13 @@ window.addEventListener('DOMContentLoaded', ()=>{
     hbtns.appendChild(hclose); box.appendChild(hbtns);
     openModal(); markModalDismissable();
   };
+  // 모달 밖 클릭 정책: 선택(비정보성) 창은 절대 닫히지 않고 안내만 표시 — 닫히면 선택 진행 불가(교착)
+  //                  정보성 창(도움말/밴 리스트/대회 덱 등, dismiss 표시)만 바깥 클릭으로 닫힘
   document.getElementById('modal-overlay').onclick=(e)=>{
-    if(e.target.id==='modal-overlay' && !document.querySelector('.victory-box')) {/* 모달 밖 클릭 무시 */}
+    if(e.target.id!=='modal-overlay') return;                 // 모달 내부 클릭
+    const ov=e.currentTarget;
+    if(document.querySelector('.victory-box')) return;        // 승리 창은 버튼으로만
+    if(ov.dataset.dismiss){ closeModal(); return; }
+    UI.toast('선택을 진행해 주세요 — 이 창은 화면의 버튼으로만 닫힙니다','warn');
   };
 });

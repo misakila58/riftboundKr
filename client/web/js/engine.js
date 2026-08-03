@@ -379,7 +379,8 @@ async function startTurn(){
     }
     await fireTriggers('onBeginning', {p});
     if(G.winner!==null) return;
-    // ② 득점 절차 — 통제 중인 전장 점거(유지)
+    // ② 득점 절차 — 유닛이 주둔해 통제 중인 전장만 유지 득점 (개시 효과로 비었으면 먼저 해제)
+    releaseEmptyBattlefields();
     for(let i=0;i<G.bfs.length;i++){
       const bf=G.bfs[i];
       if(bf.controller===p && G.winner===null){
@@ -490,6 +491,9 @@ function playRestriction(c, p){
   if(TF().noPlay[p]) return '이번 턴에는 카드를 플레이할 수 없습니다 (효과)';
   if(G.state==='showdown'){
     if(!(fx.kw.action||fx.kw.reaction)) return '결전 중에는 [행동]/[반응] 카드만 플레이할 수 있습니다';
+    // 체인 진행 중(Closed 상태)에는 [반응]만 응수 가능 (규칙 338.1.a.2)
+    if(G.showdown && G.showdown.chain.length && !fx.kw.reaction)
+      return '체인 진행 중에는 [반응] 카드만 낼 수 있습니다';
     return null;
   }
   if(G.turn!==p) return '자신의 턴에만 플레이할 수 있습니다';
@@ -666,7 +670,39 @@ async function playCardFromHand(p, handIdx, opts={}){
   }
   else if(c.type==='Spell'){
     UI.render();
-    // 대응 창: 상대가 카운터/탈취 주문을 들고 있으면 기회 제공
+    // ── 결전 중(자동 모드): 즉시 해결하지 않고 체인에 적재 — 공식 규칙 337~340 ──
+    if(G.state==='showdown' && G.showdown){
+      const sd=G.showdown;
+      const item={ kind:(fx.counter||fx.steal)?'counter':'spell', p, n, fx,
+        legionOK, addPaid, addCount, bfIdx:opts.bfIdx, steal:!!fx.steal, countered:false };
+      if(item.kind==='counter'){
+        // 카운터/탈취: 체인 위의 미해결 상대 주문을 대상으로 지정 (플레이 시점 대상 지정 — 규칙 355)
+        const targets=sd.chain.filter(x=>x.kind==='spell' && !x.countered && x.p!==p)
+          .filter(x=>{ const tc=card(x.n); const lim=fx.counter;
+            if(lim && lim.maxE!==undefined && (tc.e||0)>lim.maxE) return false;
+            if(lim && lim.maxPips!==undefined && powerPips(tc).length>lim.maxPips) return false;
+            return true; });
+        if(!targets.length){
+          UI.log(`「${c.ko}」 — 대응할 체인 주문이 없어 효과 없이 폐기됩니다`, 'sys');
+          trashCard(p, n); UI.render();
+          return true;
+        }
+        item.target = targets.length===1 ? targets[targets.length-1]
+          : await UI.pickOption(p, '대응할 주문 선택', targets.map(x=>({v:x, label:card(x.n).ko})));
+        if(!item.target) item.target=targets[targets.length-1];
+      }
+      sd.chain.push(item);
+      if(sd.chain.length===1) sd.chainStarter=p;
+      UI.log(`🔗 ${pname(p)} 「${c.ko}」 체인에 적재 (#${sd.chain.length}) — 양측 패스 시 마지막 것부터 해결`, 'p'+p);
+      const evctx={p, n, type:c.type, seq:P.playedCards, unit:null, paidAdd:addPaid};
+      await fireEvent('onYouPlayCard', evctx);
+      if(G.turn!==p) await fireEvent('onYouPlayOppTurn', evctx);
+      if(opts.fromHidden) await fireEvent('onPlayFromHidden', evctx);
+      await cleanup(p);
+      UI.render();
+      return true;
+    }
+    // ── 중립 상태: 기존 즉시 해결 + 대응 창 ──
     let execAs=p, countered=false;
     if(!opts.fromHidden && !fx.counter && !fx.steal){
       const cw=await counterWindow(p, c);
@@ -674,34 +710,7 @@ async function playCardFromHand(p, handIdx, opts={}){
       else if(cw && cw.steal!==undefined) execAs=cw.steal;
     }
     if(fx.counter||fx.steal){ UI.log(`「${c.ko}」 — 대응할 상대 주문이 없어 효과 없이 폐기됩니다`, 'sys'); }
-    if(!countered){
-      G._casting=p; G._spellKilled=false; G._banishSpell=false;
-      if(fx.playOps.length){
-        for(const po of fx.playOps){
-          if(po.legion && !legionOK){ UI.log(`[군단] 조건 미충족 — 효과 생략`, 'sys'); continue; }
-          await execOps(po.ops, {p:execAs, legionOK, bfIdx:opts.bfIdx, kind:'spell', paidAdd:addPaid, addCount});
-        }
-      }
-      // 소모형 플래그 해제 (다음 주문 할인/보너스)
-      TF().nextSpellDisc[p]=0; TF().nextSpellBonus[p]=0;
-      // 주문으로 유닛 처치 시: 폐기장 반응 (불멸의 불사조 등)
-      if(G._spellKilled){
-        for(const tn of [...new Set(P.trash)]){
-          const tfx=FX[tn];
-          if(tfx && tfx.fromTrashOnSpellKill && canPay(p, tfx.fromTrashOnSpellKill.energy||0, tfx.fromTrashOnSpellKill.pips||[])){
-            const yes=await UI.confirmP(p, `「${card(tn).ko}」을(를) 폐기장에서 플레이할까요? (비용 지불)`);
-            if(yes){ payCost(p, tfx.fromTrashOnSpellKill.energy||0, tfx.fromTrashOnSpellKill.pips||[]);
-              P.trash.splice(P.trash.indexOf(tn),1);
-              const uu=makeUnit(tn,p,{loc:'base'}); placeUnit(uu,'base');
-              UI.log(`「${card(tn).ko}」 폐기장에서 플레이!`, 'p'+p); }
-          }
-        }
-      }
-      G._casting=null;
-      if(fx.manual.length) UI.manualNotice(c);
-      await fireEvent('onYouPlaySpell', {p, n});
-    }
-    if(G._banishSpell){ P.banish.push(n); G._banishSpell=false; UI.log(`「${c.ko}」 추방됨`, 'sys'); }
+    if(!countered) await resolveSpellEffects(p, n, fx, {legionOK, addPaid, addCount, bfIdx:opts.bfIdx, execAs});
     else trashCard(p, n);
   }
   else if(c.type==='Gear'){
@@ -748,7 +757,40 @@ function applyCostMods(p, c, energy){
   return Math.max(e, minE, 0);
 }
 
-// ---------- 대응 창 (카운터/탈취 주문) ----------
+// ---------- 주문 효과 해결 (즉시 해결 경로와 체인 해결 경로가 공유) ----------
+async function resolveSpellEffects(p, n, fx, o){
+  const c=card(n); const P=G.players[p];
+  const execAs=o.execAs??p;
+  G._casting=p; G._spellKilled=false; G._banishSpell=false;
+  if(fx.playOps.length){
+    for(const po of fx.playOps){
+      if(po.legion && !o.legionOK){ UI.log(`[군단] 조건 미충족 — 효과 생략`, 'sys'); continue; }
+      await execOps(po.ops, {p:execAs, legionOK:o.legionOK, bfIdx:o.bfIdx, kind:'spell', paidAdd:o.addPaid, addCount:o.addCount});
+    }
+  }
+  // 소모형 플래그 해제 (다음 주문 할인/보너스)
+  TF().nextSpellDisc[p]=0; TF().nextSpellBonus[p]=0;
+  // 주문으로 유닛 처치 시: 폐기장 반응 (불멸의 불사조 등)
+  if(G._spellKilled){
+    for(const tn of [...new Set(P.trash)]){
+      const tfx=FX[tn];
+      if(tfx && tfx.fromTrashOnSpellKill && canPay(p, tfx.fromTrashOnSpellKill.energy||0, tfx.fromTrashOnSpellKill.pips||[])){
+        const yes=await UI.confirmP(p, `「${card(tn).ko}」을(를) 폐기장에서 플레이할까요? (비용 지불)`);
+        if(yes){ payCost(p, tfx.fromTrashOnSpellKill.energy||0, tfx.fromTrashOnSpellKill.pips||[]);
+          P.trash.splice(P.trash.indexOf(tn),1);
+          const uu=makeUnit(tn,p,{loc:'base'}); placeUnit(uu,'base');
+          UI.log(`「${card(tn).ko}」 폐기장에서 플레이!`, 'p'+p); }
+      }
+    }
+  }
+  G._casting=null;
+  if(fx.manual.length) UI.manualNotice(c);
+  await fireEvent('onYouPlaySpell', {p, n});
+  if(G._banishSpell){ P.banish.push(n); G._banishSpell=false; UI.log(`「${c.ko}」 추방됨`, 'sys'); }
+  else trashCard(p, n);
+}
+
+// ---------- 대응 창 (카운터/탈취 주문 — 중립 상태 전용, 결전 중에는 체인이 담당) ----------
 async function counterWindow(caster, c){
   const o=opp(caster);
   const O=G.players[o];
@@ -917,6 +959,18 @@ async function moveUnits(p, units, dest){
   return true;
 }
 
+// 공식 룰: 전장 통제는 유닛 주둔으로 유지된다 — 유닛이 하나도 없으면 무주공산(open)으로 돌아간다.
+// (유지 득점은 "유닛이 주둔한" 통제 전장만 해당 — 상호 전멸 시에도 아무도 통제하지 않음)
+function releaseEmptyBattlefields(){
+  if(G.manual) return;
+  G.bfs.forEach(bf=>{
+    if(bf.controller!==null && bf.units.length===0){
+      UI.log(`「${card(bf.n).ko}」 — 유닛이 없어 무주공산이 됩니다 (통제 해제)`, 'sys');
+      bf.controller=null;
+    }
+  });
+}
+
 // ---------- 클린업: 사망 처리 & 경합 확인 ----------
 async function cleanup(actor){
   if(G.manual) return; // 수동 모드: 자동 사망·결전·전투 없음 (플레이어가 직접 처리)
@@ -925,6 +979,8 @@ async function cleanup(actor){
     if((u.dmg>0 && u.dmg>=might(u)) || u._decree) await killUnit(u);
   }
   if(G.winner!==null) return;
+  // 빈 전장 통제 해제 (결전 중 상호 전멸 등도 이후 클린업에서 처리됨)
+  releaseEmptyBattlefields();
   // 경합 확인 (중립 상태에서만 새 결전 개시)
   if(G.state!=='neutral') return;
   for(let i=0;i<G.bfs.length;i++){
@@ -943,7 +999,8 @@ async function cleanup(actor){
 async function startShowdown(bfIdx, attacker, hasCombat){
   const bf=G.bfs[bfIdx];
   G.state='showdown';
-  G.showdown={ bfIdx, attacker, defender:opp(attacker), hasCombat, passes:0 };
+  // chain: 체인(스택) — 결전 중 카드/능력은 즉시 해결되지 않고 여기 쌓인다 (공식 규칙 337~348)
+  G.showdown={ bfIdx, attacker, defender:opp(attacker), hasCombat, passes:0, chain:[], chainStarter:null };
   G.actingPlayer=attacker;
   UI.log(`⚔️ 결전 개시! 「${card(bf.n).ko}」 — 공격: ${pname(attacker)}`, 'combat');
   // 전장 트리거: 방어 시 (방어자가 이 전장의 통제자일 때)
@@ -966,13 +1023,63 @@ async function startShowdown(bfIdx, attacker, hasCombat){
   UI.promptShowdown();
 }
 
-// 결전 중 패스
+// 결전 중 패스 — 공식 체인 절차 (규칙 339~340, 346~348):
+//  · 양측 연속 패스 + 체인 있음 → 가장 마지막 항목 '하나' 해결(LIFO), 그 후 우선권 재부여(응수 가능)
+//  · 양측 연속 패스 + 체인 없음 → 결전 종료(전투 진행)
 async function showdownPass(){
   const sd=G.showdown; if(!sd) return;
   sd.passes++;
-  if(sd.passes>=2){ await resolveShowdown(); return; }
-  G.actingPlayer=opp(G.actingPlayer);
-  UI.render(); UI.promptShowdown();
+  if(sd.passes<2){
+    G.actingPlayer=opp(G.actingPlayer);
+    UI.render(); UI.promptShowdown();
+    return;
+  }
+  if(sd.chain.length){
+    const item=sd.chain.pop();                 // 340.1: 가장 새로운 항목부터 해결
+    await resolveChainItem(item);
+    if(G.winner!==null || G.showdown!==sd) return;
+    sd.passes=0;
+    if(sd.chain.length){
+      G.actingPlayer=sd.chain[sd.chain.length-1].p;   // 340.4: 남은 최상단 항목의 컨트롤러가 우선권
+    } else {
+      G.actingPlayer=opp(sd.chainStarter??G.actingPlayer); // 346: 체인이 닫히면 포커스가 상대에게
+      sd.chainStarter=null;
+    }
+    UI.render(); UI.promptShowdown();
+    return;
+  }
+  await resolveShowdown();                     // 348.1: 빈 체인에서 양측 패스 → 전투
+}
+
+// 체인 항목 하나 해결
+async function resolveChainItem(it){
+  if(it.kind==='ability'){
+    UI.log(`🔗 해결: 능력 「${it.srcName}」`, 'p'+it.p);
+    await execOps(it.ab.ops, {p:it.p, unit:it.unit, gear:it.gear, kind:'ability',
+      bfIdx:(it.unit&&it.unit.loc!=='base')?it.unit.loc:null});
+    await cleanup(it.p);
+    return;
+  }
+  const c=card(it.n);
+  if(it.countered){
+    UI.log(`🔗 「${c.ko}」 — 무효화되어 효과 없이 폐기됩니다`, 'sys');
+    trashCard(it.p, it.n); UI.render();
+    return;
+  }
+  if(it.kind==='counter'){
+    trashCard(it.p, it.n);
+    if(it.target && !it.target.countered && !it.target.resolved){
+      if(it.steal){ it.target.execAs=it.p; UI.log(`🔗 ⚡「${c.ko}」: 「${card(it.target.n).ko}」 통제권 탈취!`, 'p'+it.p); }
+      else { it.target.countered=true; UI.log(`🔗 ⚡「${c.ko}」: 「${card(it.target.n).ko}」 무효화!`, 'p'+it.p); }
+    } else UI.log(`🔗 「${c.ko}」 — 대상이 유효하지 않아 효과 없음`, 'sys');
+    UI.render();
+    return;
+  }
+  UI.log(`🔗 해결: 「${c.ko}」 (${pname(it.p)})`, 'p'+it.p);
+  it.resolved=true;
+  await resolveSpellEffects(it.p, it.n, it.fx,
+    {legionOK:it.legionOK, addPaid:it.addPaid, addCount:it.addCount, bfIdx:it.bfIdx, execAs:it.execAs??it.p});
+  await cleanup(it.p);
 }
 // 결전 중 행동하면 패스 카운트 리셋
 function showdownActed(){ if(G.showdown){ G.showdown.passes=0; G.actingPlayer=opp(G.actingPlayer); UI.render(); UI.promptShowdown(); } }
@@ -1248,6 +1355,8 @@ async function activateAbility(p, source, ab){
   const P=G.players[p];
   // 타이밍
   if(G.state==='showdown' && !(ab.reaction||ab.action)){ UI.toast('결전 중에는 [행동]/[반응] 능력만 발동할 수 있습니다','warn'); return; }
+  if(G.state==='showdown' && G.showdown && G.showdown.chain.length && !ab.reaction){
+    UI.toast('체인 진행 중에는 [반응] 능력만 발동할 수 있습니다','warn'); return; }
   if(G.state==='neutral' && G.turn!==p){ UI.toast('자신의 턴에만 발동할 수 있습니다','warn'); return; }
   if(ab.legion && !(P.playedCards>=1)){ UI.toast('[군단] 조건: 이번 턴에 카드를 플레이해야 합니다','warn'); return; }
   if(ab.onlyAtBf && source.kind==='unit' && source.u.loc==='base'){ UI.toast('전장에 있을 때만 사용할 수 있습니다','warn'); return; }
@@ -1304,9 +1413,18 @@ async function activateAbility(p, source, ab){
   }
 
   const srcName = source.kind==='legend'?card(P.legendN).ko : source.kind==='unit'?unitName(source.u) : card(source.g.n).ko;
+  // ── 결전 중: 능력도 체인에 적재 (비용은 이미 지불됨 — 규칙 338.1.a.4) ──
+  if(G.state==='showdown' && G.showdown){
+    const sd=G.showdown;
+    sd.chain.push({kind:'ability', p, ab, unit:source.u, gear:source.g, srcName});
+    if(sd.chain.length===1) sd.chainStarter=p;
+    UI.log(`🔗 ${pname(p)} 능력 「${srcName}」 체인에 적재 (#${sd.chain.length})`, 'p'+p);
+    showdownActed();
+    UI.render();
+    return;
+  }
   UI.log(`${pname(p)} 「${srcName}」 능력 발동`, 'p'+p);
   await execOps(ab.ops, {p, unit:source.u, gear:source.g, kind:'ability', bfIdx:(source.u&&source.u.loc!=='base')?source.u.loc:null});
-  if(G.state==='showdown') showdownActed();
   await cleanup(p);
   UI.render();
 }
@@ -1317,6 +1435,7 @@ async function pickBySpec(p, spec, promptText){
   let cands = everyUnit();
   if(spec.side==='friendly') cands=cands.filter(u=>u.ctrl===p);
   if(spec.side==='enemy') cands=cands.filter(u=>u.ctrl!==p);
+  if(spec.other && _ctxUnit) cands=cands.filter(u=>u!==_ctxUnit);   // "다른 유닛": 효과 발생원 자신 제외
   if(spec.where==='here' && G.showdown) cands=cands.filter(u=>u.loc===G.showdown.bfIdx);
   else if(spec.where==='here' && _ctxBf!==null) cands=cands.filter(u=>u.loc===_ctxBf);
   if(spec.where==='bf') cands=cands.filter(u=>u.loc!=='base');
@@ -1357,11 +1476,13 @@ function effDmgBonus(u){
 }
 
 let _ctxBf = null;
+let _ctxUnit = null;   // 효과 발생원 유닛 — "다른(another)" 대상 제한에서 자기 자신 제외용
 let _curKind = 'effect';
 async function execOps(ops, ctx){
   if(G.winner!==null) return;
   const p=ctx.p;
   _ctxBf = ctx.bfIdx??null;
+  _ctxUnit = ctx.unit??null;
   _curKind = ctx.kind||'effect';
   let it = ctx.it||null;
   for(const op of ops){
@@ -1656,9 +1777,9 @@ async function execOps(ops, ctx){
       default: {
         // 카드별 전용 op (cardscripts.js)
         if(typeof EXTRA_OPS!=='undefined' && EXTRA_OPS[op.op]){
-          const saveBf=_ctxBf, saveKind=_curKind;
+          const saveBf=_ctxBf, saveKind=_curKind, saveUnit=_ctxUnit;
           await EXTRA_OPS[op.op](op, {...ctx, it}, {it:()=>it, setIt:(v)=>{it=v;}});
-          _ctxBf=saveBf; _curKind=saveKind;
+          _ctxBf=saveBf; _curKind=saveKind; _ctxUnit=saveUnit;
         }
         else UI.log(`(자동화 미지원 op: ${op.op})`, 'sys');
       }

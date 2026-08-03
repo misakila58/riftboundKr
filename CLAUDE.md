@@ -17,7 +17,7 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 
 | 파일 | 역할 | 핵심 함수/상수 |
 |---|---|---|
-| engine.js (~1500줄) | 게임 규칙·상태(G). UI 없음 | newGame, might(상시효과 포함), TF(턴 플래그), collectStatics, dealDamage, fireEvent, counterWindow, killUnit(치환효과), execOps |
+| engine.js (~1700줄) | 게임 규칙·상태(G). UI 없음. 결전 중 카드/능력은 체인(LIFO, 규칙 337~348)에 적재 후 양측 패스 시 하나씩 해결(사이마다 [반응] 응수 가능) | newGame, might(상시효과 포함), TF(턴 플래그), collectStatics, dealDamage, fireEvent, counterWindow(중립 전용), showdownPass/resolveChainItem(체인), resolveSpellEffects, killUnit(치환효과), execOps, releaseEmptyBattlefields |
 | ui.js (~800줄) | DOM 렌더·입력. 선택 프롬프트는 routedPick 경유 | cardMiniEl, unitEl, onHandClick, onUnitClick, showUnitMenu, executeMove, updateButtons, attachDropZone(드래그이동), attachZoom(확대) |
 | main.js (~600줄) | 화면 전환·메뉴·덱편집·로비 | showScreen, buildDeck, openEditor, initLobby, p2p* |
 | effects.js (~550줄) | 카드 텍스트 파서 → FX (298장 전부 자동화, manual 0장) | compileCard, parseOp, parseMiscClause(상시효과), TRIGGER_PATTERNS, SCRIPTS, BF_STATIC |

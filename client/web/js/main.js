@@ -857,10 +857,131 @@ function initP2P(){
   document.getElementById('btn-copy-answer').onclick=()=>copyText(document.getElementById('p2p-answer-out'));
 }
 
+// ---------- 재대결 (온라인 로비/P2P 공용 — 액션 릴레이에 핸드셰이크를 태운다) ----------
+// 흐름: 한쪽이 덱 선택 → {k:'rematch', deck} 송신(양측 에코) → 상대도 덱 선택 →
+//       양쪽 덱이 모이면 좌석 0(호스트 권한)이 {k:'rematchGo', seed} → 양측이 동일하게 새 게임 시작.
+const RM = {
+  decks: [null, null],
+  reset(){ RM.decks=[null,null]; },
+  // 덱 선택 모달 (fromRequest: 상대의 요청을 받고 여는 경우)
+  openPick(fromRequest){
+    if(!NET.online || !NET.lastStart){ UI.toast('온라인 대전 중에만 사용할 수 있습니다','warn'); return; }
+    const ban=!!NET.lastStart.banRule;
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>🔄 ${fromRequest?'상대가 재대결을 요청했습니다':'상대와 다시 하기'}</h3>
+      <div style="font-size:13px;color:#9aa4bd;margin-bottom:8px">사용할 덱을 선택하세요${ban?' · 🚫 밴 적용 대전':''} — 같은 상대와 바로 새 게임을 시작합니다</div>`;
+    const sel=document.createElement('select');
+    sel.style.cssText='width:100%;padding:8px;border-radius:6px;border:1px solid #3a4a70;background:#0e1626;color:#e8e6e0;font-size:14px;margin-bottom:10px';
+    const auto=document.createElement('option'); auto.value='auto'; auto.textContent='🎲 무작위 자동 덱'; sel.appendChild(auto);
+    (myDecks||[]).forEach((d,i)=>{ const o=document.createElement('option'); o.value='s'+i; o.textContent=`${d.name} (${card(d.legendN).ko})`; sel.appendChild(o); });
+    DeckStore._read().forEach((d,i)=>{ const o=document.createElement('option'); o.value='l'+i; o.textContent=`📱 ${d.name} (${card(d.legendN).ko}) — 이 기기`; sel.appendChild(o); });
+    box.appendChild(sel);
+    const btns=document.createElement('div'); btns.className='modal-btns';
+    const ok=document.createElement('button'); ok.className='primary'; ok.textContent=fromRequest?'수락 (이 덱으로)':'재대결 요청';
+    ok.onclick=()=>{
+      const deck=RM._resolveDeck(sel.value);
+      if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+      if(ban && !banSelfCheck(true, deck)) return;
+      closeModal();
+      NET.sendAction({k:'rematch', p:NET.seat, deck});
+      UI.prompt('🔄 재대결 준비 완료 — 상대의 덱 선택을 기다리는 중...');
+    };
+    btns.appendChild(ok);
+    const no=document.createElement('button'); no.textContent=fromRequest?'거절':'취소';
+    no.onclick=()=>{ closeModal(); if(fromRequest) NET.sendAction({k:'rematchDecline', p:NET.seat}); };
+    btns.appendChild(no);
+    box.appendChild(btns);
+    openModal(); markModalDismissable();
+  },
+  _resolveDeck(v){
+    if(v==='auto'){ const l=legendList()[Math.floor(Math.random()*legendList().length)]; const d=buildDeck(l.n);
+      return {name:'자동 덱', legendN:l.n, champN:d.champN, main:d.deck.slice(0,40), runes:d.runes, bfs:d.bfs}; }
+    if(v[0]==='l') return DeckStore._read()[+v.slice(1)]||null;
+    return (myDecks||[])[+v.slice(1)]||null;
+  },
+  onRequest(a){
+    RM.decks[a.p]=a.deck;
+    if(a.p!==NET.seat && !RM.decks[NET.seat]){
+      const ov=document.getElementById('modal-overlay');
+      // 선택 대기 모달(비정보성)이 떠 있으면 덮지 않고 안내만 — ESC 메뉴에서 수락 가능
+      if(ov.style.display!=='none' && !ov.dataset.dismiss)
+        UI.toast('상대가 재대결을 요청했습니다 — ESC 메뉴에서 수락할 수 있습니다','warn');
+      else RM.openPick(true);
+    }
+    RM._tryStart();
+  },
+  onDecline(a){
+    if(a.p!==NET.seat){
+      RM.reset();
+      const ov=document.getElementById('modal-overlay');
+      if(ov.style.display!=='none' && ov.dataset.dismiss) closeModal();
+      UI.toast('상대가 재대결을 거절했습니다','warn'); UI.prompt('');
+    } else RM.reset();
+  },
+  _tryStart(){
+    if(RM.decks[0] && RM.decks[1] && NET.seat===0){
+      const seed=crypto.getRandomValues(new Uint32Array(1))[0];
+      NET.sendAction({k:'rematchGo', p:0, seed});
+    }
+  },
+  onGo(a){
+    const ls=NET.lastStart; if(!ls || !RM.decks[0] || !RM.decks[1]) return;
+    const m={ t:'start', seed:a.seed, yourSeat:NET.seat, manual:ls.manual, banRule:ls.banRule,
+      players:[ {id:ls.players[0].id, deck:RM.decks[0]}, {id:ls.players[1].id, deck:RM.decks[1]} ] };
+    RM.reset();
+    const ov=document.getElementById('modal-overlay'); if(ov.style.display!=='none') closeModal();
+    UI.log('🔄 재대결 시작!', 'sys');
+    setTimeout(()=>startOnlineGame(m), 0);   // 액션 펌프 밖에서 새 게임 시작 (큐 리셋과 충돌 방지)
+  },
+};
+
+// ---------- ESC 시스템 메뉴 & 게임 나가기 ----------
+function gameLeave(){
+  if(NET.online){
+    if(typeof P2P!=='undefined' && P2P.active){
+      P2P.reset(); NET.online=false; NET.resetGameSync();
+      p2pRefreshDecks(); showScreen('p2p-screen');
+      UI.toast('P2P 연결을 종료했습니다');
+    } else {
+      NET.send({t:'leaveRoom'});
+      NET.online=false; NET.resetGameSync();
+      document.getElementById('lobby-status').textContent='';
+      showScreen('lobby-screen');
+      NET.send({t:'listRooms'});
+    }
+  } else {
+    location.reload();
+  }
+}
+function openSystemMenu(){
+  const box=document.getElementById('modal-box');
+  const isBot=(typeof BOT!=='undefined' && BOT.active && !NET.online);
+  box.innerHTML=`<h3>⚙️ 메뉴</h3>`;
+  const btns=document.createElement('div'); btns.className='modal-btns'; btns.style.flexDirection='column';
+  const add=(label,fn,primary)=>{ const b=document.createElement('button'); if(primary) b.className='primary';
+    b.textContent=label; b.onclick=fn; btns.appendChild(b); return b; };
+  if(NET.online){
+    const reqPending = RM.decks[1-NET.seat] && !RM.decks[NET.seat];
+    add(reqPending?'🔄 상대의 재대결 요청 수락 (덱 선택)':'🔄 상대와 다시 하기 (덱 선택)', ()=>{ closeModal(); RM.openPick(!!reqPending); }, true);
+    add(P2P.active?'🚪 나가기 (연결 종료)':'🚪 로비로 가기', ()=>{ closeModal(); gameLeave(); });
+  } else if(isBot){
+    add('🔄 다시 하기 (봇/덱 선택)', ()=>{ BOT.active=false; closeModal(); openBotSelect(); }, true);
+    add('🚪 처음 화면으로', ()=>location.reload());
+  } else {
+    add('🔄 다시 하기 (핫시트 새 게임)', ()=>{ closeModal(); startHotseat(); }, true);
+    add('🚪 처음 화면으로', ()=>location.reload());
+  }
+  add('계속하기', closeModal);
+  box.appendChild(btns);
+  openModal(); markModalDismissable();
+}
+
 // ---------- 게임 시작 ----------
 function startOnlineGame(m){
   NET.online=true;
   NET.seat=m.yourSeat;
+  NET.lastStart=m;    // 재대결용: 모드/밴/플레이어 이름 보존
+  RM.reset();
   NET.resetGameSync();
   // 결정론: 시드 → 전장 선택(각자 3개 중 1개 무작위)도 rng 사용
   seedRng(m.seed);

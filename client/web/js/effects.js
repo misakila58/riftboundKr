@@ -42,7 +42,7 @@ function parseTargetSpec(s){
   const m2 = s.match(/with (\d+) or more :rb_might:/); if(m2) spec.mightMin=+m2[1];
   if(/damaged/.test(s)) spec.damaged=true;
   if(/stunned/.test(s)) spec.stunned=true;
-  if(/\banother\b/.test(s)) spec.other=true;
+  if(/\b(an)?other\b/.test(s)) spec.other=true;   // 'another' / (관사 분리로 남은) 'other' 모두 자기 제외
   if(/each|all/.test(s)) spec.count='all';
   if(/up to two|up to 2/.test(s)) spec.count=2, spec.optional=true;
   if(/you may/.test(s)) spec.optional=true;
@@ -195,9 +195,10 @@ function parseOp(s){
   // 준비/탈진
   if(/^[Rr]eady me$/.test(s)) return { op:'readySelf' };
   if(/^[Rr]eady it$/.test(s)) return { op:'readyIt' };
-  if((m = s.match(/^[Rr]eady (a|an|each)? ?(.+)$/))){
-    if(/legend/.test(m[2])) return { op:'readyLegend' };
-    return { op:'ready', spec:parseTargetSpec(m[2]) };
+  if((m = s.match(/^[Rr]eady (?:(?:a|an|each)\s+)?(.+)$/))){
+    // 관사(a/an/each)는 뒤에 공백이 있을 때만 분리 — 'another'의 'an'을 삼키지 않도록
+    if(/legend/.test(m[1])) return { op:'readyLegend' };
+    return { op:'ready', spec:parseTargetSpec(m[1]) };
   }
   if((m = s.match(/^[Ee]xhaust (.+)$/))){
     if(/^me$/.test(m[1])) return { op:'exhaustSelf' };

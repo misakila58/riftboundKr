@@ -137,6 +137,10 @@ NET._execAction = async function(a){
       if(ab) await activateAbility(a.p, src, ab);
       break; }
     case 'equip': await equipGear(a.p, a.gearIdx); break;
+    // 재대결 핸드셰이크 (게임 액션 아님 — 릴레이만 이용, 처리는 main.js의 RM)
+    case 'rematch':        if(typeof RM!=='undefined') RM.onRequest(a); break;
+    case 'rematchDecline': if(typeof RM!=='undefined') RM.onDecline(a); break;
+    case 'rematchGo':      if(typeof RM!=='undefined') RM.onGo(a); break;
     case 'manual': {
       const fn = ManualTools[a.tool]; if(!fn) return;
       const args = a.args.map(x=>{
