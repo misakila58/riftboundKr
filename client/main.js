@@ -1,8 +1,10 @@
 // ══════════ Electron 메인 프로세스 ══════════
 // 데스크톱 클라이언트 창을 열고 web/index.html(게임 UI)을 로드한다.
 // 게임 로직·네트워크는 모두 렌더러(web/)에서 동작하며, 서버 주소는 앱 안에서 입력한다.
+// 리플레이(.rbr) 파일 입출력만 메인 프로세스가 담당한다 (replay-store.js).
 const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
+const { registerReplayIpc } = require('./replay-store');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -34,6 +36,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  registerReplayIpc();
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

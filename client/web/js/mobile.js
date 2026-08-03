@@ -50,6 +50,11 @@
       UI.toast(nm?`「${nm}」 처리 진행 중입니다 — 화면의 버튼으로 선택을 완료해 주세요`:'선택 진행 중입니다 — 화면의 버튼으로 완료해 주세요','warn');
       return;
     }
+    // 3-1) 리플레이 관전 중이면 관전 종료 → 보관함으로
+    if(typeof REPLAY!=='undefined' && REPLAY.viewing){ REPLAY.close(); return; }
+    // 3-2) 리플레이 보관함 화면이면 이전 화면으로
+    const rs=document.getElementById('replay-screen');
+    if(rs && rs.style.display!=='none'){ showScreen(REPLAY._returnScreen); return; }
     // 4) 효과/선택 처리 대기 중(프롬프트 등)이면 안내
     if(typeof UI!=='undefined' && UI.isPicking && UI.isPicking()){
       const nm=currentTaskName();

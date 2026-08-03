@@ -1,6 +1,6 @@
 // ══════════ 화면 흐름: 로그인 → 메뉴 → (덱 관리 | 로비 | 핫시트) → 게임 ══════════
 
-const SCREENS = ['connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','p2p-screen','setup-screen','game-screen'];
+const SCREENS = ['connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','p2p-screen','replay-screen','setup-screen','game-screen'];
 function showScreen(id){
   SCREENS.forEach(s=>{ document.getElementById(s).style.display = s===id ? 'flex' : 'none'; });
   // 법적 고지 푸터: 게임 화면에서는 보드를 가리지 않게 숨김, 그 외 입장 화면에서는 상시 노출
@@ -971,6 +971,7 @@ function openSystemMenu(){
     add('🔄 다시 하기 (핫시트 새 게임)', ()=>{ closeModal(); startHotseat(); }, true);
     add('🚪 처음 화면으로', ()=>location.reload());
   }
+  add('🎬 리플레이 저장 (지금까지)', ()=>{ closeModal(); REPLAY.saveNow(); });
   add('계속하기', closeModal);
   box.appendChild(btns);
   openModal(); markModalDismissable();
@@ -1060,6 +1061,8 @@ window.addEventListener('DOMContentLoaded', ()=>{
   initLobby();
   initP2P();
   initHotseat();
+  document.getElementById('btn-replays').onclick=()=>REPLAY.openLibrary('connect-screen');
+  document.getElementById('btn-goto-replays').onclick=()=>REPLAY.openLibrary('menu-screen');
   document.getElementById('btn-banlist-decks').onclick=showBanlist;
   document.getElementById('btn-banlist-editor').onclick=showBanlist;
   document.getElementById('btn-tourney-decks').onclick=showTourneyDecks;

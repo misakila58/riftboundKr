@@ -8,8 +8,8 @@ function nameToCard(nm){
   if(!_name2card){ _name2card={}; CARDS.forEach(c=>{ if(!_name2card[c.ko]) _name2card[c.ko]=c; }); }
   return _name2card[nm]||null;
 }
-UI.log = function(msg, cls){
-  const el=document.getElementById('log');
+// 로그 한 줄을 요소로 만든다 (리플레이 재생 시 여러 줄을 한 번에 재구성하는 데도 사용)
+UI.logEntryEl = function(msg, cls){
   const d=document.createElement('div');
   d.className='log-entry log-'+(cls||'sys');
   // 「카드명」 부분은 마우스를 올리면 사이드바 인스펙터에 효과 표시 (textContent로 안전하게 구성)
@@ -24,7 +24,11 @@ UI.log = function(msg, cls){
       d.appendChild(span);
     } else d.appendChild(document.createTextNode(seg));
   });
-  el.appendChild(d);
+  return d;
+};
+UI.log = function(msg, cls){
+  const el=document.getElementById('log');
+  el.appendChild(UI.logEntryEl(msg, cls));
   el.scrollTop=el.scrollHeight;
 };
 UI.toast = function(msg, cls){
@@ -477,6 +481,7 @@ document.addEventListener('keydown', (e)=>{
     if(ov.dataset.dismiss) closeModal();   // 선택 대기 모달은 보호 (버튼으로만 완료)
     return;
   }
+  if(replayLock()){ REPLAY.close(); return; }   // 관전 중 Esc = 관전 종료
   const gs=document.getElementById('game-screen');
   if(gs && gs.offsetParent!==null && typeof G!=='undefined' && G && typeof openSystemMenu==='function')
     openSystemMenu();
@@ -486,6 +491,7 @@ document.addEventListener('keydown', (e)=>{
 let _moveSel = new Set();
 let _moveArmed = false;
 function onUnitClick(u, e){
+  if(replayLock()) return;          // 리플레이 관전 중에는 조작 불가
   if(e.altKey) return;              // Alt+클릭은 카드 확대 전용
   // 대상 선택 모드
   if(_pickableUids){
@@ -510,6 +516,7 @@ function onUnitClick(u, e){
 
 // ---------- 컨텍스트 메뉴 ----------
 function showUnitMenu(u, e){
+  if(replayLock()) return;
   if(e && e.stopPropagation) e.stopPropagation(); // 여는 클릭이 닫기 리스너로 버블링 방지
   const menu=document.getElementById('ctx-menu');
   menu.innerHTML='';
@@ -574,6 +581,7 @@ function canInitiate(p){
 }
 
 function onHandClick(p, idx, e){
+  if(replayLock()) return;
   if(G.winner!==null) return;
   if(e.altKey) return;              // Alt+클릭은 카드 확대 전용
   e.stopPropagation();              // 메뉴를 연 클릭이 document 닫기 리스너로 버블링되는 것 방지
@@ -680,6 +688,7 @@ UI.render = function(){
       const cc=card(Pl.champN);
       const cel=cardMiniEl(cc);
       cel.onclick=(e)=>{
+        if(replayLock()) return;
         if(G.winner!==null) return;
         if(e.altKey) return;
         e.stopPropagation();
@@ -735,7 +744,8 @@ UI.render = function(){
     const hz=document.getElementById('hand-'+p);
     hz.innerHTML='';
     Pl.hand.forEach((n,i)=>{
-      const showFace = !NET.online || p===NET.seat; // 온라인: 상대 손패 비공개
+      // 온라인: 상대 손패 비공개 / 리플레이 관전: 두 선수의 손패를 모두 공개
+      const showFace = replayLock() || !NET.online || p===NET.seat;
       let el;
       if(showFace){ el = cardMiniEl(card(n)); el.onclick=(e)=>onHandClick(p,i,e); }
       else { el = document.createElement('div'); el.className='card-mini card-back'; }
@@ -796,7 +806,12 @@ UI.render = function(){
   updateButtons();
 };
 
+// 리플레이 관전 중에는 모든 조작을 잠근다 (상태 변경은 NET.dispatch에서도 한 번 더 차단)
+function replayLock(){ return typeof REPLAY!=='undefined' && REPLAY.viewing; }
+
 function updateButtons(){
+  document.getElementById('action-buttons').style.display = replayLock() ? 'none' : '';
+  if(replayLock()) return;
   const btnMove=document.getElementById('btn-move');
   btnMove.className='act-btn'+(_moveArmed?' armed':'');
   btnMove.textContent=_moveArmed?`🚶 이동: 목적지 클릭 (${_moveSel.size}개 선택)`:'🚶 이동';
@@ -818,6 +833,7 @@ async function executeMove(dest){
 
 // ---------- 전설 메뉴 ----------
 function showLegendMenu(p, e){
+  if(replayLock()) return;
   if(G.winner!==null) return;
   if(e && e.stopPropagation) e.stopPropagation();
   const Pl=G.players[p];
@@ -846,6 +862,7 @@ function showLegendMenu(p, e){
 
 // ---------- 도구 메뉴 ----------
 function showGearMenu(p, g, e){
+  if(replayLock()) return;
   if(e && e.stopPropagation) e.stopPropagation();
   if(NET.online && p!==NET.seat) return;
   const menu=document.getElementById('ctx-menu');
@@ -898,6 +915,13 @@ UI.showVictory = function(p){
     add('🔄 새 게임', ()=>{ closeModal(); startHotseat(); }, true);
     add('처음 화면으로', ()=>location.reload());
   }
+  // 경기 종료 시 리플레이는 자동 저장됨 (튜토리얼 제외) — 바로 보러 갈 수 있게 안내
+  const wasP2P = typeof P2P!=='undefined' && P2P.active;
+  add(REPLAY.willSave ? '🎬 리플레이 보관함 (이 경기 저장됨)' : '🎬 리플레이 보관함', ()=>{
+    closeModal();
+    if(NET.online){ gameLeave(); REPLAY.openLibrary(wasP2P?'p2p-screen':'lobby-screen'); }
+    else REPLAY.openLibrary();
+  });
   openModal();
 };
 

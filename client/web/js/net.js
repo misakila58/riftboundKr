@@ -155,6 +155,8 @@ NET._execAction = async function(a){
 
 // 로컬 UI가 액션을 개시할 때 호출: 온라인이면 서버 경유, 오프라인이면 즉시 실행
 NET.dispatch = function(action, localFn){
+  // 리플레이 관전 중에는 어떤 행동도 게임 상태를 바꾸지 못하게 한다 (최종 차단선)
+  if(typeof REPLAY!=='undefined' && REPLAY.viewing) return;
   if(NET.online){
     NET.sendAction(action);
   } else {

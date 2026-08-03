@@ -37,6 +37,7 @@
       <button id="btn-goto-p2p" class="mid-btn" style="border-color:#7fe07f;color:#b8f0b8">👥 친구와 직접 대전 (서버 없이 · 초대 코드)</button>
       <button id="btn-bot" class="mid-btn" style="border-color:#b08ae0;color:#d8c0f0">🤖 BOT 대전 (테스트)</button>
       <button id="btn-local-decks" class="mid-btn" style="border-color:#8ac0e0;color:#c8e4f8">🗂 내 덱 관리 (이 컴퓨터에 저장)</button>
+      <button id="btn-replays" class="mid-btn" style="border-color:#e0a86a;color:#ffd9a8">🎬 리플레이 보관함 (저장·재생·전달)</button>
     </div>
     <p class="hint">서버 주소는 방장(호스트)에게 받으세요. 방장은 <code>서버_실행_가이드</code>를 참고해<br>
     자신의 PC에서 서버를 실행하고 접속 주소를 공유하면 됩니다.<br>
@@ -73,6 +74,7 @@
       <button class="big-btn" id="btn-goto-lobby">🌐 온라인 대전</button>
       <button class="mid-btn" id="btn-goto-decks">🗂 내 덱 관리 (<span id="deck-count">0</span>/20)</button>
       <button class="mid-btn" id="btn-goto-hotseat">💺 오프라인 핫시트 (2인)</button>
+      <button class="mid-btn" id="btn-goto-replays">🎬 리플레이 보관함</button>
       <button class="link-btn" id="btn-logout">로그아웃</button>
     </div>
   </div>
@@ -213,6 +215,21 @@
   </div>
 </div>
 
+<!-- ══════════ 리플레이 보관함 ══════════ -->
+<div id="replay-screen" class="full-screen" style="display:none">
+  <div class="screen-head">
+    <h2>🎬 리플레이 보관함</h2>
+    <div>
+      <button class="mid-btn" id="btn-rp-import">📂 파일 가져오기 (.rbr)</button>
+      <input type="file" id="rp-file" accept=".rbr,application/octet-stream" style="display:none">
+      <button class="mid-btn" id="btn-rp-folder">🗂 저장 폴더 열기</button>
+      <button class="mid-btn" id="btn-rp-back">← 돌아가기</button>
+    </div>
+  </div>
+  <div id="rp-path" class="hint" style="padding:8px 18px 0;text-align:left;word-break:break-all"></div>
+  <div id="rp-list" class="deck-list"></div>
+</div>
+
 <!-- ══════════ 오프라인 핫시트 설정 ══════════ -->
 <div id="setup-screen" class="center-screen" style="display:none">
   <div class="setup-box">
@@ -310,6 +327,32 @@
   <div id="phase-banner"></div>
 </div>
 
+<!-- ══════════ 리플레이 재생 컨트롤 (관전 중에만 표시) ══════════ -->
+<div id="replay-bar" style="display:none">
+  <div class="rb-head">
+    <span class="rb-tag">🎬 리플레이 관전 — 양측 손패 공개</span>
+    <span id="rb-pos"></span>
+    <button id="rb-close">✖ 관전 종료</button>
+  </div>
+  <input type="range" id="rb-slider" min="0" max="0" value="0" step="1" aria-label="재생 위치">
+  <div class="rb-ctrls">
+    <button id="rb-first" title="처음으로">⏮</button>
+    <button id="rb-turnprev" title="이전 턴">⏪ 턴</button>
+    <button id="rb-prev" title="한 스텝 뒤로 (←)">◀</button>
+    <button id="rb-play" class="primary" title="재생/일시정지 (Space)">▶ 재생</button>
+    <button id="rb-next" title="한 스텝 앞으로 (→)">▶</button>
+    <button id="rb-turnnext" title="다음 턴">턴 ⏩</button>
+    <button id="rb-last" title="마지막으로">⏭</button>
+    <select id="rb-speed" title="재생 속도">
+      <option value="1400">느리게 (1.4초)</option>
+      <option value="700" selected>보통 (0.7초)</option>
+      <option value="350">빠르게 (0.35초)</option>
+      <option value="150">아주 빠르게</option>
+      <option value="real">실제 진행 속도</option>
+    </select>
+  </div>
+</div>
+
 <!-- 모달/선택 오버레이 -->
 <div id="modal-overlay" style="display:none">
   <div id="modal-box"></div>
@@ -343,5 +386,7 @@
 <script src="js/botdecks.js"></script>
 <script src="js/bot.js"></script>
 <script src="js/mobile.js"></script>
+<!-- replay.js는 newGame/UI.log/UI.render/UI.showVictory를 감싸므로 반드시 마지막에 로드 -->
+<script src="js/replay.js"></script>
 </body>
 </html>
