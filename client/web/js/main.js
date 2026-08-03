@@ -245,7 +245,7 @@ function showBanlist(){
   const close=document.createElement('button'); close.className='primary'; close.textContent='닫기';
   close.onclick=closeModal;
   btns.appendChild(close); box.appendChild(btns);
-  openModal();
+  openModal(); markModalDismissable();
 }
 
 // ---------- 대회 우승 덱 브라우저 (메타별 → 대회별 → 순위) ----------
@@ -288,7 +288,7 @@ function showTourneyDecks(){
   const close=document.createElement('button'); close.className='primary'; close.textContent='닫기';
   close.onclick=closeModal;
   btns.appendChild(close); box.appendChild(btns);
-  openModal();
+  openModal(); markModalDismissable();
 }
 
 function showTourneyDeckDetail(td){
@@ -353,7 +353,7 @@ function showTourneyDeckDetail(td){
   close.onclick=closeModal;
   btns.appendChild(copy); btns.appendChild(back); btns.appendChild(close);
   box.appendChild(btns);
-  openModal();
+  openModal(); markModalDismissable();
 }
 
 function renderDeckList(){

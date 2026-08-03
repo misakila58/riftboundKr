@@ -510,10 +510,16 @@ async function playCardFromHand(p, handIdx, opts={}){
   if(G.manual){
     let loc='base';
     if(c.type==='Unit'){
+      // 공식 룰: 유닛은 기지 또는 자신이 통제 중인 전장에만 배치할 수 있다.
+      // 수동 모드에서는 자동화되지 않은 배치 허용 효과(빈/적 전장 플레이 등)를 직접 처리할 수 있도록
+      // 미통제 전장도 '효과 예외'로 남겨 두되, 경고 표기와 로그로 구분한다.
       const locs=[{v:'base',label:'기지'}];
-      G.bfs.forEach((bf,i)=>locs.push({v:i,label:`전장: ${card(bf.n).ko}`}));
-      loc = await UI.pickOption(p,'유닛을 배치할 위치', locs);
+      G.bfs.forEach((bf,i)=>{ if(bf.controller===p) locs.push({v:i,label:`전장: ${card(bf.n).ko}`}); });
+      G.bfs.forEach((bf,i)=>{ if(bf.controller!==p) locs.push({v:i,label:`⚠ ${card(bf.n).ko} — 미통제 (배치 허용 효과가 있을 때만)`}); });
+      loc = await UI.pickOption(p,'유닛을 배치할 위치 — 기본 규칙: 기지 또는 통제 중인 전장', locs);
       if(loc===null) return false;
+      if(loc!=='base' && G.bfs[loc].controller!==p)
+        UI.log(`⚠ ${pname(p)} 미통제 전장에 배치 (수동) — 카드 효과가 허용하는 경우인지 확인하세요`, 'sys');
     }
     if(opts.champZone) P.champInZone=false;
     else if(handIdx>=0) P.hand.splice(handIdx,1);

@@ -196,8 +196,14 @@ function _pickHandLocal(p, title){
   });
 }
 
-function openModal(){ document.getElementById('modal-overlay').style.display='flex'; document.body.classList.add('modal-open'); }
+function openModal(){
+  const ov=document.getElementById('modal-overlay');
+  ov.style.display='flex'; delete ov.dataset.dismiss;   // 기본: 닫기 불가(선택 대기 모달 보호)
+  document.body.classList.add('modal-open');
+}
 function closeModal(){ document.getElementById('modal-overlay').style.display='none'; document.body.classList.remove('modal-open'); }
+// 정보성 모달(도움말/밴 리스트/대회 덱 등): 모바일 뒤로 가기로 닫아도 안전함을 표시
+function markModalDismissable(){ document.getElementById('modal-overlay').dataset.dismiss='1'; }
 
 // 멀리건: 교체할 카드 다중 선택 (게임 시작 시)
 UI.pickMulligan = function(p){
@@ -912,7 +918,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     const hclose=document.createElement('button'); hclose.className='primary'; hclose.textContent='닫기';
     hclose.onclick=closeModal;                    // CSP(script-src 'self')가 인라인 onclick을 차단하므로 프로퍼티로 연결
     hbtns.appendChild(hclose); box.appendChild(hbtns);
-    openModal();
+    openModal(); markModalDismissable();
   };
   document.getElementById('modal-overlay').onclick=(e)=>{
     if(e.target.id==='modal-overlay' && !document.querySelector('.victory-box')) {/* 모달 밖 클릭 무시 */}

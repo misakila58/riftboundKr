@@ -324,6 +324,8 @@ function openBotSelect(){
   btns.appendChild(cancel);
   box.appendChild(btns);
   openModal();
+  // 게임 종료 후 재대결 선택 중에는 뒤로 가기로 닫으면 조작 불가 화면에 갇히므로 제외
+  if(!(typeof G!=='undefined' && G && G.winner!==null)) markModalDismissable();
 }
 
 // 모달의 선택값 → 내 덱 객체 {legendN, champN, main, runes, bfs}

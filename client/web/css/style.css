@@ -607,30 +607,62 @@ body.modal-open #inspector {
   #build-tag{ bottom:calc(56px + env(safe-area-inset-bottom)); }
 }
 
-/* ══════════ 모바일 가로: 데스크톱형 축소판 — 보드 좌 + 사이드바 우 ══════════ */
+/* ══════════ 모바일 가로 (APK 기본): 스크롤 없이 전체 보드 + 로그 상시 표시 ══════════ */
 @media (orientation:landscape) and (max-height:520px){
   #game-screen{ display:flex; flex-direction:row; }
-  #board{ position:absolute; top:0; left:0; right:225px; bottom:0; padding:4px 6px; gap:4px; overflow-y:auto; }
-  #sidebar{ position:absolute; top:0; right:0; bottom:0; width:225px; padding:4px; gap:4px; overflow-y:auto; }
-  #turn-panel{ font-size:11px; padding:4px 6px; }
-  #turn-info{ font-size:12px; } #phase-info{ font-size:11px; }
-  #inspector{ max-height:32%; }
-  #inspector img{ width:64px; }
-  #prompt-area{ font-size:12px; min-height:32px; padding:6px 8px; }
-  #log{ font-size:10px; }
-  /* 사이드바가 스크롤돼도 버튼은 항상 하단에 고정 (sticky) */
+  /* 보드/사이드바 모두 overflow:hidden — 내부 섹션 높이를 통제해 '잘려서 안 보이는' 상황 자체를 없앤다 */
+  #board{ position:absolute; top:0; left:0; right:206px; bottom:0; padding:3px 4px; gap:3px; overflow:hidden; }
+  #sidebar{ position:absolute; top:0; right:0; bottom:0; width:206px; padding:3px; gap:3px; overflow:hidden; }
+
+  /* ── 보드: 상대/전장/나 3행이 항상 모두 보이게 비례 축소 ── */
+  .player-area{ flex:1 1 0; min-height:0; gap:3px; }
+  .side-zone{ flex:0 0 150px; padding:3px; gap:2px; overflow-y:auto; }
+  .base-zone{ padding:3px 4px; gap:2px; }
+  .hand-zone{ max-width:42%; padding:3px; gap:2px; }
+  .zone-label{ font-size:8px; top:2px; right:5px; }
+  .card-mini{ width:40px; height:56px; border-width:1px; }
+  .cm-name{ font-size:6px; }
+  .cm-cost{ width:14px; height:14px; font-size:9px; top:-3px; left:-3px; }
+  .cm-might{ min-width:14px; height:14px; font-size:9px; padding:0 2px; bottom:-3px; left:-3px; }
+  .cm-dmg{ min-width:13px; height:13px; font-size:8px; bottom:-3px; right:-3px; }
+  .cm-buff{ min-width:13px; height:13px; font-size:8px; top:-3px; right:-3px; }
+  .rune-mini{ width:18px; height:26px; font-size:9px; }
+  .rune-mini.exhausted{ margin:0 4px; }
+  .piles{ gap:3px; }
+  .pile{ width:32px; height:44px; font-size:8px; border-radius:4px; }
+  .pile-count{ font-size:11px; }
+  .slot-caption{ font-size:7px; }
+  #battlefields{ flex:0 0 auto; gap:4px; min-height:0; }
+  .battlefield{ padding:3px 4px; max-width:none; }
+  .bf-header{ gap:4px; margin-bottom:2px; }
+  .bf-header img{ width:34px; }
+  .bf-name{ font-size:10px; }
+  .bf-status{ font-size:8px; }
+  .bf-units{ gap:2px; }
+  .bf-row-label{ font-size:7px; }
+
+  /* ── 사이드바: 인스펙터를 제한하고 로그는 최소 높이를 보장 (항상 보임) ── */
+  #turn-panel{ flex:0 0 auto; font-size:10px; padding:3px 5px; }
+  #turn-info{ font-size:11px; } #phase-info{ font-size:10px; }
+  #inspector{ flex:0 0 auto; max-height:88px; padding:4px 5px; }
+  #inspector img{ width:44px; margin-right:5px; }
+  .insp-name{ font-size:11px; }
+  .insp-name-en{ font-size:8px; margin-bottom:1px; }
+  .insp-type{ font-size:9px; margin-bottom:2px; }
+  .insp-text{ font-size:9.5px; line-height:1.45; }
+  .insp-tags{ font-size:8px; margin-top:2px; }
+  #prompt-area{ flex:0 0 auto; max-height:78px; overflow-y:auto; font-size:10.5px; line-height:1.45; min-height:26px; padding:4px 6px; }
+  #prompt-area .prompt-title{ font-size:11px; }
+  #prompt-area button{ padding:3px 8px; font-size:10px; }
+  #log{ flex:1 1 auto; min-height:44px; font-size:9px; line-height:1.5; padding:3px 5px; }
+  /* 버튼: 하단 가로 1줄 (섹션 높이 통제로 밀려날 수 없음) */
   #action-buttons{
-    position:sticky; bottom:0; margin-top:auto; z-index:5;
-    flex-direction:column; gap:4px; padding:6px 0 2px;
-    background:linear-gradient(to bottom, rgba(14,20,32,0), rgba(14,20,32,.97) 35%); border:0;
+    position:static; margin-top:0; flex:0 0 auto;
+    flex-direction:row; gap:3px; padding:0; background:none; border:0;
   }
-  #action-buttons .act-btn{ padding:8px 4px; font-size:12px; }
-  .card-mini{ width:48px; height:67px; }
-  .cm-name{ font-size:7px; }
-  .side-zone{ flex-basis:78px; padding:3px; gap:3px; }
-  #battlefields{ flex:0 0 auto; gap:4px; }
-  .battlefield{ padding:3px; }
-  .bf-header img{ width:52px; }
-  .hand-zone{ padding:4px; }
-  #build-tag{ bottom:4px; }
+  #action-buttons .act-btn{ flex:1 1 0; padding:9px 2px; font-size:11px; }
+  #build-tag{ display:none; }
+  #modal-box{ max-height:94vh; padding:10px; }
+  .modal-cards .card-mini{ width:64px; height:90px; }
+  .modal-cards .card-mini .cm-name{ font-size:8px; }
 }
