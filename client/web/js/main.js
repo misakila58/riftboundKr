@@ -972,6 +972,8 @@ function openSystemMenu(){
     add('🚪 처음 화면으로', ()=>location.reload());
   }
   add('🎬 리플레이 저장 (지금까지)', ()=>{ closeModal(); REPLAY.saveNow(); });
+  add(UI.fx.on?'✨ 이펙트 끄기':'✨ 이펙트 켜기', ()=>{ UI.fx.setOn(!UI.fx.on); closeModal();
+    UI.toast(UI.fx.on?'이펙트를 켰습니다':'이펙트를 껐습니다'); });
   add('계속하기', closeModal);
   box.appendChild(btns);
   openModal(); markModalDismissable();

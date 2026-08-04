@@ -1,5 +1,7 @@
 // ══════════ UI: 렌더링 & 상호작용 ══════════
 const UI = {};
+// 연출은 fx.js가 채운다. 로드 전이나 로드 실패에도 게임이 멈추지 않도록 빈 구현을 먼저 둔다.
+UI.fx = { on:false, unit(){}, cast(){}, turnEnd(){}, priority(){}, score(){}, check(){}, setOn(){} };
 
 // ---------- 로그/토스트 ----------
 // 「카드명」 → 카드 매핑 (로그 호버 인스펙트용)
@@ -257,8 +259,19 @@ function _pickMulliganLocal(p){
 // ---------- 카드 이미지 URL ----------
 // Riot CDN(Sanity 이미지 파이프라인)은 쿼리 파라미터로 webp 변환·리사이즈를 지원한다.
 // 원본 PNG(~780KB)를 표시 크기에 맞는 webp(~20KB)로 받아 로딩 속도와 축소 화질을 개선.
+// 앱에 함께 배포된 로컬 이미지가 있으면 그것을 쓰고(오프라인·즉시 로딩), 없으면 CDN에서 받는다.
+// 로컬 파일은 tools/fetch-card-images.js 가 받아 web/js/imgmap.js에 목록을 남긴다.
+function imgKey(url){
+  const m = String(url).match(/\/([0-9a-f]{20,}-\d+x\d+)\.(?:png|jpe?g|webp)/i);
+  return m ? m[1] : null;
+}
 function cardImgUrl(url, w){
-  if(!url || !/rgpub\.io\/sanity\/images\//.test(url)) return url;
+  if(!url) return url;
+  if(typeof IMG_LOCAL!=='undefined' && IMG_LOCAL.files){
+    const k = imgKey(url);
+    if(k && IMG_LOCAL.files[k]) return IMG_LOCAL.dir + k + '.webp';
+  }
+  if(!/rgpub\.io\/sanity\/images\//.test(url)) return url;
   return url + (url.includes('?')?'&':'?') + 'fm=webp&q=80' + (w?'&w='+w:'');
 }
 
@@ -718,13 +731,19 @@ UI.render = function(){
     const rz=document.getElementById('runes-'+p);
     rz.innerHTML='';
     Pl.runes.forEach(r=>{
+      const rc=card(r.n);
       const rel=document.createElement('div');
       rel.className='rune-mini'+(r.ex?' exhausted':'');
       const dom=runeDomain(r.n);
-      rel.textContent=DOMAIN_ICON[dom]||'◆';
+      // 실제 룬 카드 이미지 + 영역 색 테두리, 작은 화면에서도 알아보게 영역 아이콘 배지를 겹친다
+      if(rc.img) rel.style.backgroundImage=`url("${cardImgUrl(rc.img,120)}")`;
       rel.style.borderColor=DOMAIN_COLOR[dom]||'#556';
-      rel.title=card(r.n).ko+(r.ex?' (탈진)':'');
-      rel.onmouseenter=()=>UI.inspect(card(r.n));
+      const badge=document.createElement('span');
+      badge.className='rm-dom'; badge.textContent=DOMAIN_ICON[dom]||'◆';
+      rel.appendChild(badge);
+      rel.title=rc.ko+(r.ex?' (탈진)':'');
+      rel.onmouseenter=()=>UI.inspect(rc);
+      rel._card=rc; attachZoom(rel);           // 꾹 누르기/우클릭/Alt+클릭으로 확대
       rz.appendChild(rel);
     });
     // 더미
@@ -810,6 +829,7 @@ UI.render = function(){
   });
 
   updateButtons();
+  UI.fx.check();          // 행동 차례가 바뀌었으면 연출
 };
 
 // 리플레이 관전 중에는 모든 조작을 잠근다 (상태 변경은 NET.dispatch에서도 한 번 더 차단)

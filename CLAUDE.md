@@ -28,6 +28,8 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 | botdecks.js | 실제 대회 덱 데이터 — 메타(부스터팩)별 구조, 원본 검증. 덱 브라우저(showTourneyDecks, main.js)와 봇 상대 덱 공용 | TOURNAMENT_METAS, BOT_DECKS(파생) |
 | loc.js | 한글화 상수·아이콘 | KEYWORDS_KO, DOMAIN_*, renderIcons |
 | banlist.js | KR 밴 리스트 데이터 (글로벌 공통). **server.js의 BANNED와 함께 갱신** | BANLIST, isBanned, deckBannedCards |
+| fx.js | 연출(이펙트). **표시 전용 — G를 건드리지 않고 await도 하지 않는다**(락스텝·봇 속도 영향 방지). 유닛 연출은 재렌더에도 살아남게 #fx-layer에 별도로 띄움 | UI.fx.unit/cast/turnEnd/priority/score/check |
+| imgmap.js | 로컬 카드 이미지 목록 (**생성물·gitignore**). 없으면 CDN 폴백 | IMG_LOCAL |
 | replay.js | 리플레이 기록·저장·재생. **index.html 맨 마지막에 로드**(newGame/UI.log/UI.render/UI.showVictory를 감쌈). 재시뮬레이션이 아니라 상태 스냅샷 방식 | REPLAY, RPStore, rpSerialize, rpBuildFile/rpParseFile |
 | cards.js | **생성물** (카드 DB, 읽기 금지) | tools/build-cards.js가 생성 |
 
@@ -36,6 +38,7 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 - 서버: `server/server.js` 단일 파일 (계정 REST + WS 릴레이).
 - 리플레이: 데스크톱은 `client/replay-store.js`(메인 프로세스 fs) + `preload.js`의 `desktop.replay.*` IPC로 `문서\RiftboundSim\Replays\*.rbr`에 저장, 웹/APK는 IndexedDB(`rb_replays`). **client 루트에 파일을 추가하면 package.json의 `build.files`에도 넣을 것** (안 넣으면 패키징에서 빠져 앱이 시작조차 못 함).
 - 카드 데이터 수정: `tools/data/`의 번역본 수정 → `node tools/build-cards.js` (요청 시에만).
+- 카드 이미지: `node tools/fetch-card-images.js` 가 Riot CDN → `client/web/assets/cards/*.webp`(480w, 약 11MB)로 받고 `web/js/imgmap.js`를 생성. **둘 다 gitignore** — 빌드(predist)가 자동으로 확보하고, 없으면 앱이 CDN에서 직접 불러온다(그래서 없어도 동작함).
 
 ## 실행 (참고 — 요청 시에만)
 

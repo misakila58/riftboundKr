@@ -238,6 +238,7 @@ function addPoints(p, n, method, bfIdx){
   } else {
     P.points = Math.min(V, P.points+n);
   }
+  UI.fx.score(p, n);
   UI.log(`🏆 ${pname(p)} ${method==='conquer'?'정복':method==='hold'?'유지':'효과'} 득점! (${P.points}점)`, 'score');
   checkWin();
 }
@@ -428,6 +429,7 @@ async function endTurn(){
   P.energy=0; Object.keys(P.power).forEach(k=>P.power[k]=0);
   const O=G.players[opp(p)];
   O.energy=0; Object.keys(O.power).forEach(k=>O.power[k]=0);
+  UI.fx.turnEnd(p);
   UI.log(`${pname(p)} 턴 종료`, 'sys');
   // 추가 턴 (시간 왜곡)
   if(G.extraTurnFor===p){ G.extraTurnFor=null; UI.log(`⏳ ${pname(p)} 추가 턴!`, 'score'); }
@@ -444,6 +446,7 @@ function dealDamage(u, n, kind){
   if(TF().preventSpellDmg && kind!=='combat'){ UI.log(`피해 방지됨 (효과)`, 'sys'); return 0; }
   if(kind==='spell' && G._casting!==undefined && G._casting!==null) n += TF().nextSpellBonus[G._casting]||0;
   u.dmg+=n;
+  UI.fx.unit(u, 'hit', '-'+n);
   if(TF().dmgKill) u._decree=true; // 황제의 칙령
   return n;
 }
@@ -451,6 +454,7 @@ async function buffUnit(u, byP){
   u.buff++;
   const extra=TF().buffPlus[byP]||0;
   if(extra) u.tempM.push({v:extra, dur:'turn'});
+  UI.fx.unit(u, 'buff', '+'+(1+extra)+'⚔');
   UI.log(`${unitName(u)} 버프 (+1⚔${extra?` +${extra} 추가`:''})`, 'p'+byP);
   await fireEvent('onYouBuff', {p:byP, it:u});
 }
@@ -461,6 +465,7 @@ async function readyUnit(u, byP){
   }
   if(!u.ex) return;
   u.ex=false;
+  UI.fx.unit(u, 'ready');
   UI.log(`${unitName(u)} 준비됨`, 'p'+(byP??u.ctrl));
   if(byP!==undefined && u.ctrl===byP) await fireEvent('onYouReadyUnit', {p:byP, it:u});
 }
@@ -761,6 +766,7 @@ function applyCostMods(p, c, energy){
 async function resolveSpellEffects(p, n, fx, o){
   const c=card(n); const P=G.players[p];
   const execAs=o.execAs??p;
+  UI.fx.cast(c, p);
   G._casting=p; G._spellKilled=false; G._banishSpell=false;
   if(fx.playOps.length){
     for(const po of fx.playOps){
@@ -1198,6 +1204,7 @@ async function assignDamage(assigner, total, targets, role){
 // ---------- 사망 ----------
 async function killUnit(u){
   if(u._dead) return; u._dead=true;
+  UI.fx.unit(u, 'die');          // 보드에서 사라지기 전에 위치를 잡아 연출
   const fx=unitFx(u);
   const P=G.players[u.ctrl];
   const wasBuffed=u.buff>0, wasStunned=u.stunned, deathLoc=u.loc;
@@ -1423,6 +1430,7 @@ async function activateAbility(p, source, ab){
     UI.render();
     return;
   }
+  UI.fx.cast(source.kind==='legend'?card(P.legendN):source.u?unitCard(source.u):card(source.g.n), p, '능력');
   UI.log(`${pname(p)} 「${srcName}」 능력 발동`, 'p'+p);
   await execOps(ab.ops, {p, unit:source.u, gear:source.g, kind:'ability', bfIdx:(source.u&&source.u.loc!=='base')?source.u.loc:null});
   await cleanup(p);
