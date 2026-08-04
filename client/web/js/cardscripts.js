@@ -309,7 +309,7 @@ const EXTRA_OPS = {
   async trashToHand(op, ctx, h){ const P=G.players[ctx.p];
     const cands=[...new Set(P.trash.filter(n=>card(n).type===(op.type||'Unit')))];
     if(!cands.length){ UI.toast('폐기장에 대상이 없습니다','warn'); return; }
-    const sel=await UI.pickOption(ctx.p,'손패로 가져올 카드',cands.map(n=>({v:n,label:card(n).ko}))); if(sel===null) return;
+    const sel=await UI.pickOption(ctx.p,'손패로 가져올 카드',cands.map(n=>({v:n,label:card(n).ko,n}))); if(sel===null) return;
     P.trash.splice(P.trash.indexOf(sel),1); P.hand.push(sel);
     UI.log(`${pname(ctx.p)} 「${card(sel).ko}」 폐기장에서 회수`,'p'+ctx.p); },
   async playFromTrash(op, ctx, h){ const P=G.players[ctx.p];
@@ -319,7 +319,7 @@ const EXTRA_OPS = {
     if(op.ltPoints) cands=cands.filter(n=>(card(n).e||0)<G.players[ctx.p].points);
     if(!cands.length){ if(!op.optional) UI.toast('폐기장에 대상이 없습니다','warn'); return; }
     if(op.optional){ const yes=await UI.confirmP(ctx.p,'폐기장에서 카드를 플레이할까요?'); if(!yes) return; }
-    const sel=await UI.pickOption(ctx.p,'폐기장에서 플레이할 카드',cands.map(n=>({v:n,label:card(n).ko}))); if(sel===null) return;
+    const sel=await UI.pickOption(ctx.p,'폐기장에서 플레이할 카드',cands.map(n=>({v:n,label:card(n).ko,n}))); if(sel===null) return;
     P.trash.splice(P.trash.indexOf(sel),1);
     const c=card(sel);
     if(c.type==='Unit'){ const u=makeUnit(sel,ctx.p,{loc:'base'}); placeUnit(u,'base'); UI.log(`${pname(ctx.p)} 「${c.ko}」 폐기장에서 플레이`,'p'+ctx.p);
@@ -334,7 +334,7 @@ const EXTRA_OPS = {
     if(cnt){ UI.log(`${pname(ctx.p)} 폐기장 ${cnt}장 재활용`,'p'+ctx.p); await fireEvent('onYouRecycle',{p:ctx.p}); } },
   async lookTopHand(op, ctx, h){ const P=G.players[ctx.p];
     const top=P.deck.splice(0, op.n); if(!top.length) return;
-    const sel=await UI.pickOption(ctx.p,'손패에 넣을 카드 1장',top.map(n=>({v:n,label:card(n).ko})));
+    const sel=await UI.pickOption(ctx.p,'손패에 넣을 카드 1장',top.map(n=>({v:n,label:card(n).ko,n})));
     const take = sel!==null?sel:top[0];
     P.hand.push(take);
     top.splice(top.indexOf(take),1); P.deck.push(...top);
@@ -345,7 +345,7 @@ const EXTRA_OPS = {
     const units=top.filter(n=>card(n).type==='Unit');
     let played=null;
     if(units.length){
-      const sel=await UI.pickOption(ctx.p,'플레이할 유닛 (선택)',units.map(n=>({v:n,label:card(n).ko})).concat([{v:'skip',label:'플레이 안 함'}]));
+      const sel=await UI.pickOption(ctx.p,'플레이할 유닛 (선택)',units.map(n=>({v:n,label:card(n).ko,n})).concat([{v:'skip',label:'플레이 안 함'}]));
       if(sel!=='skip'&&sel!==null){
         played=sel; top.splice(top.indexOf(sel),1);
         let e=Math.max(0,(card(sel).e||0)-(op.discE||0));
@@ -398,7 +398,7 @@ const EXTRA_OPS = {
     const picks={};
     for(const pi of [ctx.p, opp(ctx.p)]){ const P=G.players[pi];
       const top=P.deck.splice(0,5); if(!top.length) continue;
-      const sel=await UI.pickOption(pi,`${pname(pi)}: 추방(플레이 예약)할 카드 1장`,top.map(n=>({v:n,label:card(n).ko})));
+      const sel=await UI.pickOption(pi,`${pname(pi)}: 추방(플레이 예약)할 카드 1장`,top.map(n=>({v:n,label:card(n).ko,n})));
       const pick=sel!==null?sel:top[0];
       top.splice(top.indexOf(pick),1); P.deck.push(...top); picks[pi]=pick;
       if(top.length) await fireEvent('onYouRecycle',{p:pi});
@@ -450,7 +450,7 @@ const EXTRA_OPS = {
     if(!canPay(ctx.p,0,['Mind'])) return;
     const yes=await UI.confirmP(ctx.p,'정신 힘 1을 지불하고 [숨겨짐] 카드를 무료로 플레이할까요?'); if(!yes) return;
     payCost(ctx.p,0,['Mind']);
-    const sel=await UI.pickOption(ctx.p,'플레이할 [숨겨짐] 카드',cands.map(x=>({v:x,label:card(x.n).ko}))); if(!sel) return;
+    const sel=await UI.pickOption(ctx.p,'플레이할 [숨겨짐] 카드',cands.map(x=>({v:x,label:card(x.n).ko,n:x.n}))); if(!sel) return;
     P.hand.splice(sel.i,1);
     const c=card(sel.n);
     if(c.type==='Unit'){ const loc=ctx.unit&&ctx.unit.loc!=='base'?ctx.unit.loc:'base';
@@ -462,7 +462,7 @@ const EXTRA_OPS = {
   async guerrilla(op, ctx, h){ const P=G.players[ctx.p];
     const hiddens=[...new Set(P.trash.filter(n=>FX[n]&&FX[n].kw&&FX[n].kw.hidden))];
     for(let i=0;i<2 && hiddens.length;i++){
-      const sel=await UI.pickOption(ctx.p,`폐기장에서 회수할 [숨겨짐] 카드 (${i+1}/2, 선택)`,hiddens.map(n=>({v:n,label:card(n).ko})));
+      const sel=await UI.pickOption(ctx.p,`폐기장에서 회수할 [숨겨짐] 카드 (${i+1}/2, 선택)`,hiddens.map(n=>({v:n,label:card(n).ko,n})));
       if(sel===null) break;
       P.trash.splice(P.trash.indexOf(sel),1); P.hand.push(sel); hiddens.splice(hiddens.indexOf(sel),1);
     }
@@ -496,7 +496,8 @@ const EXTRA_OPS = {
     if(op.filter==='nonunit') cands=cands.filter(x=>card(x.n).type!=='Unit');
     UI.log(`상대 손패 공개: ${O.hand.map(n=>card(n).ko).join(', ')}`,'sys');
     if(!cands.length) return;
-    const sel=await UI.pickOption(ctx.p, op.action==='discard'?'버리게 할 카드':'재활용시킬 카드', cands.map(x=>({v:x,label:card(x.n).ko})));
+    // n을 함께 실어 보내면 선택 모달이 마우스 오버로 그 카드의 효과를 보여 준다 (ui.js optionCard)
+    const sel=await UI.pickOption(ctx.p, op.action==='discard'?'버리게 할 카드':'재활용시킬 카드', cands.map(x=>({v:x,label:card(x.n).ko,n:x.n})));
     if(!sel) return;
     if(op.action==='discard'){ await discardFromHand(o, O.hand.indexOf(sel.n)); }
     else { O.hand.splice(O.hand.indexOf(sel.n),1); O.deck.push(sel.n); UI.log(`「${card(sel.n).ko}」 재활용됨`,'sys'); await fireEvent('onYouRecycle',{p:o}); } },
@@ -508,7 +509,7 @@ const EXTRA_OPS = {
   async eachKillsGear(op, ctx, h){
     for(const pi of [G.turn, opp(G.turn)]){ const P=G.players[pi];
       if(!P.gear.length) continue;
-      const sel=await UI.pickOption(pi,`${pname(pi)}: 폐기할 도구 선택`,P.gear.map((g,i)=>({v:i,label:card(g.n).ko})));
+      const sel=await UI.pickOption(pi,`${pname(pi)}: 폐기할 도구 선택`,P.gear.map((g,i)=>({v:i,label:card(g.n).ko,n:g.n})));
       if(sel!==null) await killGear(pi, sel);
     } },
   async fadingMemory(op, ctx, h){
@@ -516,9 +517,10 @@ const EXTRA_OPS = {
     if(u){ u.grants.temporary=true; UI.log(`${unitName(u)}에게 [일시적] 부여`,'p'+ctx.p); } },
   async wonderBundle(op, ctx, h){ const P=G.players[ctx.p];
     const opts=[];
-    everyUnit().filter(u=>u.ctrl===ctx.p&&!u.isToken).forEach(u=>opts.push({v:{t:'unit',u},label:'유닛: '+unitName(u)}));
-    P.gear.forEach((g,i)=>{ if(card(g.n).n!==181) opts.push({v:{t:'gear',i},label:'도구: '+card(g.n).ko}); });
-    G.bfs.forEach((bf,bi)=>bf.hiddenCards.forEach((hc,hi)=>{ if(hc.by===ctx.p) opts.push({v:{t:'hidden',bi,hi},label:'숨김 카드'}); }));
+    everyUnit().filter(u=>u.ctrl===ctx.p&&!u.isToken).forEach(u=>opts.push({v:{t:'unit',u},label:'유닛: '+unitName(u),card:unitCard(u)}));
+    P.gear.forEach((g,i)=>{ if(card(g.n).n!==181) opts.push({v:{t:'gear',i},label:'도구: '+card(g.n).ko,n:g.n}); });
+    // 숨김 카드도 n을 실어 미리보기를 붙인다 — hc.by===ctx.p 필터라 내가 숨긴 것만 후보다(정보 노출 아님)
+    G.bfs.forEach((bf,bi)=>bf.hiddenCards.forEach((hc,hi)=>{ if(hc.by===ctx.p) opts.push({v:{t:'hidden',bi,hi},label:'숨김 카드',n:hc.n}); }));
     if(!opts.length) return;
     const sel=await UI.pickOption(ctx.p,'손패로 되돌릴 대상',opts); if(!sel) return;
     if(sel.t==='unit'){ removeUnit(sel.u); P.hand.push(sel.u.n); }
@@ -547,17 +549,17 @@ const EXTRA_OPS = {
     UI.log(`「차원문 구출」: ${unitName(nu)} 재소환`,'p'+ctx.p);
     await runTriggerList(unitFx(nu).triggers?.onPlay, {p:u.ctrl, unit:nu, legionOK:true}); },
   async adaptatron(op, ctx, h){
-    const gears=[]; [0,1].forEach(pi=>G.players[pi].gear.forEach((g,i)=>gears.push({pi,i,label:pname(pi)+': '+card(g.n).ko})));
+    const gears=[]; [0,1].forEach(pi=>G.players[pi].gear.forEach((g,i)=>gears.push({pi,i,n:g.n,label:pname(pi)+': '+card(g.n).ko})));
     if(!gears.length) return;
     const yes=await UI.confirmP(ctx.p,'도구 하나를 폐기하고 버프를 받을까요?'); if(!yes) return;
-    const sel=await UI.pickOption(ctx.p,'폐기할 도구',gears.map(g=>({v:g,label:g.label}))); if(!sel) return;
+    const sel=await UI.pickOption(ctx.p,'폐기할 도구',gears.map(g=>({v:g,label:g.label,n:g.n}))); if(!sel) return;
     await killGear(sel.pi, sel.i);
     if(ctx.unit) await buffUnit(ctx.unit, ctx.p); },
   async readySomething(op, ctx, h){
     const opts=[];
-    everyUnit().filter(u=>u.ctrl===ctx.p&&u.ex&&u!==ctx.unit).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitName(u)}));
-    G.players[ctx.p].gear.forEach((g,i)=>{ if(g.ex) opts.push({v:{t:'g',g},label:'도구: '+card(g.n).ko}); });
-    if(G.players[ctx.p].legendEx) opts.push({v:{t:'l'},label:'전설'});
+    everyUnit().filter(u=>u.ctrl===ctx.p&&u.ex&&u!==ctx.unit).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitName(u),card:unitCard(u)}));
+    G.players[ctx.p].gear.forEach((g,i)=>{ if(g.ex) opts.push({v:{t:'g',g},label:'도구: '+card(g.n).ko,n:g.n}); });
+    if(G.players[ctx.p].legendEx) opts.push({v:{t:'l'},label:'전설: '+card(G.players[ctx.p].legendN).ko,n:G.players[ctx.p].legendN});
     if(!opts.length) return;
     const sel=await UI.pickOption(ctx.p,'준비시킬 대상 (선택)',opts); if(!sel) return;
     if(sel.t==='u') await readyUnit(sel.u, ctx.p);

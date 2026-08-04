@@ -429,6 +429,34 @@ function openEditor(index){
   showScreen('editor-screen');
 }
 
+// ---------- 덱 편집기 정렬 ----------
+// 고른 기준은 localStorage에 남긴다 — 덱을 여러 개 만들 때 매번 다시 고르게 하면 성가시다.
+const ED_SORT_KEY='rb_ed_sort';
+function edSortMode(){
+  const el=document.getElementById('ed-sort');
+  return (el && el.value) || localStorage.getItem(ED_SORT_KEY) || 'cost';
+}
+// 배열을 제자리 정렬하고 그대로 돌려준다 (카드 풀과 덱 목록이 같은 함수를 쓴다).
+// 어떤 기준이든 마지막에는 '가나다 → 세트 번호'로 동점을 깨서 렌더 순서가 흔들리지 않게 한다.
+function edSortCards(list){
+  const mode=edSortMode();
+  const ko=(a,b)=>a.ko.localeCompare(b.ko,'ko');
+  const tie=(a,b)=>ko(a,b) || (a.n-b.n);
+  const cost=c=>{
+    // 전장은 비용이 없다(e=null). 비용순에서 뒤로 몰아 유닛·주문·도구와 섞이지 않게 한다.
+    if(c.type==='Battlefield') return 99;
+    return (c.e??0) + (c.p||0)*0.1;   // 같은 에너지면 힘 핍이 많은 쪽이 뒤로
+  };
+  const cmp={
+    'cost':      (a,b)=>cost(a)-cost(b) || tie(a,b),
+    'cost-desc': (a,b)=>cost(b)-cost(a) || tie(a,b),
+    'name':      (a,b)=>tie(a,b),
+    'name-desc': (a,b)=>ko(b,a) || (a.n-b.n),
+    'set':       (a,b)=>a.n-b.n,
+  }[mode] || ((a,b)=>cost(a)-cost(b) || tie(a,b));
+  return list.sort(cmp);
+}
+
 function edIsCustom(){ return document.getElementById('ed-legend').value==='custom'; }
 function edLegend(){ return edIsCustom() ? null : card(+document.getElementById('ed-legend').value); }
 // 전설 기준 자동 챔피언 (견본덱 방식) — 나만의 덱에서는 자동 배정 없음
@@ -502,6 +530,7 @@ function renderEditor(){
     if(search && !(c.ko.toLowerCase().includes(search)||c.name.toLowerCase().includes(search))) return false;
     return true;
   });
+  edSortCards(pool);
   const poolEl=document.getElementById('ed-pool');
   poolEl.innerHTML='';
   const counts={}; ED.main.forEach(n=>counts[n]=(counts[n]||0)+1);
@@ -539,7 +568,8 @@ function renderEditor(){
   mainEl.innerHTML='';
   const grouped={};
   ED.main.forEach(n=>grouped[n]=(grouped[n]||0)+1);
-  Object.entries(grouped).sort((a,b)=>(card(+a[0]).e||0)-(card(+b[0]).e||0)).forEach(([n,cnt])=>{
+  // 덱 목록도 카드 풀과 같은 기준으로 정렬한다 (둘이 다른 순서면 찾기가 더 어렵다)
+  edSortCards(Object.keys(grouped).map(n=>card(+n))).map(c=>[String(c.n), grouped[c.n]]).forEach(([n,cnt])=>{
     const c=card(+n);
     const row=document.createElement('div'); row.className='ed-row';
     row.innerHTML=`<span class="cnt">×${cnt}</span> [${c.e??0}] ${esc(c.ko)}`;
@@ -623,9 +653,13 @@ function initEditor(){
     if(ED.main.length<before) UI.toast('선발 챔피언과 같은 카드는 메인 덱에서 제외했습니다','warn');
     renderEditor();
   };
-  ['ed-type-filter','ed-search','ed-dom-only'].forEach(id=>{
+  ['ed-type-filter','ed-search','ed-dom-only','ed-sort'].forEach(id=>{
     document.getElementById(id).addEventListener('input',()=>renderEditor());
   });
+  // 정렬 기준은 기억해 둔다 (덱을 여러 개 만들 때 매번 다시 고르지 않게)
+  const sortSel=document.getElementById('ed-sort');
+  sortSel.value = localStorage.getItem(ED_SORT_KEY) || 'cost';
+  sortSel.addEventListener('change', ()=>{ try{ localStorage.setItem(ED_SORT_KEY, sortSel.value); }catch(e){} });
   document.getElementById('btn-ed-auto').onclick=()=>{
     const legendN = edIsCustom() ? edLegendForChamp(edChampN()) : +sel.value;
     if(legendN==null){ UI.toast('나만의 덱: 챔피언을 먼저 선택하면 자동 완성할 수 있습니다','warn'); return; }
@@ -990,7 +1024,11 @@ function openSystemMenu(){
     add(reqPending?'🔄 상대의 재대결 요청 수락 (덱 선택)':'🔄 상대와 다시 하기 (덱 선택)', ()=>{ closeModal(); RM.openPick(!!reqPending); }, true);
     add(P2P.active?'🚪 나가기 (연결 종료)':'🚪 로비로 가기', ()=>{ closeModal(); gameLeave(); });
   } else if(isBot){
-    add('🔄 다시 하기 (봇/덱 선택)', ()=>{ BOT.active=false; closeModal(); openBotSelect(); }, true);
+    // BOT.active를 여기서 끄면 안 된다 — 봇 선택 모달에서 '취소'하면 그대로 진행 중인 판으로
+    // 돌아오는데, 그때 봇이 멈추고(드라이버가 BOT.active를 본다) 봇 손패 가림막·프롬프트
+    // 가로채기까지 함께 풀린다. 새 판을 시작하면 startBotGame → newGame 래퍼가 알아서 끈다.
+    // (모달이 열려 있는 동안 봇이 움직이는 문제는 드라이버의 modal-overlay 검사가 이미 막는다)
+    add('🔄 다시 하기 (봇/덱 선택)', ()=>{ closeModal(); openBotSelect(); }, true);
     add('🚪 처음 화면으로', ()=>location.reload());
   } else {
     add('🔄 다시 하기 (핫시트 새 게임)', ()=>{ closeModal(); startHotseat(); }, true);

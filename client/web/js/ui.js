@@ -134,6 +134,7 @@ function _pickOptionLocal(p, title, options, cancelLabel){
     options.forEach((o,i)=>{
       const b=document.createElement('button'); b.className='primary'; b.textContent=o.label;
       b.onclick=()=>{ closeModal(); res(i); };
+      attachCardHover(b, optionCard(o));   // 카드가 걸린 선택지는 올려 보면 효과가 뜬다
       btns.appendChild(b);
     });
     const cancel=document.createElement('button'); cancel.textContent=cancelLabel||'취소';
@@ -198,6 +199,24 @@ function _pickNumberLocal(p, text, min, max){
   });
 }
 
+// ══════════ 손패 공개 규칙 ══════════
+// 예전엔 "오프라인이면 전부 앞면"이었다. 로컬 핫시트(한 화면에서 두 사람이 번갈아 두기)를
+// 염두에 둔 규칙인데, BOT 대전에도 그대로 걸려서 봇의 손패가 사람에게 다 보였다.
+//  · 리플레이 관전 : 두 선수 손패 모두 공개 (기록을 되짚어 보는 용도)
+//  · 온라인        : 내 손패만
+//  · BOT 대전      : 봇 손패는 가림. '손패 확인' 토글을 켤 때만 공개(보기 전용)
+//  · 로컬 핫시트·수동: 둘 다 공개 (그래야 두 사람이 번갈아 조작할 수 있다)
+UI.peekBotHand = false;
+function botHandHidable(p){
+  return typeof BOT !== 'undefined' && BOT.active && !NET.online && !replayLock() && p === BOT.seat;
+}
+function handFaceUp(p){
+  if(replayLock()) return true;
+  if(NET.online) return p === NET.seat;
+  if(botHandHidable(p)) return !!UI.peekBotHand;
+  return true;
+}
+
 // 손패 카드 선택 (모달 — 선택자 화면에만 표시)
 UI.pickHandCard = function(p, title){
   if(!G.players[p].hand.length) return Promise.resolve(null);
@@ -213,6 +232,7 @@ function _pickHandLocal(p, title){
     P.hand.forEach((n,i)=>{
       const el=cardMiniEl(card(n));
       el.onclick=()=>{ closeModal(); res(i); };
+      attachCardHover(el, card(n));   // 모달 안에서는 인스펙터가 오버레이에 가려 안 보인다
       wrap.appendChild(el);
     });
     box.appendChild(wrap);
@@ -226,7 +246,7 @@ function openModal(){
   document.body.classList.add('modal-open');
   hideMenu();                                          // 열려 있던 선택 메뉴가 모달 위에 남지 않게
 }
-function closeModal(){ document.getElementById('modal-overlay').style.display='none'; document.body.classList.remove('modal-open'); }
+function closeModal(){ UI.hideHover(); document.getElementById('modal-overlay').style.display='none'; document.body.classList.remove('modal-open'); }
 // 정보성 모달(도움말/밴 리스트/대회 덱 등): 모바일 뒤로 가기로 닫아도 안전함을 표시
 function markModalDismissable(){ document.getElementById('modal-overlay').dataset.dismiss='1'; }
 
@@ -250,6 +270,7 @@ function _pickMulliganLocal(p){
         else if(sel.size<2){ sel.add(i); el.classList.add('selected'); }
         else UI.toast('최대 2장까지 선택할 수 있습니다','warn');
       };
+      attachCardHover(el, card(n));   // 멀리건도 모달 — 무엇을 바꿀지 보고 정할 수 있어야 한다
       wrap.appendChild(el);
     });
     box.appendChild(wrap);
@@ -420,6 +441,58 @@ UI.inspectUnit = function(u){
   UI.inspect(card(u.n));
 };
 
+// ---------- 선택지 카드 미리보기 (마우스 오버) ----------
+// 선택 모달은 오버레이(z-index 100) 위에 뜨는데, 사이드 인스펙터는 그 아래에 깔린다.
+// 그래서 [반응] 응수나 「정신을 가르는 자」처럼 카드를 고르는 순간에는 정작 그 카드가
+// 무슨 효과인지 볼 수가 없었다 — 모달 위에 뜨는 별도 패널을 쓴다.
+// (터치 기기는 hover가 없으므로 attachZoom의 롱프레스가 같은 역할을 한다)
+UI.showHover = function(c, x, y){
+  if(!c) return;
+  let el = document.getElementById('card-hover');
+  if(!el){ el = document.createElement('div'); el.id = 'card-hover'; document.body.appendChild(el); }
+  if(el._for !== c){ el.innerHTML = UI.cardInfoHTML(c); el._for = c; }
+  el.style.display = 'block';
+  const pos = hoverPlace(x, y, el.offsetWidth || 240, el.offsetHeight || 480,
+                         window.innerWidth, window.innerHeight);
+  el.style.left = pos.left + 'px';
+  el.style.top  = pos.top  + 'px';
+};
+// 커서 옆에 띄우되 화면 밖으로 나가면 접는다. 순수 함수로 빼 둔 이유는
+// 브라우저 창 크기를 실제로 못 재는 환경에서도 이 규칙만 따로 검증할 수 있게 하기 위해서다.
+function hoverPlace(x, y, w, h, vw, vh){
+  const pad = 16, m = 6;
+  let left = x + pad, top = y + pad;
+  if(!vw || !vh) return { left, top };          // 창 크기를 모르면 그냥 커서 옆
+  if(left + w > vw - m) left = x - pad - w;     // 오른쪽이 좁으면 커서 왼쪽으로
+  if(left < m) left = Math.max(m, vw - w - m);  // 왼쪽도 좁으면 화면 안쪽으로 밀어 넣는다
+  if(top + h > vh - m) top = vh - h - m;
+  if(top < m) top = m;
+  return { left, top };
+}
+UI.hideHover = function(){
+  const el = document.getElementById('card-hover');
+  if(el){ el.style.display = 'none'; el._for = null; }
+};
+// 텍스트 버튼·카드 미니 등 어떤 요소에든 '이 선택지는 이 카드다'를 붙인다.
+// 인스펙터도 함께 갱신해 두면 모달을 닫은 뒤에도 마지막으로 본 카드가 남아 있다.
+function attachCardHover(el, c){
+  if(!el || !c) return el;
+  el._card = c;                     // attachZoom이 이 필드를 본다
+  el.classList.add('has-card');
+  el.addEventListener('mouseenter', e=>{ UI.inspect(c); UI.showHover(c, e.clientX, e.clientY); });
+  el.addEventListener('mousemove',  e=>UI.showHover(c, e.clientX, e.clientY));
+  el.addEventListener('mouseleave', UI.hideHover);
+  attachZoom(el);                   // 롱프레스·Alt+클릭·우클릭 → 전체 확대 (터치 대응)
+  return el;
+}
+// 선택지 객체에서 카드 꺼내기 — 만드는 쪽은 card(카드객체) 또는 n(카드번호) 중 편한 걸 실으면 된다
+function optionCard(o){
+  if(!o) return null;
+  if(o.card) return o.card;
+  if(o.n !== undefined && o.n !== null){ try { return card(o.n) || null; } catch(e){ return null; } }
+  return null;
+}
+
 // ---------- 카드 확대 (롱프레스 / Alt+클릭) ----------
 UI.showZoom = function(c){
   if(!c) return;
@@ -554,9 +627,11 @@ function showUnitMenu(u, e){
   menu.appendChild(title);
   const fx=unitFx(u);
   // 발동형 능력
+  const botUnit = typeof botIs==='function' && botIs(u.ctrl);
   (fx.activated||[]).forEach((ab,abIdx)=>{
     if(u.ctrl!==G.actingPlayer && !(ab.reaction||ab.action)) return;
     if(NET.online && u.ctrl!==NET.seat) return;
+    if(botUnit) return;      // 유닛 자체는 공개 정보라 정보는 보여 주고, 발동만 막는다
     const item=document.createElement('div'); item.className='ctx-item';
     item.textContent='⚡ '+ab.label;
     item.onclick=()=>{ hideMenu();
@@ -611,7 +686,12 @@ function openMenuAt(menu, e){
 
 // ---------- 손패 클릭 ----------
 // 온라인: 내 좌석의 행동만 개시 가능
+// 이 좌석을 지금 사람이 조작해도 되는가.
+// 오프라인은 로컬 핫시트(2인이 번갈아 두기) 때문에 좌석을 가리지 않는다.
+// 다만 BOT 대전의 봇 좌석은 예외 — 봇이 스스로 두는 자리를 사람이 대신 조작하면
+// 규칙 밖의 수가 되고, 봇의 비공개 정보([숨겨짐] 카드, 비용으로 버리는 손패)까지 드러난다.
 function canInitiate(p){
+  if(typeof botIs==='function' && botIs(p)){ UI.toast('봇의 카드는 조작할 수 없습니다','warn'); return false; }
   if(!NET.online) return true;
   if(p!==NET.seat){ UI.toast('상대 카드는 조작할 수 없습니다','warn'); return false; }
   return true;
@@ -765,7 +845,22 @@ UI.render = function(){
     document.querySelector('#deck-'+p+' .pile-count').textContent=Pl.deck.length;
     document.querySelector('#runedeck-'+p+' .pile-count').textContent=Pl.runeDeck.length;
     document.querySelector('#trash-'+p+' .pile-count').textContent=Pl.trash.length;
-    document.getElementById('counts-'+p).innerHTML=`덱: ${Pl.deck.length}<br>손패: ${Pl.hand.length}`;
+    const cd=document.getElementById('counts-'+p);
+    cd.innerHTML=`덱: ${Pl.deck.length}<br>손패: ${Pl.hand.length}`;
+    // BOT 대전에서만 봇 손패 옆에 '손패 확인' 토글을 붙인다.
+    // counts는 매 렌더마다 innerHTML로 다시 그려지므로 버튼도 여기서 다시 만든다.
+    // (CSP가 script-src 'self'라 인라인 onclick은 막히므로 addEventListener로 붙인다)
+    if(botHandHidable(p)){
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.className='peek-btn'+(UI.peekBotHand?' on':'');
+      btn.textContent=(UI.peekBotHand?'☑':'☐')+' 손패 확인';
+      btn.title=UI.peekBotHand
+        ? '봇의 손패를 보고 있습니다 (보기 전용) — 다시 누르면 가립니다'
+        : '봇의 손패를 확인합니다 (연습용)';
+      btn.addEventListener('click', ()=>{ UI.peekBotHand=!UI.peekBotHand; UI.render(); });
+      cd.appendChild(btn);
+    }
     // 기지
     const bz=document.getElementById('base-'+p);
     bz.innerHTML='<div class="zone-label">기지</div>';
@@ -783,12 +878,17 @@ UI.render = function(){
     // 손패
     const hz=document.getElementById('hand-'+p);
     hz.innerHTML='';
+    const faceUp = handFaceUp(p);          // 공개 규칙은 handFaceUp 한 곳에만 있다
+    const peeked = faceUp && botHandHidable(p);
     Pl.hand.forEach((n,i)=>{
-      // 온라인: 상대 손패 비공개 / 리플레이 관전: 두 선수의 손패를 모두 공개
-      const showFace = replayLock() || !NET.online || p===NET.seat;
       let el;
-      if(showFace){ el = cardMiniEl(card(n)); el.onclick=(e)=>onHandClick(p,i,e); }
-      else { el = document.createElement('div'); el.className='card-mini card-back'; }
+      if(!faceUp){ el = document.createElement('div'); el.className='card-mini card-back'; }
+      else if(peeked){
+        // 들여다본 봇 손패는 보기 전용 — 클릭을 살려 두면 사람이 봇 카드를 대신 내 버릴 수 있다
+        // (확대·정보 표시는 cardMiniEl에 그대로 남아 있어 '확인'에는 지장이 없다)
+        el = cardMiniEl(card(n)); el.classList.add('peeked');
+      }
+      else { el = cardMiniEl(card(n)); el.onclick=(e)=>onHandClick(p,i,e); }
       hz.appendChild(el);
     });
   }
@@ -837,7 +937,8 @@ UI.render = function(){
       if(_moveArmed && _moveSel.size){ executeMove(i); return; }
       const hp=G.actingPlayer;
       if(bf.hiddenCards.some(h=>h.by===hp)){
-        if(NET.online && hp!==NET.seat) return;
+        // 봇 차례에 사람이 전장을 누르면 봇이 숨겨둔 카드가 강제로 공개·플레이됐다
+        if(!canInitiate(hp)) return;
         NET.dispatch({k:'playHidden',p:hp,bfIdx:i}, ()=>playHidden(hp,i));
       }
     };
@@ -884,8 +985,9 @@ function showLegendMenu(p, e){
   menu.innerHTML='';
   const title=document.createElement('div'); title.className='ctx-title'; title.textContent=card(Pl.legendN).ko;
   menu.appendChild(title);
+  const mine = !(NET.online && p!==NET.seat) && !(typeof botIs==='function' && botIs(p));
   (fx.activated||[]).forEach((ab,abIdx)=>{
-    if(NET.online && p!==NET.seat) return;
+    if(!mine) return;        // 전설 카드 자체는 공개 정보라 이름은 보여 주고, 발동만 막는다
     const item=document.createElement('div'); item.className='ctx-item';
     item.textContent='⚡ '+ab.label + (Pl.legendEx&&ab.cost&&ab.cost.exhaustSelf?' (탈진됨)':'');
     item.onclick=()=>{ hideMenu();
@@ -905,6 +1007,7 @@ function showGearMenu(p, g, e){
   if(replayLock()) return;
   if(e && e.stopPropagation) e.stopPropagation();
   if(NET.online && p!==NET.seat) return;
+  if(typeof botIs==='function' && botIs(p)) return;   // 봇 도구는 봇이 쓴다 (확대·정보는 카드 자체로 가능)
   const menu=document.getElementById('ctx-menu');
   const c=card(g.n);
   const fx=FX[g.n]||{activated:[]};

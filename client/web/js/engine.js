@@ -755,7 +755,7 @@ async function playCardFromHand(p, handIdx, opts={}){
           return true;
         }
         item.target = targets.length===1 ? targets[targets.length-1]
-          : await UI.pickOption(p, '대응할 주문 선택', targets.map(x=>({v:x, label:card(x.n).ko})));
+          : await UI.pickOption(p, '대응할 주문 선택', targets.map(x=>({v:x, label:card(x.n).ko, n:x.n})));
         if(!item.target) item.target=targets[targets.length-1];
       }
       sd.chain.push(item);
@@ -890,7 +890,8 @@ async function reactionWindow(caster, c){
           if(fx.counter.maxPips!==undefined && powerPips(c).length>fx.counter.maxPips) return;
         }
       }
-      opts.push({v:i, label:`⚡ ${cc.ko} (비용 ${cost}${pips.length?' + 힘'+pips.length:''})`, isCounter:!!(fx.counter||fx.steal)});
+      // card를 실어 보내면 응수 모달에서 마우스 오버로 그 카드의 효과를 볼 수 있다 (ui.js optionCard)
+      opts.push({v:i, label:`⚡ ${cc.ko} (비용 ${cost}${pips.length?' + 힘'+pips.length:''})`, isCounter:!!(fx.counter||fx.steal), card:cc});
     });
     if(!opts.length) return result;
     const sel=await UI.pickReaction(o, `${pname(caster)}이(가) 「${c.ko}」 플레이 — [반응]으로 응수할까요?`, opts);
@@ -961,7 +962,7 @@ async function playHidden(p, bfIdx){
   if(!playable.length){ UI.toast('숨긴 턴에는 플레이할 수 없습니다','warn'); return; }
   let h = playable[0];
   if(playable.length>1){
-    const sel=await UI.pickOption(p,'플레이할 숨김 카드',playable.map(x=>({v:x,label:card(x.n).ko})));
+    const sel=await UI.pickOption(p,'플레이할 숨김 카드',playable.map(x=>({v:x,label:card(x.n).ko,n:x.n})));
     if(!sel) return;
     h=sel;
   }
@@ -1527,8 +1528,8 @@ async function activateAbility(p, source, ab){
   if(cost.killFriendlyOrGear){
     // 아군 유닛 또는 도구 하나 처치 (말자하)
     const opts=[];
-    everyUnit().filter(u=>u.ctrl===p).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitName(u)}));
-    P.gear.forEach((g,i)=>opts.push({v:{t:'g',i},label:'도구: '+card(g.n).ko}));
+    everyUnit().filter(u=>u.ctrl===p).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitName(u),card:unitCard(u)}));
+    P.gear.forEach((g,i)=>opts.push({v:{t:'g',i},label:'도구: '+card(g.n).ko,n:g.n}));
     const sel=await UI.pickOption(p,'처치할 아군 유닛/도구 (비용)',opts);
     if(!sel) return;
     if(sel.t==='u') await killUnit(sel.u); else await killGear(p, sel.i);
@@ -1828,8 +1829,8 @@ async function execOps(ops, ctx){
       case 'teemoFetch': {
         const P=G.players[p];
         const opts=[];
-        if(P.champInZone && card(P.champN).tags.includes('Teemo')) opts.push({v:'zone',label:'챔피언 존의 '+card(P.champN).ko});
-        everyUnit().filter(u=>u.ctrl===p&&!u.isToken&&card(u.n).tags.includes('Teemo')).forEach(u=>opts.push({v:u,label:unitName(u)}));
+        if(P.champInZone && card(P.champN).tags.includes('Teemo')) opts.push({v:'zone',label:'챔피언 존의 '+card(P.champN).ko,n:P.champN});
+        everyUnit().filter(u=>u.ctrl===p&&!u.isToken&&card(u.n).tags.includes('Teemo')).forEach(u=>opts.push({v:u,label:unitName(u),card:unitCard(u)}));
         if(!opts.length){ UI.toast('티모 유닛이 없습니다','warn'); break; }
         const sel=await UI.pickOption(p,'손패로 가져올 티모 유닛',opts);
         if(sel==='zone'){ P.champInZone=false; P.hand.push(P.champN); }

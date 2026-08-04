@@ -193,6 +193,7 @@ function startBotGame(level, myDeck, oppDeck){
   });
   BOT.active=true; BOT.level=level.id;
   BOT.ctx=POLICY.newCtx(); BOT.busy=false;
+  UI.peekBotHand=false;        // 새 판은 항상 가린 상태로 시작한다
   showScreen('game-screen');
   document.getElementById('net-info').textContent=`🤖 BOT 대전 — ${level.name} · ${oppDeck.name}`;
   UI.log(`BOT 대전 시작! 내 덱: ${myDeck.name} / 상대: ${oppDeck.name} (${level.name})`, 'sys');
