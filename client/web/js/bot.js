@@ -8,7 +8,7 @@
 //  - 리썰 플랜: 6점부터 더블 점령/홀드 셋업, 상대 리썰 레인지엔 수비·견제 (learnriftbound.gg intermediate/06-lethal-points)
 //  - 결전 대응: [행동]/[반응] 트릭은 아껴뒀다가 박빙 결전에서 사용 (riftbound.zone combat-and-showdown)
 
-const BOT = { active:false, seat:1, level:'skilled', busy:false, tried:new Set(), lastTC:-1, movesTC:-1, movesLeft:0 };
+const BOT = { active:false, seat:1, level:'skilled', busy:false, ctx:{ tried:new Set(), movesLeft:0, tc:-1 } };
 
 // 난이도 5단계 — 판단의 '깊이'와 '정보'로 구분한다.
 //   think : 0 = 즉흥(휴리스틱만) · 1 = 한 수 앞을 실제로 두어 보고 고름 · 2 = 턴 전체를 계획(빔 서치)
@@ -63,7 +63,6 @@ setInterval(()=>{
   if(!BOT.active || !G || G.winner!==null || NET.online || BOT.busy) return;
   if(UI.isPicking && UI.isPicking()) return;                       // 사람이 선택 중
   if(document.getElementById('modal-overlay').style.display!=='none') return;
-  if(BOT.lastTC!==G.turnCount){ BOT.lastTC=G.turnCount; BOT.tried.clear(); }
 
   // 결전: 봇 응답 차례 — 어려움은 박빙일 때 트릭 카드 시도 후 패스
   if(G.state==='showdown'){
@@ -78,44 +77,24 @@ setInterval(()=>{
   botStep().catch(e=>console.error('[BOT]',e)).finally(()=>{ BOT.busy=false; UI.render(); });
 }, 900);
 
+// 결전·턴 진행의 '무엇을 할까'는 전부 POLICY에 있다 (tools/selfplay.js와 같은 코드를 쓰기 위해서).
+// 여기 남은 것은 봇 좌석 판별과 화면 갱신뿐이다.
 async function botShowdown(){
   const p=BOT.seat;
   botSync();
-  const idx = POLICY.showdownPlay(p);
-  if(idx >= 0){
-    const ok = await playCardFromHand(p, idx);
-    if(ok !== false) return;      // 우선권 전환은 playCardFromHand 안에서 처리
+  const act = POLICY.showdownAction(p);
+  if(act){
+    const ok = await POLICY.runAction(p, act);
+    if(ok !== false) return;      // 우선권 전환은 엔진(playCardFromHand/activateAbility)이 처리
   }
   await showdownPass();
 }
 
 async function botStep(){
-  const p=BOT.seat, P=G.players[p];
+  const p=BOT.seat;
   botSync();
-
-  // 1) 손패 플레이 — 재시도 차단 키는 카드 번호('h'+n): 인덱스는 플레이 성공 시 시프트되므로 쓰지 않는다
-  const idx = POLICY.pickPlay(p, BOT.tried);
-  if(idx>=0){
-    const n=P.hand[idx], before=P.hand.length;
-    const ok=await playCardFromHand(p, idx);
-    if(ok===false && P.hand.length===before) BOT.tried.add('h'+n);
-    return;
-  }
-  // 2) 챔피언 존 플레이
-  if(P.champInZone && !BOT.tried.has('champ') && polCanPlay(p, card(P.champN))){
-    const ok=await playCardFromHand(p, -1, {champZone:true});
-    if(ok===false && P.champInZone) BOT.tried.add('champ');
-    return;
-  }
-  // 3) 이동 (빈 전장 점거 + 본대 공격의 두 갈래 압박)
-  if(BOT.movesTC!==G.turnCount){ BOT.movesTC=G.turnCount; BOT.movesLeft=(typeof polTier==='function'?(polTier().moves||1):1); }
-  if(BOT.movesLeft>0){
-    const mv=POLICY.movePlan(p);
-    if(mv){ BOT.movesLeft--; await moveUnits(p, mv.units, mv.dest); return; }
-    BOT.movesLeft=0;
-  }
-  // 4) 할 게 없으면 턴 종료
-  await endTurn();
+  POLICY.syncCtx(BOT.ctx);
+  if(await POLICY.step(p, BOT.ctx)) await endTurn();
 }
 
 function openBotSelect(){
@@ -213,7 +192,7 @@ function startBotGame(level, myDeck, oppDeck){
     bfs:[ botRand(myDeck.bfs), botRand(oppDeck.bfs) ],
   });
   BOT.active=true; BOT.level=level.id;
-  BOT.tried=new Set(); BOT.lastTC=-1; BOT.movesTC=-1; BOT.movesLeft=0; BOT.sdSeen=null; BOT.busy=false;
+  BOT.ctx=POLICY.newCtx(); BOT.busy=false;
   showScreen('game-screen');
   document.getElementById('net-info').textContent=`🤖 BOT 대전 — ${level.name} · ${oppDeck.name}`;
   UI.log(`BOT 대전 시작! 내 덱: ${myDeck.name} / 상대: ${oppDeck.name} (${level.name})`, 'sys');

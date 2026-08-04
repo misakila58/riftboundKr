@@ -164,21 +164,13 @@ async function simPlayOutTurn(q){
   const savedThink = POLICY.think;
   POLICY.think = 0;
   try {
-    const tried = new Set();
+    const ctx = POLICY.newCtx();
     for(let guard=0; guard<40; guard++){
       if(!G || G.winner!==null) return;
       if(G.state === 'showdown'){ await simSettle(); continue; }
       if(G.turn !== q || G.phase !== 'action') return;
-      const idx = POLICY.pickPlay(q, tried);
-      if(idx >= 0){
-        const P = G.players[q], n = P.hand[idx], before = P.hand.length;
-        await playCardFromHand(q, idx);
-        if(G.players[q].hand.length === before) tried.add('h'+n);
-        continue;
-      }
-      const mv = POLICY.movePlan(q);
-      if(mv){ await moveUnits(q, mv.units, mv.dest); continue; }
-      break;
+      POLICY.syncCtx(ctx);
+      if(await POLICY.step(q, ctx)) break;   // 실제 봇과 같은 순서로 둔다 (사본 금지)
     }
     if(G && G.winner===null && G.turn===q) await endTurn();
   } finally { POLICY.think = savedThink; }

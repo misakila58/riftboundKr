@@ -30,13 +30,22 @@ const DIAG = has('--diag');
 const WRAW = arg('--w', null);
 const WOVER = {};
 if(WRAW) WRAW.split(',').forEach(kv=>{ const [k,v]=kv.split('='); if(k) WOVER[k]=+v; });
-const KEYS = ['unit','option','confirm','number','hand','reaction','mulligan','reserve','canpay','move','showdown'];
+const KEYS = ['unit','option','confirm','number','hand','reaction','mulligan','reserve','canpay','move','showdown',
+              'ability','hide','sdfund','place','champ','defend'];
 // --only a,b : A는 그 기능만 켜고 나머지는 옛 동작 / --off a,b : A에서 그 기능만 끔
+//   (둘 다 B는 '정책층 이전' 상태 — 옛 봇 대비 절대 기여도를 본다)
+// --offb a,b : A는 현재 봇 그대로, B에서만 그 기능을 끈다
+//   (지금 봇에서 그 기능을 빼면 얼마나 약해지는가 = 한계 기여도. 새 기능 검증은 이쪽을 쓴다)
+// --on a,b   : A에서만 그 기능을 켠다 (기본이 꺼져 있는 기능의 재측정용)
 const ONLY = arg('--only', null);
 const OFF  = arg('--off', null);
-let AB_A = null;
+const OFFB = arg('--offb', null);
+const ON   = arg('--on', null);
+let AB_A = null, AB_B_EXPLICIT = null;
 if(ONLY){ AB_A = {}; KEYS.forEach(k=>AB_A[k]=0); ONLY.split(',').forEach(k=>{ if(KEYS.includes(k)) AB_A[k]=1; }); }
 else if(OFF){ AB_A = {}; KEYS.forEach(k=>AB_A[k]=1); OFF.split(',').forEach(k=>{ if(KEYS.includes(k)) AB_A[k]=0; }); }
+else if(ON){ AB_A = {}; ON.split(',').forEach(k=>{ if(KEYS.includes(k)) AB_A[k]=1; }); }
+if(OFFB){ AB_B_EXPLICIT = {}; OFFB.split(',').forEach(k=>{ if(KEYS.includes(k)) AB_B_EXPLICIT[k]=0; }); }
 const AB_B_OFF = {}; KEYS.forEach(k=>AB_B_OFF[k]=0);
 
 // ---------- 엔진 구동 최소 환경 ----------
@@ -136,6 +145,9 @@ async function playGame(seed, dA, dB, stats){
 // 신 정책은 실제 bot-policy.js를 그대로 쓴다. 기준선은 '정책층 이전 bot.js 판단'을 동결한 사본이다.
 const ADAPTER = `
 const BOT_W_BASE = Object.assign({}, BOT_W);
+// POLICY.ab는 전역 하나뿐이라 좌석마다 매번 통째로 다시 심어야 한다.
+// (한쪽만 덮어쓰면 다음 좌석이 그 값을 물려받아 대조군이 오염된다 — 조용히 틀리는 종류의 버그)
+const AB_BASE = Object.assign({}, POLICY.ab);
 const _wo = ${JSON.stringify(WOVER)};
 const WOVER_A = Object.keys(_wo).length ? _wo : null;
 const LEVELS = {
@@ -149,7 +161,7 @@ function mkPolicy(level, ab, wover){
     setLevel(){ POLICY.level = level;
       const d = LEVELS[level] || {think:0,budget:0,peek:false};
       POLICY.think = d.think; POLICY.budget = d.budget; POLICY.peek = d.peek;
-      if(ab) Object.assign(POLICY.ab, ab);
+      Object.assign(POLICY.ab, AB_BASE, ab || {});
       if(wover) Object.assign(BOT_W, wover); else Object.assign(BOT_W, BOT_W_BASE); },
     unit:(p,c,t,o)=>POLICY.unit(p,c,t,o),
     option:(p,t,o)=>POLICY.option(p,t,o),
@@ -158,46 +170,16 @@ function mkPolicy(level, ab, wover){
     hand:(p,t)=>POLICY.hand(p,t),
     reaction:(p,t,o)=>POLICY.reaction(p,t,o),
     mulligan:(p)=>POLICY.mulligan(p),
-    _tried:new Set(), _lastTC:-1, _movesTC:-1, _movesLeft:0,
+    // 진행 순서·실행은 POLICY.step 하나로 통일한다 — 여기에 사본을 두면 브라우저 봇과 어긋난다
+    _ctx: POLICY.newCtx(),
     async showdown(p){
-      const idx = POLICY.showdownPlay(p);
-      if(idx < 0) return false;
-      return (await playCardFromHand(p, idx)) !== false;
+      const act = POLICY.showdownAction(p);
+      if(!act) return false;
+      return (await POLICY.runAction(p, act)) !== false;
     },
     async turnAction(p, stats){
-      const P = G.players[p];
-      if(this._lastTC !== G.turnCount){ this._lastTC = G.turnCount; this._tried.clear(); }
-      if(polTier().think){
-        const beforeN = P.hand.length;
-        const act = await POLICY.searchAction(p, this._tried);
-        if(act){
-          if(act.kind === 'end') return true;
-          await act.run();
-          if(act.kind === 'play' && stats) stats.plays[act.n] = (stats.plays[act.n]||0)+1;
-          if(act.kind === 'play' && P.hand.length === beforeN) this._tried.add('h'+act.n);
-          return false;
-        }
-      }
-      const idx = POLICY.pickPlay(p, this._tried);
-      if(idx >= 0){
-        const n=P.hand[idx], before=P.hand.length;
-        if(stats) stats.plays[n]=(stats.plays[n]||0)+1;
-        const ok = await playCardFromHand(p, idx);
-        if(ok===false && P.hand.length===before) this._tried.add('h'+n);
-        return false;
-      }
-      if(P.champInZone && !this._tried.has('champ') && polCanPlay(p, card(P.champN))){
-        const ok = await playCardFromHand(p, -1, {champZone:true});
-        if(ok===false && P.champInZone) this._tried.add('champ');
-        return false;
-      }
-      if(this._movesTC !== G.turnCount){ this._movesTC=G.turnCount; this._movesLeft=polTier().moves||1; }
-      if(this._movesLeft > 0){
-        const mv = POLICY.movePlan(p);
-        if(mv){ this._movesLeft--; await moveUnits(p, mv.units, mv.dest); return false; }
-        this._movesLeft = 0;
-      }
-      return true;
+      POLICY.syncCtx(this._ctx);
+      return await POLICY.step(p, this._ctx, n => { if(stats) stats.plays[n]=(stats.plays[n]||0)+1; });
     },
   };
 }
@@ -315,7 +297,34 @@ function mkBaseline(level){
 
 const RUN = `
 const AB_A = ${JSON.stringify(AB_A)};
-const AB_B = ${BASELINE_B ? 'null' : JSON.stringify(AB_A ? AB_B_OFF : null)};
+const AB_B = ${BASELINE_B ? 'null' : JSON.stringify(AB_B_EXPLICIT || ((AB_A && !ON) ? AB_B_OFF : null))};
+// 행동 종류별 발생 횟수 — "그 기능이 애초에 발동은 하는가"를 먼저 확인하기 위한 계수기.
+// 승률이 안 움직일 때 원인이 '효과 없음'인지 '한 번도 안 걸림'인지 구분해 준다.
+const TALLY = {};
+const _runAct = POLICY.runAction;
+POLICY.runAction = function(p, act){
+  const k = act.kind + (G.state==='showdown' ? '(결전)' : '');
+  TALLY[k] = (TALLY[k]||0)+1;
+  return _runAct.call(POLICY, p, act);
+};
+// 왜 그 후보가 안 나왔는가를 보려면 '고른 것'이 아니라 '만들어진 것'을 세야 한다
+if(${has('--dbg')}){
+  const _thr = polThreatAt;
+  polThreatAt = function(p,i,extra){
+    const v = _thr(p,i,extra);
+    if(!extra){ TALLY['위협측정']=(TALLY['위협측정']||0)+1;
+      if(v>0.05) TALLY['위협>0.05']=(TALLY['위협>0.05']||0)+1;
+      if(v===-Infinity) TALLY['위협=상대병력없음']=(TALLY['위협=상대병력없음']||0)+1; }
+    return v;
+  };
+}
+// 이동은 종류별로 따로 센다 — '공격'과 '수비 보강'은 전혀 다른 판단이다
+const _movePlan = POLICY.movePlan;
+POLICY.movePlan = function(p){
+  const mv = _movePlan.call(POLICY, p);
+  if(mv && mv.why){ const k='move:'+String(mv.why).replace(/\\d+/g,'N'); TALLY[k]=(TALLY[k]||0)+1; }
+  return mv;
+};
 (async()=>{
   const legends=legendList();
   const deckPool=[];
@@ -352,12 +361,13 @@ const AB_B = ${BASELINE_B ? 'null' : JSON.stringify(AB_A ? AB_B_OFF : null)};
   const pval = played? 2*(1-normCdf(Math.abs(z))) : 1;
   console.log(JSON.stringify({
     A:${JSON.stringify(LEVEL_A)}+(AB_A?' ['+Object.keys(AB_A).filter(k=>AB_A[k]).join(',')+']':''),
-    B:${JSON.stringify(LEVEL_B)}+(${BASELINE_B}?' (baseline)':(AB_B?' [none]':'')),
+    B:${JSON.stringify(LEVEL_B)}+(${BASELINE_B}?' (baseline)':(${JSON.stringify(!!OFFB)}?' [-'+${JSON.stringify(OFFB||'')}+']':(AB_B?' [none]':''))),
     games:${N}, played, draws:stats.draws, crashes,
     winA, winB, 'A승률%':+(rate*100).toFixed(1), z:+z.toFixed(2), p:+pval.toFixed(5),
     평균턴:+(stats.turns/Math.max(1,${N})).toFixed(1),
     ms:dt, 판_초:+(${N}/(dt/1000)).toFixed(0),
     한번도_안낸카드: CARDS.filter(c=>['Unit','Spell','Gear'].includes(c.type)&&!stats.plays[c.n]).length,
+    행동_판당: Object.fromEntries(Object.entries(TALLY).map(([k,v])=>[k, +(v/${N}).toFixed(2)])),
   },null,1));
   for(const [k,v] of errs) console.log('  ERR x'+v+': '+k);
 })().catch(e=>{ console.error('HARNESS FAIL', e); process.exit(1); });

@@ -24,10 +24,10 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 | cardscripts.js (~500줄) | 파서로 안 되는 카드의 개별 스크립트 + 전용 op | SCRIPTS[n] 추가분, EXTRA_OPS (engine execOps default에서 호출) |
 | net.js / p2p.js | 서버 릴레이 / WebRTC 직결 (락스텝 동기화) | NET 객체 |
 | tutorial.js | 튜토리얼 시나리오 | TUT, tutSteps |
-| bot.js | BOT 대전(오프라인 전용). 900ms 턴 드라이버 + UI.pick* 래핑. **판단은 하지 않고 전부 POLICY에 위임** | BOT, BOT_LEVELS(5티어), botStep, botShowdown, startBotGame |
-| bot-policy.js | 봇의 모든 선택(대상·확인·수치·옵션·손패·응수·멀리건·플레이·이동·결전). **DOM 의존 0 → 브라우저와 tools/selfplay.js가 같은 파일을 씀**(사본 금지). POL_TIERS로 난이도별 능력 게이팅, ab 스위치로 기능별 분리 측정 | POLICY, polTier, polCanPlay, POL_TIERS |
-| bot-eval.js | 국면 평가(승점 단위) + 전투 임계 계산. 탐색·이동 판단의 공통 잣대 | BOT_W, evalState, evalCombat, evalAttackValue |
-| bot-sim.js | 시뮬레이션 샌드박스 — G 복제 후 엔진을 규칙 신탁으로 사용. 온라인 중 진입 금지·해시 가드. **현재 기본 티어에서는 미사용**(1수 탐색이 휴리스틱을 못 넘어 think=0) | SIM, cloneG, simTry, simBest |
+| bot.js | BOT 대전(오프라인 전용). 900ms 턴 드라이버 + UI.pick* 래핑. **판단도 진행 순서도 하지 않고 전부 POLICY.step에 위임** | BOT, BOT_LEVELS(5티어), botStep, botShowdown, startBotGame |
+| bot-policy.js | 봇의 모든 선택 + **턴 진행 순서까지**(POLICY.step/nextAction/runAction). **DOM 의존 0 → 브라우저와 tools/selfplay.js가 같은 파일을 씀**(사본 금지 — 예전엔 양쪽이 각자 순서를 들고 있어 기능 추가 때마다 어긋났다). POL_TIERS로 난이도별 능력 게이팅, ab 스위치로 기능별 분리 측정 | POLICY, POLICY.step, polTier, polCanPlay, polAbList/polAbLegal, POL_TIERS |
+| bot-eval.js | 국면 평가(승점 단위) + 전투 임계 계산. 이동·수비 판단의 공통 잣대. BOT_W에는 평가 가중치와 정책 손잡이(playCost·moveNeed·sdMargin·peek*)가 함께 있고 전부 `--w`로 스윕 가능 | BOT_W, evalState, evalCombat(extraDef), evalAttackValue |
+| bot-sim.js | 시뮬레이션 샌드박스 — G 복제 후 엔진을 규칙 신탁으로 사용. 온라인 중 진입 금지·해시 가드. **현재 모든 티어에서 미사용**(아래 '탐색' 항목 참조) | SIM, cloneG, simTry, simBest |
 | botdecks.js | 실제 대회 덱 데이터 — 메타(부스터팩)별 구조, 원본 검증. 덱 브라우저(showTourneyDecks, main.js)와 봇 상대 덱 공용 | TOURNAMENT_METAS, BOT_DECKS(파생) |
 | loc.js | 한글화 상수·아이콘 | KEYWORDS_KO, DOMAIN_*, renderIcons |
 | banlist.js | KR 밴 리스트 데이터 (글로벌 공통). **server.js의 BANNED와 함께 갱신** | BANLIST, isBanned, deckBannedCards |
@@ -46,7 +46,9 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 
 ## 실행 (참고 — 요청 시에만)
 
-- **봇 검증**: `node tools/selfplay.js -n 600 --baseline` (옛 봇 대비 개선폭) · `-a expert -b skilled` (티어 대결) · `--only/--off` (기능별 분리 측정) · `--diag` (후보 평가값). 동일 정책끼리 붙이면 50.0%가 나와야 정상(편향 점검).
+- **봇 검증**: `node tools/selfplay.js -n 600 --baseline` (옛 봇 대비) · `-a expert -b skilled` (티어 대결) · **`--offb k1,k2` (B에서만 그 기능을 끔 = 한계 기여도, 새 기능 검증은 이쪽)** · `--only/--off` (옛 봇 대비 절대 기여도) · `--on k` (기본이 꺼진 기능 재측정) · `--w key=val` (BOT_W 스윕) · `--dbg`/`--diag`. 출력의 `행동_판당`으로 "그 기능이 애초에 발동은 하는가"를 먼저 확인할 것 — 승률이 안 움직일 때 원인이 '효과 없음'인지 '한 번도 안 걸림'인지 구분된다. 동일 정책끼리 붙이면 50.0%가 나와야 정상(편향 점검).
+- **봇 실측 기록 (2026-08, 각 1200~3000판)**: 활성화 능력 +3.1%p · 챔피언 우선순위 +4.2%p · 배치 규칙 +1.5%p(유의 아님) · [숨겨짐]·결전 자금조달·최종점수규칙·수비보강 = 중립(발동 빈도 자체가 낮음, 다만 규칙상 옳아 유지) · **reserve −4.1%p, option −1.9%p, 값싼 카드 우선(playCost↑) −8%p → 켜지 말 것**.
+- **탐색은 두 번 실패했다**: 1수 탐색(45~50%) → 2수(36.7%) → 능력·[숨겨짐]까지 후보에 넣은 재시도(48.5%, 속도 1/3.4). 원인은 후보 열거가 아니라 평가 함수로 보인다. 다시 시도한다면 SPSA 등으로 BOT_W를 먼저 자동 튜닝할 것. 지금은 모든 티어 `think:0`.
 - 클라 개발 실행: `cd client && npm start` / 웹 확인: `npx http-server client/web -p 8777`
 - 서버: `cd server && node server.js`
 - 빌드: 클라 `npm run dist`, 서버 `node build-dist.js --exe`

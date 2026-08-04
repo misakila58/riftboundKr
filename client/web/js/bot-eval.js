@@ -26,6 +26,13 @@ const BOT_W = {
   champReady:   0.25,   // 챔피언 존에 남아 있음
   legendReady:  0.15,   // 전설 능력 사용 가능
   nearWinBonus: 0.60,   // 승리 사거리 진입 가산
+  // ── 행동 선택 계수 (평가 함수가 아니라 정책의 손잡이 — 셀프플레이 스윕으로 정한다) ──
+  playCost:     1.00,   // 손패 우선순위에서 비용을 얼마나 깎을지 (크면 값싼 카드 우선)
+  moveNeed:     0.02,   // 이 값보다 이득이 커야 이동한다 (크면 소극적)
+  finalRule:    1,      // 최종 점수 제한을 계산에 넣는가 (0이면 옛 동작 — 분리 측정용)
+  sdMargin:     2,      // 결전에서 이 차이 이상 앞서면 트릭을 아낀다
+  peekTrick:    0.25,   // (열람 티어) 상대 트릭 1장당 공격 기준을 얼마나 높일지
+  peekBold:    -0.12,   // (열람 티어) 상대에게 트릭이 없을 때 공격 기준을 얼마나 낮출지
 };
 
 // 남은 턴 수 추정 — 승리까지 몇 번 더 개시를 맞이하는가.
@@ -104,10 +111,13 @@ function evalState(G_, p){
 //  · 양측 위력 합을 비교하고, 각 유닛의 치사량(위력-이미받은피해)으로 처치 수를 센다.
 //  · 양측이 전멸하면 남는 유닛이 없어 통제 확립이 일어나지 않는다 → 정복 0점.
 //  · 방어측이 남으면 공격 유닛은 기지로 귀환한다.
-function evalCombat(p, bfIdx, units){
+// extraDef: 아직 그 전장에 없지만 '보낸다면' 방어에 합류할 유닛들.
+// 수비 보강의 값을 매기려면 "보강한 뒤에도 상대가 이길까"를 물어야 하는데,
+// G를 실제로 건드리지 않고 물어보려면 이 인자가 필요하다.
+function evalCombat(p, bfIdx, units, extraDef){
   const bf = G.bfs[bfIdx];
   const o = opp(p);
-  const def = bf.units.filter(u=>u.ctrl===o);
+  const def = bf.units.filter(u=>u.ctrl===o).concat(extraDef||[]);
   const atk = units;
   const atkM = atk.reduce((s,u)=>s+might(u,'attacker'),0);
   const defM = def.reduce((s,u)=>s+might(u,'defender'),0);
@@ -130,14 +140,22 @@ function evalCombat(p, bfIdx, units){
   else                  result = 'mutual';      // 양측 전멸 — 아무도 통제하지 못함, 득점 없음
 
   // 이번 턴 이미 득점한 전장이면 정복해도 점수는 없다 (통제 자체는 여전히 가치가 있다)
-  const scoresPoint = (result === 'conquer') && !bf.scored[p];
+  let scoresPoint = (result === 'conquer') && !bf.scored[p];
+  // 최종 점수 제한(공식 RUP4, engine addPoints 231행): 승리까지 1점 남은 뒤의 정복은
+  // '이번 턴 모든 전장을 득점'했을 때만 점수가 된다 — 아니면 카드 1장으로 대체된다.
+  // 이걸 모르면 봇이 마지막 1점을 유령 점수로 착각하고 헛공격에 병력을 태운다.
+  if(scoresPoint && typeof BOT_W.finalRule !== 'undefined' && BOT_W.finalRule){
+    const P = G.players[p];
+    if(P.points >= G.victory - 1)
+      scoresPoint = G.bfs.every((b, i) => i === bfIdx || P.scoredBf[i]);
+  }
   return { result, atkM, defM, defKilled, atkKilled, defLeft, atkLeft, scoresPoint,
            lostMight: atk.filter((u,i)=>i<atkKilled).reduce((s,u)=>s+might(u),0) };
 }
 
 // 공격 후보의 가치 — 얻는 것(정복·통제·처치) 대비 잃는 것(내 유닛)
-function evalAttackValue(p, bfIdx, units){
-  const c = evalCombat(p, bfIdx, units);
+function evalAttackValue(p, bfIdx, units, extraDef){
+  const c = evalCombat(p, bfIdx, units, extraDef);
   const bf = G.bfs[bfIdx];
   let v = 0;
   if(c.result === 'conquer'){
@@ -149,7 +167,7 @@ function evalAttackValue(p, bfIdx, units){
     v -= 0.05;                                                // 상호 전멸 — 득점 없음
   }
   // 교환 손익 (내 잃은 위력 vs 상대 잃은 위력)
-  const defLost = bf.units.filter(u=>u.ctrl!==p)
+  const defLost = bf.units.filter(u=>u.ctrl!==p).concat(extraDef||[])
     .slice(0, c.defKilled).reduce((s,u)=>s+might(u),0);
   v += (defLost * BOT_W.unitBf) - (c.lostMight * BOT_W.unitBf);
   return v;
