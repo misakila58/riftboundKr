@@ -628,7 +628,7 @@ function onHandClick(p, idx, e){
   play.onclick=()=>{
     hideMenu();
     NET.dispatch({k:'play',p,handIdx:idx,opts:{}},
-      ()=>playCardFromHand(p,idx).then(ok=>{ if(ok&&G.state==='showdown') showdownActed(); }));
+      ()=>playCardFromHand(p,idx));   // 결전 중 우선권 전환은 playCardFromHand 안에서 처리
   };
   menu.appendChild(play);
   if(fx.kw.hidden){

@@ -145,8 +145,7 @@ async function botCombatTrick(p){
   if(idx<0) return false;
   const ok=await playCardFromHand(p, idx);
   if(ok===false) return false;
-  showdownActed();                       // 사람 플레이 경로(ui.js)와 동일: 패스 카운터 리셋 + 우선권 전환
-  return true;
+  return true;                           // 패스 카운터 리셋·우선권 전환은 playCardFromHand 안에서 처리
 }
 
 async function botStep(){

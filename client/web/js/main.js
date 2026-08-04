@@ -903,9 +903,11 @@ const RM = {
     RM.decks[a.p]=a.deck;
     if(a.p!==NET.seat && !RM.decks[NET.seat]){
       const ov=document.getElementById('modal-overlay');
-      // 선택 대기 모달(비정보성)이 떠 있으면 덮지 않고 안내만 — ESC 메뉴에서 수락 가능
-      if(ov.style.display!=='none' && !ov.dataset.dismiss)
-        UI.toast('상대가 재대결을 요청했습니다 — ESC 메뉴에서 수락할 수 있습니다','warn');
+      const blocking = ov.style.display!=='none' && !ov.dataset.dismiss
+                       && !document.querySelector('.victory-box');   // 승리 창은 덮어도 안전(경기 종료)
+      // 한 명씩 고르는 흐름: 요청을 받으면 내 덱 선택 창을 바로 띄운다.
+      // 정말로 진행 중인 선택이 있을 때만 미루고 안내한다.
+      if(blocking) UI.toast('상대가 재대결을 요청했습니다 — ESC 메뉴에서 수락할 수 있습니다','warn');
       else RM.openPick(true);
     }
     RM._tryStart();
@@ -921,13 +923,17 @@ const RM = {
   _tryStart(){
     if(RM.decks[0] && RM.decks[1] && NET.seat===0){
       const seed=crypto.getRandomValues(new Uint32Array(1))[0];
-      NET.sendAction({k:'rematchGo', p:0, seed});
+      // 덱을 시작 신호에 같이 실어 보낸다 — 양쪽이 각자 기억한 덱이 아니라 이 값을 쓰므로
+      // 한쪽 덱만 예전 것으로 시작되는 어긋남이 생기지 않는다.
+      NET.sendAction({k:'rematchGo', p:0, seed, decks:[RM.decks[0], RM.decks[1]]});
     }
   },
   onGo(a){
-    const ls=NET.lastStart; if(!ls || !RM.decks[0] || !RM.decks[1]) return;
+    const ls=NET.lastStart; if(!ls) return;
+    const decks = (a.decks && a.decks[0] && a.decks[1]) ? a.decks : RM.decks;  // 신호에 실린 덱이 우선
+    if(!decks[0] || !decks[1]) return;
     const m={ t:'start', seed:a.seed, yourSeat:NET.seat, manual:ls.manual, banRule:ls.banRule,
-      players:[ {id:ls.players[0].id, deck:RM.decks[0]}, {id:ls.players[1].id, deck:RM.decks[1]} ] };
+      players:[ {id:ls.players[0].id, deck:decks[0]}, {id:ls.players[1].id, deck:decks[1]} ] };
     RM.reset();
     const ov=document.getElementById('modal-overlay'); if(ov.style.display!=='none') closeModal();
     UI.log('🔄 재대결 시작!', 'sys');
@@ -953,6 +959,25 @@ function gameLeave(){
     location.reload();
   }
 }
+// 항복 — 온라인은 내 좌석, 봇전은 사람 좌석, 핫시트는 현재 턴 플레이어가 항복한다
+function confirmSurrender(){
+  if(!G || G.winner!==null){ UI.toast('이미 끝난 경기입니다','warn'); return; }
+  const me = NET.online ? NET.seat
+           : (typeof BOT!=='undefined' && BOT.active) ? opp(BOT.seat ?? 1)
+           : G.turn;
+  const box=document.getElementById('modal-box');
+  box.innerHTML='<h3>🏳 항복</h3>';
+  const t=document.createElement('div');
+  t.style.cssText='font-size:14px;line-height:1.7;margin-bottom:6px';
+  t.textContent=`${pname(me)}이(가) 항복하고 ${pname(opp(me))}의 승리로 경기를 끝냅니다. 계속할까요?`;
+  box.appendChild(t);
+  const btns=document.createElement('div'); btns.className='modal-btns';
+  const y=document.createElement('button'); y.className='primary'; y.textContent='항복하기';
+  y.onclick=()=>{ closeModal(); NET.dispatch({k:'surrender', p:me}, ()=>surrender(me)); };
+  const n=document.createElement('button'); n.textContent='취소'; n.onclick=closeModal;
+  btns.appendChild(y); btns.appendChild(n); box.appendChild(btns);
+  openModal(); markModalDismissable();
+}
 function openSystemMenu(){
   const box=document.getElementById('modal-box');
   const isBot=(typeof BOT!=='undefined' && BOT.active && !NET.online);
@@ -971,6 +996,7 @@ function openSystemMenu(){
     add('🔄 다시 하기 (핫시트 새 게임)', ()=>{ closeModal(); startHotseat(); }, true);
     add('🚪 처음 화면으로', ()=>location.reload());
   }
+  if(G && G.winner===null) add('🏳 항복하기 (서렌)', ()=>{ closeModal(); confirmSurrender(); });
   add('🎬 리플레이 저장 (지금까지)', ()=>{ closeModal(); REPLAY.saveNow(); });
   add(UI.fx.on?'✨ 이펙트 끄기':'✨ 이펙트 켜기', ()=>{ UI.fx.setOn(!UI.fx.on); closeModal();
     UI.toast(UI.fx.on?'이펙트를 켰습니다':'이펙트를 껐습니다'); });

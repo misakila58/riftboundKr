@@ -180,20 +180,30 @@ button { cursor:pointer; font-family:inherit; }
 .player-area { flex:1; display:flex; gap:8px; min-height:0; }
 .player-area.top { flex-direction:row; }
 .player-area.bottom { flex-direction:row; }
+/* 가로 배분: 기지는 필요한 만큼만 쓰고(상한 있음), 남는 폭은 손패가 가져간다.
+   기지는 보통 몇 기만 두는데 예전엔 flex:1이라 넓은 화면에서 빈 공간을 다 차지했다. */
 .side-zone {
-  flex:0 0 248px; display:flex; flex-wrap:wrap; gap:4px; align-content:flex-start;
+  flex:0 0 400px; display:flex; flex-wrap:wrap; gap:4px; align-content:flex-start;
   padding:8px; background:rgba(24,34,56,.75); border-radius:10px;
+  min-height:0; overflow-y:auto;   /* 룬이 많아도 보드 전체를 밀어내지 않게 */
+}
+/* 넓은 화면에서는 전설·챔피언 카드를 크게 보여준다 (칸이 넓어진 만큼 실제로 활용) */
+@media (min-width:1500px){
+  .legend-slot .card-mini, .champ-slot .card-mini { width:112px; height:157px; }
+  .legend-slot .card-mini .cm-name, .champ-slot .card-mini .cm-name { font-size:10px; }
 }
 .base-zone {
-  flex:1; border-radius:10px; padding:8px 10px;
+  flex:1 2 220px; max-width:360px; border-radius:10px; padding:8px 10px;
   background:rgba(24,34,56,.75);
   display:flex; flex-wrap:wrap; gap:4px; align-content:flex-start; position:relative;
   min-height:0; overflow-y:auto;
 }
 .zone-label { position:absolute; top:4px; right:10px; font-size:11px; color:#7a8ab0; pointer-events:none; font-weight:bold; }
+/* 손패는 가로 스크롤 대신 줄바꿈 — 세로 여백이 남으므로 손패가 많아도 한눈에 다 보인다 */
 .hand-zone {
-  flex:0 0 auto; max-width:36%; display:flex; gap:3px; align-items:center;
-  overflow-x:auto; padding:8px; background:rgba(24,34,56,.75); border-radius:10px;
+  flex:2 1 340px; max-width:none; min-width:0; display:flex; gap:3px;
+  flex-wrap:wrap; align-items:center; align-content:center;
+  overflow-x:hidden; overflow-y:auto; padding:8px; background:rgba(24,34,56,.75); border-radius:10px;
 }
 .hand-zone.opp .card-mini { filter:grayscale(0.2); }
 
@@ -273,7 +283,7 @@ button { cursor:pointer; font-family:inherit; }
 
 /* 룬 */
 .rune-mini {
-  width:34px; height:48px; border-radius:4px; border:2px solid #556; font-size:16px;
+  width:40px; height:56px; border-radius:4px; border:2px solid #556; font-size:16px;
   display:flex; align-items:center; justify-content:center; cursor:pointer; flex:0 0 auto;
   background:#1a2238;
 }
@@ -546,6 +556,9 @@ body.modal-open #inspector {
 .log-card { color:#d8c27a; text-decoration:underline dotted; cursor:help; }
 .log-card:hover { color:#ffe6a0; }
 
+/* 폭이 넉넉하지 않은 데스크톱 창에서는 사이드(전설·룬·더미) 칸을 조금 줄여 손패에 양보 */
+@media (max-width:1500px){ .side-zone{ flex-basis:248px; } }
+
 /* ══════════ 모바일 반응형 (세로 화면) ══════════ */
 @media (max-width:820px){
   #turn-panel{ font-size:12px; padding:6px 8px; }
@@ -554,7 +567,9 @@ body.modal-open #inspector {
   .side-zone{ flex-basis:104px; padding:4px; gap:3px; }
   #battlefields{ flex:0 0 auto; gap:6px; }
   .battlefield{ padding:4px; }
-  .hand-zone{ max-width:100%; padding:5px; }
+  /* 좁은 화면에서는 예전 배분(기지가 남는 폭을 차지)이 더 낫다 — 데스크톱 전용 배분을 되돌린다 */
+  .base-zone{ flex:1 1 auto; max-width:none; }
+  .hand-zone{ flex:0 0 auto; max-width:100%; padding:5px; }
   .card-mini{ width:58px; height:82px; }
   .rune-mini{ width:26px; height:36px; font-size:13px; }
   #log{ font-size:11px; }
@@ -620,8 +635,9 @@ body.modal-open #inspector {
   /* ── 보드: 상대/전장/나 3행이 항상 모두 보이게 비례 축소 ── */
   .player-area{ flex:1 1 0; min-height:0; gap:3px; }
   .side-zone{ flex:0 0 150px; padding:3px; gap:2px; overflow-y:auto; }
-  .base-zone{ padding:3px 4px; gap:2px; }
-  .hand-zone{ max-width:42%; padding:3px; gap:2px; }
+  .base-zone{ flex:1 1 auto; max-width:none; padding:3px 4px; gap:2px; }
+  /* 모바일 가로는 높이가 빠듯해 줄바꿈 대신 기존처럼 가로 스크롤 유지 */
+  .hand-zone{ flex:0 0 auto; max-width:42%; padding:3px; gap:2px; flex-wrap:nowrap; overflow-x:auto; }
   .zone-label{ font-size:8px; top:2px; right:5px; }
   .card-mini{ width:40px; height:56px; border-width:1px; }
   .cm-name{ font-size:6px; }

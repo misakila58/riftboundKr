@@ -245,6 +245,15 @@ function addPoints(p, n, method, bfIdx){
 function checkWin(){
   G.players.forEach(P=>{ if(P.points>=G.victory && G.winner===null){ G.winner=P.idx; UI.showVictory(P.idx); } });
 }
+// 항복 — 남은 쪽이 즉시 승리 (온라인은 액션으로 양측에 동일하게 적용된다)
+function surrender(p){
+  if(!G || G.winner!==null) return;
+  const w=opp(p);
+  G.winner=w;
+  UI.log(`🏳 ${pname(p)} 항복 — ${pname(w)} 승리!`, 'score');
+  UI.render();
+  UI.showVictory(w);
+}
 
 // ---------- 자원(룬) ----------
 function readyRunes(p){ return G.players[p].runes.filter(r=>!r.ex); }
@@ -292,10 +301,30 @@ function canPay(p, energy, pips){
 // 순서 중요: ① 에너지(준비 룬 탈진) → ② 힘(탈진 룬 우선 재활용 — 방금 에너지에 쓴 룬 포함)
 function payCost(p, energy, pips, silent){
   const P=G.players[p];
-  // ① 에너지: 풀 → 준비 룬 탈진
+  // 힘 핍 중 풀로 못 내서 룬을 재활용해야 하는 영역을 미리 뽑는다.
+  const peek={...P.power};
+  const runeDoms=[];
+  for(const pip of pips){
+    if(pip!=='Any' && peek[pip]>0){ peek[pip]--; continue; }
+    if(pip==='Any'){ const d=Object.keys(peek).find(d=>peek[d]>0); if(d){ peek[d]--; continue; } }
+    else if(peek.Any>0){ peek.Any--; continue; }
+    runeDoms.push(pip);
+  }
+  // ① 에너지: 풀 → 준비 룬 탈진.
+  //    이때 곧 힘으로 재활용될 영역의 룬을 먼저 탈진시킨다. 같은 룬이 에너지와 힘을 모두 내주므로
+  //    엉뚱한 룬이 탈진된 채 남는 낭비를 막는다. (앞에서부터 무조건 쓰던 동작을 개선)
   let need = energy;
   const useE = Math.min(P.energy, need); P.energy-=useE; need-=useE;
-  for(const r of P.runes){ if(need<=0) break; if(!r.ex){ r.ex=true; need--; } }
+  if(need>0){
+    const ready = P.runes.filter(r=>!r.ex);
+    const order = [];
+    for(const dom of runeDoms){
+      const r = ready.find(r=>!order.includes(r) && (dom==='Any' || runeDomain(r.n)===dom));
+      if(r) order.push(r);
+    }
+    for(const r of ready) if(!order.includes(r)) order.push(r);   // 남는 건 기존 순서대로
+    for(const r of order){ if(need<=0) break; r.ex=true; need--; }
+  }
   // ② 힘 핍: 풀 → 탈진 룬 재활용(룬 덱 반환) → 준비 룬 재활용
   const recycled=[];
   for(const pip of pips){
@@ -330,20 +359,33 @@ function powerPips(c){
 // ---------- 멀리건 (공식 룰: 종합 규칙 110-118) ----------
 // 턴 순서대로: 손패에서 최대 2장을 따로 빼두고 → 그 수만큼 드로우 → 빼둔 카드를 덱 맨 아래로 재활용.
 async function mulliganPhase(){
-  for(const p of [0,1]){
-    const P=G.players[p];
-    if(!P.hand.length) continue;
-    const idxs = await UI.pickMulligan(p);
-    if(idxs && idxs.length){
-      const back=[];
-      [...idxs].slice(0,2).sort((a,b)=>b-a).forEach(i=>{ const n=P.hand.splice(i,1)[0]; if(n!==undefined) back.push(n); });
-      for(let i=0;i<back.length;i++) drawCard(p, true);  // 먼저 뽑고
-      P.deck.push(...back);                              // 빼둔 카드는 덱 맨 아래로 (섞지 않음)
-      UI.log(`${pname(p)} 멀리건: ${back.length}장 교체 (덱 아래로 재활용)`, 'sys');
-    } else {
-      UI.log(`${pname(p)} 멀리건 없이 시작`, 'sys');
-    }
+  // 온라인: 양쪽이 동시에 고른다 (상대가 끝날 때까지 기다리지 않게).
+  // 적용은 결과가 도착한 순서와 무관하게 항상 0번 → 1번 순으로 해서 양쪽 상태를 같게 유지한다.
+  if(NET.online){
+    const picks = await Promise.all([0,1].map(p=>
+      G.players[p].hand.length ? UI.pickMulligan(p) : Promise.resolve(null)));
+    for(const p of [0,1]) applyMulligan(p, picks[p]);
     UI.render();
+    return;
+  }
+  // 핫시트/봇: 한 화면을 번갈아 쓰므로 순서대로
+  for(const p of [0,1]){
+    if(!G.players[p].hand.length) continue;
+    applyMulligan(p, await UI.pickMulligan(p));
+    UI.render();
+  }
+}
+function applyMulligan(p, idxs){
+  const P=G.players[p];
+  if(!P.hand.length) return;
+  if(idxs && idxs.length){
+    const back=[];
+    [...idxs].slice(0,2).sort((a,b)=>b-a).forEach(i=>{ const n=P.hand.splice(i,1)[0]; if(n!==undefined) back.push(n); });
+    for(let i=0;i<back.length;i++) drawCard(p, true);  // 먼저 뽑고
+    P.deck.push(...back);                              // 빼둔 카드는 덱 맨 아래로 (섞지 않음)
+    UI.log(`${pname(p)} 멀리건: ${back.length}장 교체 (덱 아래로 재활용)`, 'sys');
+  } else {
+    UI.log(`${pname(p)} 멀리건 없이 시작`, 'sys');
   }
 }
 
@@ -351,7 +393,11 @@ async function mulliganPhase(){
 async function startTurn(){
   const p = G.turn, P = G.players[p];
   G.turnCount++;
-  P.playedCards=0; P.scoredBf={};
+  // '이번 턴에 플레이한 카드 수'는 턴이 바뀌면 양쪽 모두 0으로 돌아간다.
+  // 예전엔 턴 주인만 초기화해서, 상대 턴(결전 등)에 낸 카드가 내 지난 턴 수치에 이어 세어졌다.
+  // → 「다리우스 - 삼두정」의 '한 턴에 두 번째 카드' 조건이나 [군단] 판정이 어긋났다.
+  G.players.forEach(pl=>{ pl.playedCards=0; });
+  P.scoredBf={};
   G.bfs.forEach(bf=>bf.scored={});
   G.tflags=freshTF();
   everyUnit().forEach(u=>{ u.turnMoves=0; u._armory=false; });
@@ -511,6 +557,7 @@ async function playCardFromHand(p, handIdx, opts={}){
   const n = opts.champZone ? P.champN : P.hand[handIdx];
   const c = card(n);
   const fx = FX[n]||{kw:{},triggers:{},activated:[],manual:[],playOps:[]};
+  const sdAtStart = G.showdown;   // 이 카드로 결전이 새로 열린 경우와 구분하기 위해 시작 시점을 기억
 
   const restr = playRestriction(c,p);
   if(restr){ UI.toast(restr,'warn'); return false; }
@@ -540,6 +587,7 @@ async function playCardFromHand(p, handIdx, opts={}){
     const txt=(c.tko||c.text||'').trim();
     if(txt) UI.log(`↳ 효과(직접 처리): ${txt}`, 'sys');
     UI.render();
+    if(sdAtStart && G.showdown===sdAtStart) showdownActed();   // 수동 모드도 우선권을 상대에게
     return true;
   }
 
@@ -705,6 +753,7 @@ async function playCardFromHand(p, handIdx, opts={}){
       if(opts.fromHidden) await fireEvent('onPlayFromHidden', evctx);
       await cleanup(p);
       UI.render();
+      showdownActed();       // 규칙 339: 행동했으므로 패스 카운터 리셋 + 우선권을 상대에게
       return true;
     }
     // ── 중립 상태: 기존 즉시 해결 + 대응 창 ──
@@ -736,6 +785,9 @@ async function playCardFromHand(p, handIdx, opts={}){
 
   await cleanup(p);
   UI.render();
+  // 결전 중이던 카드 플레이는 우선권을 상대에게 넘긴다.
+  // (호출자마다 따로 하면 온라인 에코 경로에서 빠지므로 여기서 일괄 처리)
+  if(sdAtStart && G.showdown===sdAtStart) showdownActed();
   return true;
 }
 
