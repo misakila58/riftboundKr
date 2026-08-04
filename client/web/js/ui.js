@@ -99,6 +99,7 @@ function _pickUnitLocal(p, candidates, promptText, optional){
   return new Promise(res=>{
     if(!candidates.length){ res(null); return; }
     _resolver=res;
+    hideMenu();                                        // 대상 선택 중에는 선택 메뉴가 보드를 가리지 않게
     _pickableUids = new Set(candidates.map(u=>u.uid));
     UI.render();
     const pa=document.getElementById('prompt-area');
@@ -213,6 +214,7 @@ function openModal(){
   const ov=document.getElementById('modal-overlay');
   ov.style.display='flex'; delete ov.dataset.dismiss;   // 기본: 닫기 불가(선택 대기 모달 보호)
   document.body.classList.add('modal-open');
+  hideMenu();                                          // 열려 있던 선택 메뉴가 모달 위에 남지 않게
 }
 function closeModal(){ document.getElementById('modal-overlay').style.display='none'; document.body.classList.remove('modal-open'); }
 // 정보성 모달(도움말/밴 리스트/대회 덱 등): 모바일 뒤로 가기로 닫아도 안전함을 표시
@@ -563,14 +565,21 @@ function showUnitMenu(u, e){
     const none=document.createElement('div'); none.className='ctx-title'; none.textContent='(사용할 수 있는 능력 없음)';
     menu.appendChild(none);
   }
-  menu.style.display='block';
-  menu.style.left=Math.min(e.clientX, innerWidth-190)+'px';
-  menu.style.top=Math.min(e.clientY, innerHeight-menu.offsetHeight-10)+'px';
+  openMenuAt(menu, e);
 }
 function hideMenu(){ document.getElementById('ctx-menu').style.display='none'; }
-document.addEventListener('click', e=>{
-  if(!e.target.closest('#ctx-menu')) hideMenu();
-});
+// 선택 메뉴 표시 — 모달과 같은 정책: 바깥을 클릭해도 닫히지 않는다(선택을 잃지 않게).
+// 닫는 방법은 [✖ 닫기] · Esc · 모바일 뒤로 가기, 또는 다른 카드를 눌러 메뉴를 바꾸는 것.
+function openMenuAt(menu, e){
+  const close=document.createElement('div');
+  close.className='ctx-item ctx-close'; close.textContent='✖ 닫기';
+  close.onclick=hideMenu;
+  menu.appendChild(close);
+  menu.style.display='block';
+  const x=(e&&e.clientX)||0, y=(e&&e.clientY)||0;
+  menu.style.left=Math.max(4, Math.min(x, innerWidth-menu.offsetWidth-6))+'px';
+  menu.style.top =Math.max(4, Math.min(y, innerHeight-menu.offsetHeight-6))+'px';
+}
 
 // ---------- 손패 클릭 ----------
 // 온라인: 내 좌석의 행동만 개시 가능
@@ -612,9 +621,7 @@ function onHandClick(p, idx, e){
   const disc=document.createElement('div'); disc.className='ctx-item'; disc.textContent='🗑 버리기(수동)';
   disc.onclick=()=>{ hideMenu(); NET.dispatch({k:'manual',tool:'discardIdx',args:[p,idx]}, ()=>{ discardFromHand(p,idx); UI.render(); }); };
   menu.appendChild(disc);
-  menu.style.display='block';
-  menu.style.left=Math.min(e.clientX, innerWidth-190)+'px';
-  menu.style.top=Math.min(e.clientY-10, innerHeight-200)+'px';
+  openMenuAt(menu, e);
 }
 
 // ---------- 렌더링 ----------
@@ -701,8 +708,7 @@ UI.render = function(){
           NET.dispatch({k:'play',p,handIdx:-1,opts:{champZone:true}},
             ()=>playCardFromHand(p,-1,{champZone:true})); };
         menu.appendChild(play);
-        menu.style.display='block';
-        menu.style.left=e.clientX+'px'; menu.style.top=e.clientY+'px';
+        openMenuAt(menu, e);
       };
       cslot.appendChild(cel);
     }
@@ -820,6 +826,7 @@ function updateButtons(){
 
 // 이동 실행
 async function executeMove(dest){
+  hideMenu();
   const units=everyUnit().filter(u=>_moveSel.has(u.uid));
   const uids=units.map(u=>u.uid);
   const p=G.actingPlayer;
@@ -855,9 +862,7 @@ function showLegendMenu(p, e){
     const none=document.createElement('div'); none.className='ctx-title'; none.textContent='(상시/트리거 효과 — 자동 처리)';
     menu.appendChild(none);
   }
-  menu.style.display='block';
-  menu.style.left=Math.min(e.clientX,innerWidth-190)+'px';
-  menu.style.top=Math.min(e.clientY,innerHeight-180)+'px';
+  openMenuAt(menu, e);
 }
 
 // ---------- 도구 메뉴 ----------
@@ -887,9 +892,7 @@ function showGearMenu(p, g, e){
       NET.dispatch({k:'equip',p,gearIdx}, ()=>equipGear(p,gearIdx)); };
     menu.appendChild(item);
   }
-  menu.style.display='block';
-  menu.style.left=Math.min(e.clientX,innerWidth-190)+'px';
-  menu.style.top=Math.min(e.clientY,innerHeight-180)+'px';
+  openMenuAt(menu, e);
 }
 
 // ---------- 승리 ----------
@@ -963,6 +966,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
       빈 체인에서 양측이 패스하면 전투가 벌어집니다.<br>
     · <b>전투</b>: 양측 위력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 기지 귀환.<br>
     · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동.<br>
+    · <b>선택 창·선택 메뉴는 바깥을 클릭해도 닫히지 않습니다</b> (실수로 선택을 잃지 않도록). 닫으려면 메뉴의 <b>[✖ 닫기]</b>나 <b>Esc</b>를 쓰세요.<br>
     · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>우클릭</b>, <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 바깥 클릭/Esc). 유닛은 우클릭이 능력 메뉴라 꾹 누르기/Alt+클릭.<br>
     · 자동화가 안 되는 효과는 ⚙️ 알림이 뜹니다.<br>
     · <b>밴 리스트</b>: 덱 관리/덱 편집 화면의 [🚫 밴 리스트] 버튼에서 확인. 온라인 방·P2P에서 <b>양쪽 모두 '밴 적용'을 선택</b>하면 밴 카드 포함 덱은 사용할 수 없습니다.<br>
