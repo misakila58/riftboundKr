@@ -61,6 +61,15 @@ UI.confirmP = function(p, text, previewCard){
   if(botIs(p)) return botDelay(true);
   return _bot_confirm.apply(UI, arguments);
 };
+// 중립 응수 창: 카운터/탈취는 사용(보통·어려움 — 기존 카운터 확인 '예'와 동일한 적극성), 일반 반응은 아낀다
+const _bot_pickReaction = UI.pickReaction;
+UI.pickReaction = function(p, title, options){
+  if(botIs(p)){
+    const counter = botSmart() && options.find(o=>o.isCounter);
+    return botDelay(counter ? counter.v : null);
+  }
+  return _bot_pickReaction.apply(UI, arguments);
+};
 const _bot_pickNumber = UI.pickNumber;
 UI.pickNumber = function(p, text, min, max){
   if(botIs(p)) return botDelay(max);

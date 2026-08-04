@@ -1,7 +1,7 @@
 // ══════════ UI: 렌더링 & 상호작용 ══════════
 const UI = {};
 // 연출은 fx.js가 채운다. 로드 전이나 로드 실패에도 게임이 멈추지 않도록 빈 구현을 먼저 둔다.
-UI.fx = { on:false, unit(){}, cast(){}, turnEnd(){}, priority(){}, score(){}, check(){}, setOn(){} };
+UI.fx = { on:false, unit(){}, cast(){}, chainAdd(){}, turnEnd(){}, priority(){}, score(){}, check(){}, setOn(){} };
 
 // ---------- 로그/토스트 ----------
 // 「카드명」 → 카드 매핑 (로그 호버 인스펙트용)
@@ -126,7 +126,7 @@ UI.pickOption = function(p, title, options){
   ).then(idx=>idx===null?null:options[idx].v);
 };
 // 눈에 잘 띄도록 중앙 모달로 표시한다 (배치 위치 선택 등을 사용자가 놓치지 않게)
-function _pickOptionLocal(p, title, options){
+function _pickOptionLocal(p, title, options, cancelLabel){
   return new Promise(res=>{
     const box=document.getElementById('modal-box');
     box.innerHTML=`<h3>👉 ${esc(pname(p))}: ${esc(title)}</h3>`;
@@ -136,7 +136,7 @@ function _pickOptionLocal(p, title, options){
       b.onclick=()=>{ closeModal(); res(i); };
       btns.appendChild(b);
     });
-    const cancel=document.createElement('button'); cancel.textContent='취소';
+    const cancel=document.createElement('button'); cancel.textContent=cancelLabel||'취소';
     cancel.style.opacity=.6;
     cancel.onclick=()=>{ closeModal(); res(null); };
     btns.appendChild(cancel);
@@ -144,6 +144,14 @@ function _pickOptionLocal(p, title, options){
     openModal();
   });
 }
+
+// 중립 응수 창 전용 선택 (pickOption과 동일 계약 — 봇이 별도 정책을 적용할 수 있게 이름 분리)
+UI.pickReaction = function(p, title, options){
+  return routedPick(p,
+    ()=>_pickOptionLocal(p,title,options,'응수 안 함'),
+    v=>v, v=>v
+  ).then(idx=>idx===null?null:options[idx].v);
+};
 
 // 확인 (예/아니오)
 UI.confirmP = function(p, text, previewCard){

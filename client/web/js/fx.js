@@ -57,6 +57,23 @@ UI.fx.cast = function(c, p, label){
   fxAdd(box, 1100);
 };
 
+// ── 체인 적재: 누구의 카드/능력이 쌓였는지 2초간 표시 ──
+UI.fx.chainAdd = function(c, p, num){
+  if(!UI.fx.on || !c) return;
+  const box = document.createElement('div');
+  box.className = 'fx-cast fx-chain fx-cast-p' + (p === 1 ? 1 : 0);
+  if(c.img){
+    const im = document.createElement('img');
+    im.src = cardImgUrl(c.img, 280);
+    box.appendChild(im);
+  }
+  const cap = document.createElement('div');
+  cap.className = 'fx-cast-cap';
+  cap.textContent = `🔗 체인 #${num} — ${pname(p)}: ${c.ko || c.name || ''}`;
+  box.appendChild(cap);
+  fxAdd(box, 2000);
+};
+
 // ── 턴 종료: 화면을 가로지르는 띠 ──
 UI.fx.turnEnd = function(p){
   if(!UI.fx.on) return;

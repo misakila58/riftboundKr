@@ -17,7 +17,7 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 
 | 파일 | 역할 | 핵심 함수/상수 |
 |---|---|---|
-| engine.js (~1700줄) | 게임 규칙·상태(G). UI 없음. 결전 중 카드/능력은 체인(LIFO, 규칙 337~348)에 적재 후 양측 패스 시 하나씩 해결(사이마다 [반응] 응수 가능) | newGame, might(상시효과 포함), TF(턴 플래그), collectStatics, dealDamage, fireEvent, counterWindow(중립 전용), showdownPass/resolveChainItem(체인), resolveSpellEffects, killUnit(치환효과), execOps, releaseEmptyBattlefields |
+| engine.js (~1900줄) | 게임 규칙·상태(G). UI 없음. 결전 중 카드/능력은 체인(LIFO)에 적재 — **적재자가 우선권 유지(연속 적재 가능), 패스로만 이전**. 양측 패스 시 하나씩 해결(사이마다 [반응] 응수). [추가] 자원 능력은 체인에 안 쌓이고 즉시 해결. 중립 '주문' 플레이에 reactionWindow(모든 [반응] 응수, 재귀 체인) — **유닛·도구는 즉시 해결·응수 불가(333.1.c)**. 경합 적용자는 bf.contestedBy로 추적(공격자 지정). 무혈 결전 후 양측 잔존 → 새 전투 결전. **정복=통제를 새로 얻을 때만(446.1) — 방어 성공(재확립)은 무득점** (공식 Q&A 확인) | newGame, might, TF, collectStatics, dealDamage, fireEvent, reactionWindow(구 counterWindow), showdownPass/resolveChainItem/showdownActed(p), resolveSpellEffects, killUnit, execOps, releaseEmptyBattlefields, markContested |
 | ui.js (~800줄) | DOM 렌더·입력. 선택 프롬프트는 routedPick 경유 | cardMiniEl, unitEl, onHandClick, onUnitClick, showUnitMenu, executeMove, updateButtons, attachDropZone(드래그이동), attachZoom(확대) |
 | main.js (~600줄) | 화면 전환·메뉴·덱편집·로비 | showScreen, buildDeck, openEditor, initLobby, p2p* |
 | effects.js (~550줄) | 카드 텍스트 파서 → FX (298장 전부 자동화, manual 0장) | compileCard, parseOp, parseMiscClause(상시효과), TRIGGER_PATTERNS, SCRIPTS, BF_STATIC |
@@ -38,6 +38,7 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 - 서버: `server/server.js` 단일 파일 (계정 REST + WS 릴레이).
 - 리플레이: 데스크톱은 `client/replay-store.js`(메인 프로세스 fs) + `preload.js`의 `desktop.replay.*` IPC로 `문서\RiftboundSim\Replays\*.rbr`에 저장, 웹/APK는 IndexedDB(`rb_replays`). **client 루트에 파일을 추가하면 package.json의 `build.files`에도 넣을 것** (안 넣으면 패키징에서 빠져 앱이 시작조차 못 함).
 - 카드 데이터 수정: `tools/data/`의 번역본 수정 → `node tools/build-cards.js` (요청 시에만).
+- **룰 절충(의도된 단순화 — 룰북 대조 감사 2026-08 완료)**: ① 격발(트리거) 능력은 체인에 쌓이지 않고 즉시 해결(공식은 Initial Chain·응수 가능, 방어자 트리거 선해결) ② 복수 전장 동시 경합 시 인덱스 순 고정(공식은 턴 플레이어 선택) ③ 결전 체인의 대상 지정은 해결 시점(공식은 플레이 시점). 룰북 원문: `tools/data/rules1.txt` 1107~1610행(상태·우선권·체인·결전), 3290~3490행(전투).
 - 카드 이미지: `node tools/fetch-card-images.js` 가 Riot CDN → `client/web/assets/cards/*.webp`(480w, 약 11MB)로 받고 `web/js/imgmap.js`를 생성. **둘 다 gitignore** — 빌드(predist)가 자동으로 확보하고, 없으면 앱이 CDN에서 직접 불러온다(그래서 없어도 동작함).
 
 ## 실행 (참고 — 요청 시에만)

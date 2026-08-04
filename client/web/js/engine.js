@@ -41,7 +41,7 @@ function newGame(cfg){
       playedCards:0, scoredBf:{}, drewFromEmpty:false,
       };
     }),
-    bfs: cfg.bfs.map((n,i)=>({ n, owner:i, controller:null, units:[], hiddenCards:[], scored:{} })),
+    bfs: cfg.bfs.map((n,i)=>({ n, owner:i, controller:null, contestedBy:null, units:[], hiddenCards:[], scored:{} })),
     turn:0, turnCount:0, phase:'setup', state:'neutral',
     showdown:null, winner:null, actingPlayer:0,
   };
@@ -182,10 +182,18 @@ function removeUnit(u){
   if(u.loc==='base'){ const b=G.players[u.ctrl].base; const i=b.indexOf(u); if(i>=0)b.splice(i,1); }
   else { const arr=G.bfs[u.loc].units; const i=arr.indexOf(u); if(i>=0)arr.splice(i,1); }
 }
+// 경합(Contested) 적용자 추적 — 공식 규칙: "그 전장을 통제하지 않는 플레이어의 유닛이
+// 이동/존재하게 될 때" 경합이 적용되며, 그 적용자가 결전의 공격자(Focus)가 된다.
+// (강제 이동 효과로 '상대 유닛'이 끌려온 경우, 공격자는 시전자가 아니라 그 유닛의 통제자)
+function markContested(u, loc){
+  if(loc==='base') return;
+  const bf=G.bfs[loc]; if(!bf) return;
+  if(bf.contestedBy==null && bf.controller!==u.ctrl) bf.contestedBy=u.ctrl;
+}
 function placeUnit(u, loc){
   u.loc=loc;
   if(loc==='base') G.players[u.ctrl].base.push(u);
-  else G.bfs[loc].units.push(u);
+  else { G.bfs[loc].units.push(u); markContested(u, loc); }
 }
 
 // ---------- 드로우/폐기 ----------
@@ -547,6 +555,8 @@ function playRestriction(c, p){
       return '체인 진행 중에는 [반응] 카드만 낼 수 있습니다';
     return null;
   }
+  // 중립 응수 창: 창이 열린 플레이어는 자기 턴이 아니어도 [반응] 주문을 낼 수 있다 (닫힌 상태 응수 — 규칙 309.2)
+  if(G._rwFor===p && fx.kw.reaction && c.type==='Spell') return null;
   if(G.turn!==p) return '자신의 턴에만 플레이할 수 있습니다';
   if(G.phase!=='action') return '행동 단계에만 플레이할 수 있습니다';
   return null;
@@ -587,7 +597,7 @@ async function playCardFromHand(p, handIdx, opts={}){
     const txt=(c.tko||c.text||'').trim();
     if(txt) UI.log(`↳ 효과(직접 처리): ${txt}`, 'sys');
     UI.render();
-    if(sdAtStart && G.showdown===sdAtStart) showdownActed();   // 수동 모드도 우선권을 상대에게
+    if(sdAtStart && G.showdown===sdAtStart) showdownActed(p);   // 수동 모드도 동일 (우선권 유지)
     return true;
   }
 
@@ -698,6 +708,10 @@ async function playCardFromHand(p, handIdx, opts={}){
 
   UI.log(`${pname(p)} 「${c.ko}」 플레이`, 'p'+p);
 
+  // 유닛·도구는 응수 창 없이 즉시 해결된다 — 공식 규칙 333.1.c: "자원을 추가하는 능력·유닛·도구는
+  // 확정(Finalize) 즉시 해결되며 Execute 단계로 진행하지 않는다" ([반응]으로 응수 불가).
+  // 응수 창은 '주문'에만 열린다 (주문 분기의 reactionWindow).
+
   let placedU=null;
   if(c.type==='Unit'){
     // 준비 상태 등장 여부 (가속/효과/오라)
@@ -746,6 +760,7 @@ async function playCardFromHand(p, handIdx, opts={}){
       }
       sd.chain.push(item);
       if(sd.chain.length===1) sd.chainStarter=p;
+      UI.fx.chainAdd(c, p, sd.chain.length);
       UI.log(`🔗 ${pname(p)} 「${c.ko}」 체인에 적재 (#${sd.chain.length}) — 양측 패스 시 마지막 것부터 해결`, 'p'+p);
       const evctx={p, n, type:c.type, seq:P.playedCards, unit:null, paidAdd:addPaid};
       await fireEvent('onYouPlayCard', evctx);
@@ -753,7 +768,7 @@ async function playCardFromHand(p, handIdx, opts={}){
       if(opts.fromHidden) await fireEvent('onPlayFromHidden', evctx);
       await cleanup(p);
       UI.render();
-      showdownActed();       // 규칙 339: 행동했으므로 패스 카운터 리셋 + 우선권을 상대에게
+      showdownActed(p);      // 패스 카운터 리셋 — 우선권은 적재자(p)가 유지 (연속 적재 가능)
       return true;
     }
     // ── 중립 상태: 기존 즉시 해결 + 대응 창 ──
@@ -785,9 +800,9 @@ async function playCardFromHand(p, handIdx, opts={}){
 
   await cleanup(p);
   UI.render();
-  // 결전 중이던 카드 플레이는 우선권을 상대에게 넘긴다.
+  // 결전 중이던 카드 플레이 — 패스 카운터 리셋, 우선권은 플레이어가 유지.
   // (호출자마다 따로 하면 온라인 에코 경로에서 빠지므로 여기서 일괄 처리)
-  if(sdAtStart && G.showdown===sdAtStart) showdownActed();
+  if(sdAtStart && G.showdown===sdAtStart) showdownActed(p);
   return true;
 }
 
@@ -849,28 +864,56 @@ async function resolveSpellEffects(p, n, fx, o){
 }
 
 // ---------- 대응 창 (카운터/탈취 주문 — 중립 상태 전용, 결전 중에는 체인이 담당) ----------
-async function counterWindow(caster, c){
+// 중립 상태 응수 창 (구 counterWindow 확장) — 공식 규칙 근거:
+//  · '주문'을 내면 체인이 생기고 상태가 닫힌다 (333.1.a / Playing Cards 1단계)
+//  · 닫힌 상태에서는 [반응] 카드만 낼 수 있다 (309.2)
+//  · 단 유닛·도구는 확정 즉시 해결되어 응수 대상이 아니다 (333.1.c) — 주문에만 이 창이 열린다
+//  · 카운터/탈취는 '주문'에만 (저항: "Counter a spell") — 기존 제한 유지
+//  · 일반 [반응]은 즉시 해결(LIFO — 대기 중인 주문보다 먼저), 그 반응에 대한 재응수 창은
+//    playCardFromHand 재귀로 자연히 열린다. 응수할 카드가 없으면 조용히 지나간다(속도 유지).
+async function reactionWindow(caster, c){
+  if(G.manual) return null;
   const o=opp(caster);
-  const O=G.players[o];
-  for(const x of O.hand.map((hn,i)=>({hn,i,fx:FX[hn]})).filter(x=>x.fx&&(x.fx.counter||x.fx.steal))){
-    const cc=card(x.hn);
-    const cost=cc.e||0, pips=powerPips(cc);
-    if(!canPay(o,cost,pips)) continue;
-    if(x.fx.counter){
-      const lim=x.fx.counter;
-      if(lim.maxE!==undefined && (c.e||0)>lim.maxE) continue;
-      if(lim.maxPips!==undefined && powerPips(c).length>lim.maxPips) continue;
+  let result=null;
+  for(let guard=0; guard<20; guard++){
+    const O=G.players[o];
+    const opts=[];
+    O.hand.forEach((hn,i)=>{
+      const fx=FX[hn]; if(!fx||!fx.kw||!fx.kw.reaction) return;
+      const cc=card(hn); if(cc.type!=='Spell') return;
+      const cost=cc.e||0, pips=powerPips(cc);
+      if(!canPay(o,cost,pips)) return;
+      if(fx.counter||fx.steal){
+        if(c.type!=='Spell' || result) return;   // 카운터는 대기 중인 주문에만, 이미 무효화됐으면 무의미
+        if(fx.counter){
+          if(fx.counter.maxE!==undefined && (c.e||0)>fx.counter.maxE) return;
+          if(fx.counter.maxPips!==undefined && powerPips(c).length>fx.counter.maxPips) return;
+        }
+      }
+      opts.push({v:i, label:`⚡ ${cc.ko} (비용 ${cost}${pips.length?' + 힘'+pips.length:''})`, isCounter:!!(fx.counter||fx.steal)});
+    });
+    if(!opts.length) return result;
+    const sel=await UI.pickReaction(o, `${pname(caster)}이(가) 「${c.ko}」 플레이 — [반응]으로 응수할까요?`, opts);
+    if(sel===null||sel===undefined) return result;
+    const hn=O.hand[sel]; if(hn===undefined) return result;
+    const rfx=FX[hn]; const cc=card(hn);
+    if(rfx.counter||rfx.steal){
+      payCost(o, cc.e||0, powerPips(cc));
+      O.hand.splice(sel,1); trashCard(o, hn);
+      if(rfx.steal){ UI.log(`⚡「${cc.ko}」: 「${c.ko}」의 통제권 탈취!`, 'p'+o); result={steal:o}; }
+      else { UI.log(`⚡「${cc.ko}」: 「${c.ko}」 무효화!`, 'p'+o); result={countered:true}; }
+      UI.render();
+      continue;                                  // 상대는 이어서 다른 반응도 낼 수 있다
     }
-    const yes=await UI.confirmP(o, `상대가 「${c.ko}」을(를) 플레이합니다. 「${cc.ko}」(으)로 대응할까요?`, cc);
-    if(!yes) continue;
-    payCost(o, cost, pips);
-    O.hand.splice(O.hand.indexOf(x.hn),1); trashCard(o, x.hn);
-    if(x.fx.steal){ UI.log(`⚡「${cc.ko}」: 「${c.ko}」의 통제권 탈취!`, 'p'+o); return {steal:o}; }
-    UI.log(`⚡「${cc.ko}」: 「${c.ko}」 무효화!`, 'p'+o);
-    return {countered:true};
+    // 일반 반응: 정식 플레이 경로로 — 먼저 해결되고(LIFO), 그 안에서 caster의 재응수 창이 열린다
+    const prevRw=G._rwFor; G._rwFor=o;
+    try{ await playCardFromHand(o, sel, {}); }
+    finally{ G._rwFor=prevRw; }
+    if(G.winner!==null) return result;
   }
-  return null;
+  return result;
 }
+const counterWindow = reactionWindow;   // 구명 호환
 
 // 통찰: 덱 맨 위 확인 → 재활용 여부
 async function visionCheck(p){
@@ -1026,6 +1069,7 @@ function releaseEmptyBattlefields(){
       UI.log(`「${card(bf.n).ko}」 — 유닛이 없어 무주공산이 됩니다 (통제 해제)`, 'sys');
       bf.controller=null;
     }
+    if(bf.units.length===0) bf.contestedBy=null;   // 유닛이 모두 떠나면 경합도 해제
   });
 }
 
@@ -1045,7 +1089,8 @@ async function cleanup(actor){
     const bf=G.bfs[i];
     const p0=bf.units.filter(u=>u.ctrl===0).length;
     const p1=bf.units.filter(u=>u.ctrl===1).length;
-    if(p0&&p1){ await startShowdown(i, actor??G.turn, true); return; }
+    // 공격자 = 경합을 적용한 유닛의 통제자 (강제 이동으로 상대 유닛이 끌려온 경우 시전자가 아님)
+    if(p0&&p1){ await startShowdown(i, bf.contestedBy ?? actor ?? G.turn, true); return; }
     const present = p0?0:(p1?1:null);
     if(present!==null && bf.controller!==present){
       await startShowdown(i, present, false); return;
@@ -1139,13 +1184,31 @@ async function resolveChainItem(it){
     {legionOK:it.legionOK, addPaid:it.addPaid, addCount:it.addCount, bfIdx:it.bfIdx, execAs:it.execAs??it.p});
   await cleanup(it.p);
 }
-// 결전 중 행동하면 패스 카운트 리셋
-function showdownActed(){ if(G.showdown){ G.showdown.passes=0; G.actingPlayer=opp(G.actingPlayer); UI.render(); UI.promptShowdown(); } }
+// 결전 중 행동(체인 적재) 처리 — 공식 규칙: 적재자가 '최신 항목의 컨트롤러'로서 우선권을 유지한다.
+// (자기 카드를 연달아 쌓을 수 있고, 우선권은 명시적 패스로만 상대에게 넘어간다 — 규칙 Step 1-2)
+// 예전에는 여기서 자동으로 상대에게 넘겼는데, 그러면 상대가 항상 먼저 결정을 강요받아
+// 블러핑·카운터 유도 구조가 룰북과 반대가 된다. 패스 카운터만 리셋한다.
+function showdownActed(p){
+  if(!G.showdown) return;
+  G.showdown.passes=0;
+  if(p!==undefined) G.actingPlayer=p;
+  UI.render(); UI.promptShowdown();
+}
 
 async function resolveShowdown(){
   const sd=G.showdown; const bf=G.bfs[sd.bfIdx];
   const atkUnits = ()=>bf.units.filter(u=>u.ctrl===sd.attacker);
   const defUnits = ()=>bf.units.filter(u=>u.ctrl===sd.defender);
+
+  // 무혈 결전(전투 없이 열린 결전) 종료 시 양측 유닛이 남으면: 통제 확립 불가·경합 유지,
+  // 새 '전투'가 개시된다 (규칙: Staged Combat — 공식 L1565~1571). 곧바로 피해를 주지 않고
+  // 전투 결전을 새로 열어 방어 트리거와 새 응수 라운드를 거치게 한다.
+  if(!sd.hasCombat && atkUnits().length && defUnits().length){
+    UI.log(`양측 유닛이 남아 전투가 개시됩니다 (경합 유지)`, 'combat');
+    G.state='neutral'; G.showdown=null;
+    await startShowdown(sd.bfIdx, bf.contestedBy ?? sd.attacker, true);
+    return;
+  }
 
   // 전투 피해 단계
   if(atkUnits().length && defUnits().length){
@@ -1189,10 +1252,14 @@ async function resolveShowdown(){
   const remaining = bf.units.length? bf.units[0].ctrl : null;
   const prevController = bf.controller;
   G.state='neutral'; G.showdown=null; G.actingPlayer=G.turn;
+  bf.contestedBy=null;   // 결전 종료 — 경합 해제 (통제 확립/재확립 또는 전장 비움)
 
+  // 정복(Conquer) = 통제를 '새로 얻는' 것 (규칙 446.1 "gains Control").
+  // 이미 통제 중이던 방어자가 방어에 성공하면 '재확립'이라 정복이 아니다 — 득점 없음.
+  // (전투 해결문의 "경합 적용자가 아니어도 된다"는 무주공산 전장을 방어측이 '새로 얻는'
+  //  기습 방어(surprise defense) 경우를 가리킨다. 공식 Q&A로 확인: 방어 성공 자체는 무득점.)
   if(remaining!==null && remaining!==prevController){
     bf.controller=remaining;
-    // 숨김 카드 소유권 상실 처리
     bf.hiddenCards = bf.hiddenCards.filter(h=>{
       if(h.by!==remaining){
         UI.log(`숨겨둔 카드가 폐기되었습니다 (전장 상실)`, 'sys');
@@ -1475,10 +1542,23 @@ async function activateAbility(p, source, ab){
   // ── 결전 중: 능력도 체인에 적재 (비용은 이미 지불됨 — 규칙 338.1.a.4) ──
   if(G.state==='showdown' && G.showdown){
     const sd=G.showdown;
+    // [추가](Add) 자원 능력은 체인에 쌓이지 않고 즉시 해결된다 — 응수 불가, 우선권 유지 (규칙 333.1.c
+    // "Abilities that Add resources... resolve immediately when Finalized" + 카드 리마인더 "반응할 수 없다").
+    // 자원이 즉시 들어와야 같은 시점에 카드 비용 지불에 쓸 수 있다.
+    const RESOURCE_OPS = new Set(['addEnergy','addPower']);
+    if(ab.ops.length && ab.ops.every(o=>RESOURCE_OPS.has(o.op))){
+      UI.log(`${pname(p)} 「${srcName}」 [추가] 능력 — 즉시 해결 (응수 불가)`, 'p'+p);
+      await execOps(ab.ops, {p, unit:source.u, gear:source.g, kind:'ability',
+        bfIdx:(source.u&&source.u.loc!=='base')?source.u.loc:null});
+      sd.passes=0;                    // 행동했으므로 패스 시퀀스는 끊기지만, 우선권은 그대로 유지
+      UI.render(); UI.promptShowdown();
+      return;
+    }
     sd.chain.push({kind:'ability', p, ab, unit:source.u, gear:source.g, srcName});
     if(sd.chain.length===1) sd.chainStarter=p;
+    UI.fx.chainAdd(source.kind==='legend'?card(P.legendN):source.u?unitCard(source.u):card(source.g.n), p, sd.chain.length);
     UI.log(`🔗 ${pname(p)} 능력 「${srcName}」 체인에 적재 (#${sd.chain.length})`, 'p'+p);
-    showdownActed();
+    showdownActed(p);                 // 우선권은 적재자가 유지
     UI.render();
     return;
   }
@@ -1496,6 +1576,7 @@ async function pickBySpec(p, spec, promptText){
   if(spec.side==='friendly') cands=cands.filter(u=>u.ctrl===p);
   if(spec.side==='enemy') cands=cands.filter(u=>u.ctrl!==p);
   if(spec.other && _ctxUnit) cands=cands.filter(u=>u!==_ctxUnit);   // "다른 유닛": 효과 발생원 자신 제외
+  if(spec._exclude && spec._exclude.length) cands=cands.filter(u=>!spec._exclude.includes(u)); // 복수 대상: 이미 고른 유닛 제외
   if(spec.where==='here' && G.showdown) cands=cands.filter(u=>u.loc===G.showdown.bfIdx);
   else if(spec.where==='here' && _ctxBf!==null) cands=cands.filter(u=>u.loc===_ctxBf);
   if(spec.where==='bf') cands=cands.filter(u=>u.loc!=='base');
@@ -1598,9 +1679,13 @@ async function execOps(ops, ctx){
           for(const u of us) await buffUnit(u, p);
           break;
         }
+        // "유닛 N개를 골라 버프" — 서로 다른 유닛이어야 하므로 이미 고른 대상은 후보에서 제외
+        const picked=[];
         for(let i=0;i<(op.count||1);i++){
-          const u=await pickBySpec(p, op.spec, '버프할 유닛 선택');
-          if(u){ await buffUnit(u, p); it=u; }
+          const u=await pickBySpec(p, {...op.spec, _exclude:picked}, `버프할 유닛 선택${op.count>1?` (${i+1}/${op.count})`:''}`);
+          if(!u) break;                    // '선택 안 함'(최대 N개) 또는 후보 소진
+          picked.push(u);
+          await buffUnit(u, p); it=u;
         }
         break; }
       case 'might': {
