@@ -265,12 +265,19 @@ function imgKey(url){
   const m = String(url).match(/\/([0-9a-f]{20,}-\d+x\d+)\.(?:png|jpe?g|webp)/i);
   return m ? m[1] : null;
 }
+// w를 생략하거나 480 이상이면 확대용(원본 해상도) 파일을, 그 외에는 보드용 작은 파일을 쓴다.
 function cardImgUrl(url, w){
   if(!url) return url;
-  if(typeof IMG_LOCAL!=='undefined' && IMG_LOCAL.files){
+  if(typeof IMG_LOCAL!=='undefined'){
     const k = imgKey(url);
-    if(k && IMG_LOCAL.files[k]) return IMG_LOCAL.dir + k + '.webp';
+    if(k){
+      const wantFull = (w===undefined || w===null || w>=480);
+      if(wantFull && IMG_LOCAL.full && IMG_LOCAL.full[k]) return IMG_LOCAL.dir + k + '.full.webp';
+      if(IMG_LOCAL.files && IMG_LOCAL.files[k]) return IMG_LOCAL.dir + k + '.webp';
+      if(IMG_LOCAL.full && IMG_LOCAL.full[k]) return IMG_LOCAL.dir + k + '.full.webp';
+    }
   }
+  // 로컬에 없을 때만 CDN (정상 배포본에서는 여기까지 오지 않는다)
   if(!/rgpub\.io\/sanity\/images\//.test(url)) return url;
   return url + (url.includes('?')?'&':'?') + 'fm=webp&q=80' + (w?'&w='+w:'');
 }

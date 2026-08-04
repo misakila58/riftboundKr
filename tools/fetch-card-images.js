@@ -1,7 +1,11 @@
 // ══════════ 카드 이미지 로컬 캐시 받기 ══════════
 // Riot CDN(Sanity)에서 카드 이미지를 webp로 받아 client/web/assets/cards/ 에 저장하고,
 // 클라이언트가 참조할 목록(web/js/imgmap.js)을 만든다.
-// 앱은 로컬 파일이 있으면 그것을 쓰고, 없으면 기존처럼 CDN에서 받는다(그래서 안 받아도 동작한다).
+// 실행 중에는 CDN을 전혀 쓰지 않는다 (파일이 없을 때만 CDN 폴백 — 안전망).
+//
+// 두 가지를 받는다:
+//   <키>.webp       보드/손패용 (기본 480w) — 작은 칸에 여러 장 그려도 가볍게
+//   <키>.full.webp  확대·전설 미리보기용 (원본 해상도) — 크게 봐도 선명하게
 //
 //   node tools/fetch-card-images.js          이미 받은 건 건너뜀
 //   node tools/fetch-card-images.js --force  전부 다시 받음
@@ -56,46 +60,52 @@ async function download(url, dest) {
   console.log(`카드 ${cards.length}장 · 내려받을 이미지 ${jobs.size}종 (w=${WIDTH})${noKey ? ` · URL 형식 불일치 ${noKey}건` : ''}`);
 
   const entries = [...jobs.entries()];
-  const done = [], failed = [];
-  let bytes = 0, skipped = 0, idx = 0;
+  const failed = [];
+  let skipped = 0, idx = 0, doneCount = 0;
+
+  // 한 종류(작은 판/원본 판)를 확보한다
+  async function ensure(url, dest, query) {
+    if (!FORCE && fs.existsSync(dest) && fs.statSync(dest).size > 512) { skipped++; return true; }
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try { await download(url + (url.includes('?') ? '&' : '?') + query, dest); return true; }
+      catch (e) {
+        if (attempt === 3) { failed.push({ file: path.basename(dest), err: e.message }); return false; }
+        await new Promise(r => setTimeout(r, 400 * attempt));
+      }
+    }
+    return false;
+  }
 
   async function worker() {
     while (idx < entries.length) {
       const [key, url] = entries[idx++];
-      const dest = path.join(OUT_DIR, key + '.webp');
-      if (!FORCE && fs.existsSync(dest) && fs.statSync(dest).size > 512) {
-        bytes += fs.statSync(dest).size; skipped++; done.push(key); continue;
-      }
-      const full = url + (url.includes('?') ? '&' : '?') + `fm=webp&q=82&w=${WIDTH}`;
-      let ok = false;
-      for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
-        try { bytes += await download(full, dest); ok = true; }
-        catch (e) {
-          if (attempt === 3) { failed.push({ key, err: e.message }); }
-          else await new Promise(r => setTimeout(r, 400 * attempt));
-        }
-      }
-      if (ok) {
-        done.push(key);
-        if (!QUIET && done.length % 25 === 0) console.log(`  ${done.length}/${entries.length} ...`);
-      }
+      await ensure(url, path.join(OUT_DIR, key + '.webp'), `fm=webp&q=82&w=${WIDTH}`);
+      // 원본 해상도(폭 지정 없음) — 확대해서 봐도 선명하도록
+      await ensure(url, path.join(OUT_DIR, key + '.full.webp'), 'fm=webp&q=92');
+      doneCount++;
+      if (!QUIET && doneCount % 25 === 0) console.log(`  ${doneCount}/${entries.length} ...`);
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
   // 실제로 존재하는 파일만 목록에 넣는다 (일부 실패 시 그 카드만 CDN으로 넘어가게)
-  const have = done.filter(k => { try { return fs.statSync(path.join(OUT_DIR, k + '.webp')).size > 512; } catch (e) { return false; } });
-  have.sort();
+  const ok = f => { try { return fs.statSync(path.join(OUT_DIR, f)).size > 512; } catch (e) { return false; } };
+  const have = [...jobs.keys()].filter(k => ok(k + '.webp')).sort();
+  const haveFull = [...jobs.keys()].filter(k => ok(k + '.full.webp')).sort();
   fs.writeFileSync(MAP_JS,
     '// 생성물: tools/fetch-card-images.js 가 만든다 (직접 수정 금지)\n' +
-    '// 여기에 있는 이미지는 앱에 포함된 로컬 파일을 쓰고, 없으면 Riot CDN에서 받는다.\n' +
-    `const IMG_LOCAL={dir:'assets/cards/',w:${WIDTH},files:{${have.map(k => JSON.stringify(k) + ':1').join(',')}}};\n`);
+    '// 앱에 포함된 로컬 이미지 목록. 실행 중에는 CDN을 쓰지 않으며, 여기 없는 것만 CDN으로 폴백한다.\n' +
+    '//   files = 보드/손패용(작은 판) · full = 확대·미리보기용(원본 해상도)\n' +
+    `const IMG_LOCAL={dir:'assets/cards/',w:${WIDTH},` +
+    `files:{${have.map(k => JSON.stringify(k) + ':1').join(',')}},` +
+    `full:{${haveFull.map(k => JSON.stringify(k) + ':1').join(',')}}};\n`);
+  console.log(`  작은 판 ${have.length}종 · 원본 판 ${haveFull.length}종`);
 
   // 합계는 카운터 대신 실제 디스크에서 잰다 (재시도·건너뜀이 섞여도 정확하게)
   let total = 0;
   for (const f of fs.readdirSync(OUT_DIR)) { try { total += fs.statSync(path.join(OUT_DIR, f)).size; } catch (e) {} }
   const mb = (total / 1048576).toFixed(1);
-  console.log(`완료: ${have.length}종 (새로 받음 ${have.length - skipped} · 이미 있음 ${skipped}) · 합계 ${mb}MB`);
+  console.log(`완료: 카드 ${entries.length}종 (이미 있어 건너뜀 ${skipped}개 파일) · 합계 ${mb}MB`);
   console.log(`  이미지: ${path.relative(ROOT, OUT_DIR)}`);
   console.log(`  목록  : ${path.relative(ROOT, MAP_JS)}`);
   if (failed.length) {
