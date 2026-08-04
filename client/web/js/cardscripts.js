@@ -166,7 +166,7 @@ Object.assign(SCRIPTS, {
   225: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('chooseUnit',{spec:{side:'enemy',count:1}}),OPX('stunOrKillIt')]}]; return fx; },
   226: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('playFromTrash',{type:'Unit',maxE:3,maxPips:1,optional:true})]}]; return fx; },
   227: fx=>{ fx.manual=[]; fx.tieRecall=true; return fx; },
-  228: fx=>{ fx.manual=[]; fx.triggers.onUnitDeath=[{cond:ctx=>ctx.buffed,ops:[OPX('buff',{count:1,spec:{side:'friendly'}})]}]; return fx; },
+  228: fx=>{ fx.manual=[]; fx.triggers.onUnitDeath=[{cond:ctx=>ctx.buffed,ops:[OPX('buff',{count:1,spec:{side:'friendly',other:true}})]}]; return fx; },
   230: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('albus')]}]; return fx; },
   231: fx=>{ fx.manual=[]; fx.addCost={kind:'killUnits',optional:true,pipDiscountPer:true,label:'아군 유닛 처치 (개당 힘 비용 -1)'}; return fx; },
   232: fx=>{ fx.manual=[]; fx.statics=[{kind:'selfKwFn',fn:u=>might(u)>=5?['deflect','ganking','shield']:null}]; return fx; },

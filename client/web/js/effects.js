@@ -42,7 +42,9 @@ function parseTargetSpec(s){
   const m2 = s.match(/with (\d+) or more :rb_might:/); if(m2) spec.mightMin=+m2[1];
   if(/damaged/.test(s)) spec.damaged=true;
   if(/stunned/.test(s)) spec.stunned=true;
-  if(/\b(an)?other\b/.test(s)) spec.other=true;   // 'another' / (관사 분리로 남은) 'other' 모두 자기 제외
+  // "다른(another/other)" 대상 = 효과 발생원 자신 제외.
+  // 두 번째 패턴은 안전망: 앞의 규칙이 관사 'a'를 먼저 떼어가 'another' → 'nother'로 잘린 경우도 잡는다.
+  if(/\b(an)?other\b/.test(s) || /(^|\s)n?other\b/.test(s)) spec.other=true;
   if(/each|all/.test(s)) spec.count='all';
   if(/up to two|up to 2/.test(s)) spec.count=2, spec.optional=true;
   if(/you may/.test(s)) spec.optional=true;
@@ -108,7 +110,8 @@ function parseOp(s){
   // 버프
   if(/^[Bb]uff me$/.test(s)) return { op:'buffSelf' };
   if(/^[Bb]uff it$/.test(s)) return { op:'buffIt' };
-  if((m = s.match(/^[Bb]uff (?:a|one|two|up to two)? ?(.*)$/))){
+  // 관사 뒤에 공백을 필수로 둔다 — 없으면 'another'의 'a'를 관사로 삼켜 "다른 유닛" 제한이 사라진다
+  if((m = s.match(/^[Bb]uff (?:(?:a|one|two|up to two)\s+)?(.*)$/))){
     const two = /two/.test(s);
     return { op:'buff', count: two?2:1, spec:parseTargetSpec(m[1]||'a friendly unit') };
   }
