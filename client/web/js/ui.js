@@ -1052,6 +1052,10 @@ UI.showVictory = function(p){
   } else if(isBot){
     add('🤖 새 게임 (덱 선택)', ()=>{ BOT.active=false; closeModal(); openBotSelect(); }, true);
     add('처음 화면으로', ()=>location.reload());
+  } else if(typeof TUT!=='undefined' && TUT.active){
+    // 튜토리얼(자유 연습 포함) 승리 화면 — 핫시트 새 게임이 아니라 튜토리얼 문맥으로
+    add('🔄 튜토리얼 다시 시작', ()=>{ closeModal(); TUT.start(); }, true);
+    add('처음 화면으로', ()=>location.reload());
   } else {
     add('🔄 새 게임', ()=>{ closeModal(); startHotseat(); }, true);
     add('처음 화면으로', ()=>location.reload());

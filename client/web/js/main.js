@@ -1030,6 +1030,10 @@ function openSystemMenu(){
     // (모달이 열려 있는 동안 봇이 움직이는 문제는 드라이버의 modal-overlay 검사가 이미 막는다)
     add('🔄 다시 하기 (봇/덱 선택)', ()=>{ closeModal(); openBotSelect(); }, true);
     add('🚪 처음 화면으로', ()=>location.reload());
+  } else if(typeof TUT!=='undefined' && TUT.active){
+    // 튜토리얼 중 '핫시트 새 게임'을 권하면 수업 한가운데서 다른 모드로 끌려간다
+    add('🔄 튜토리얼 다시 시작', ()=>{ closeModal(); TUT.start(); }, true);
+    add('🚪 처음 화면으로', ()=>location.reload());
   } else {
     add('🔄 다시 하기 (핫시트 새 게임)', ()=>{ closeModal(); startHotseat(); }, true);
     add('🚪 처음 화면으로', ()=>location.reload());
