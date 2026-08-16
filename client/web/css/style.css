@@ -180,6 +180,9 @@ button { cursor:pointer; font-family:inherit; }
 .player-area { flex:1; display:flex; gap:8px; min-height:0; }
 .player-area.top { flex-direction:row; }
 .player-area.bottom { flex-direction:row; }
+/* 보드 뒤집기(온라인 게스트가 아래): 내부 요소 순서가 HTML에 고정돼 있어 자리만 바꾸면
+   좌우가 반대가 된다 → 역순으로 배치해 원래 모양(위: 사이드 왼쪽 / 아래: 사이드 오른쪽)을 유지 */
+.player-area.flipped { flex-direction:row-reverse; }
 /* 가로 배분: 기지는 필요한 만큼만 쓰고(상한 있음), 남는 폭은 손패가 가져간다.
    기지는 보통 몇 기만 두는데 예전엔 flex:1이라 넓은 화면에서 빈 공간을 다 차지했다. */
 .side-zone {

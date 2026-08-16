@@ -758,8 +758,37 @@ function announcePhase(){
   b.classList.add('show');
 }
 
+// ══════════ 보드 방향 — 내 진영은 항상 아래(6시) ══════════
+// HTML은 좌석 0=아래, 좌석 1=위로 고정이라 온라인 게스트(좌석 1)는 자기 진영이 12시에 보였다.
+// 렌더 코드는 전부 id(hand-p, base-p...) 기준이므로, 두 player-area '컨테이너'의 위치만 바꾸면
+// 게임 로직·동기화는 전혀 건드리지 않고 화면만 뒤집힌다.
+// 내부 요소 순서(위: 사이드→기지→손패 / 아래: 손패→기지→사이드)는 HTML에 고정돼 있어서,
+// 자리만 바꾸면 좌우가 뒤집힌 배치가 된다 → row-reverse로 원래 모양을 유지한다.
+UI._orient = 0;
+function orientBoard(){
+  const bottom = (NET.online && NET.seat===1) ? 1 : 0;   // 리플레이·오프라인은 기본(0=아래)
+  if(UI._orient === bottom) return;
+  const board=document.getElementById('board');
+  const bfs=document.getElementById('battlefields');
+  const pTop=document.getElementById('parea-'+(1-bottom));
+  const pBot=document.getElementById('parea-'+bottom);
+  if(!board||!bfs||!pTop||!pBot) return;
+  board.insertBefore(pTop, bfs);
+  bfs.after(pBot);
+  const flipped = bottom===1;
+  pTop.classList.toggle('flipped', flipped);
+  pBot.classList.toggle('flipped', flipped);
+  pTop.classList.add('top');    pTop.classList.remove('bottom');
+  pBot.classList.add('bottom'); pBot.classList.remove('top');
+  // 상대 손패 표시(회색조)도 '위에 있는 쪽'을 따라간다
+  document.getElementById('hand-'+(1-bottom)).classList.add('opp');
+  document.getElementById('hand-'+bottom).classList.remove('opp');
+  UI._orient = bottom;
+}
+
 UI.render = function(){
   if(!G) return;
+  orientBoard();
   // 튜토리얼: 상태가 변할 때마다 진행 체크 (백그라운드 인터벌 스로틀 대비)
   if(typeof TUT!=='undefined' && TUT.active && TUT.tickSoon) TUT.tickSoon();
   // 상단바
