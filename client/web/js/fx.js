@@ -74,7 +74,17 @@ UI.fx.chainAdd = function(c, p, num){
   fxAdd(box, 2000);
 };
 
-// ── 턴 종료: 화면을 가로지르는 띠 ──
+// 해당 진영 테두리 펄스 (진영 색으로) — 배지·띠와 함께 써서 '어느 쪽'인지 몸으로 알게 한다
+function fxAreaPulse(p, ms){
+  const area = document.getElementById('parea-' + p);
+  if(!area) return;
+  area.classList.remove('fx-pulse', 'fx-pulse-p0', 'fx-pulse-p1');
+  void area.offsetWidth;                // 애니메이션 재시작
+  area.classList.add('fx-pulse', 'fx-pulse-p' + (p === 1 ? 1 : 0));
+  setTimeout(()=>area.classList.remove('fx-pulse', 'fx-pulse-p0', 'fx-pulse-p1'), ms);
+}
+
+// ── 턴 종료: 화면을 가로지르는 띠 (곧바로 턴 시작 대형 띠가 이어진다) ──
 UI.fx.turnEnd = function(p){
   if(!UI.fx.on) return;
   const box = document.createElement('div');
@@ -82,23 +92,30 @@ UI.fx.turnEnd = function(p){
   const t = document.createElement('span');
   t.textContent = `${pname(p)} · 턴 종료`;
   box.appendChild(t);
-  fxAdd(box, 1000);
+  fxAdd(box, 1600);
 };
 
-// ── 행동 차례 전환(패스/우선권 이동): 간단히 배지 + 해당 진영 테두리 펄스 ──
+// ── 턴 시작: 대형 띠 — 누구의 턴이 시작됐는지가 게임에서 가장 중요한 신호다 ──
+// (예전엔 '턴 종료' 띠 1초가 전부라 턴이 넘어간 걸 놓치기 쉬웠다)
+UI.fx.turnStart = function(p){
+  if(!UI.fx.on) return;
+  const box = document.createElement('div');
+  box.className = 'fx-band fx-turnstart fx-band-p' + (p === 1 ? 1 : 0);
+  const t = document.createElement('span');
+  t.textContent = `▶ ${pname(p)}의 턴`;
+  box.appendChild(t);
+  fxAdd(box, 2400);
+  fxAreaPulse(p, 2400);
+};
+
+// ── 행동 차례 전환(패스/우선권 이동): 배지 + 해당 진영 테두리 펄스 ──
 UI.fx.priority = function(p){
   if(!UI.fx.on) return;
   const box = document.createElement('div');
   box.className = 'fx-turnbadge fx-turnbadge-p' + (p === 1 ? 1 : 0);
   box.textContent = `▶ ${pname(p)}의 차례`;
-  fxAdd(box, 900);
-  const area = document.getElementById('parea-' + p);
-  if(area){
-    area.classList.remove('fx-pulse');
-    void area.offsetWidth;              // 애니메이션 재시작
-    area.classList.add('fx-pulse');
-    setTimeout(()=>area.classList.remove('fx-pulse'), 900);
-  }
+  fxAdd(box, 1800);
+  fxAreaPulse(p, 1800);
 };
 
 // ── 득점 ──
@@ -119,6 +136,6 @@ UI.fx.check = function(){
   if(key === _fxActing) return;
   const sameTurn = (G.turnCount === _fxTurn);
   _fxActing = key; _fxTurn = G.turnCount;
-  // 턴이 넘어간 경우는 페이즈 배너/턴 종료 연출이 이미 알려주므로 중복 표시하지 않는다
-  if(sameTurn) UI.fx.priority(G.actingPlayer);
+  if(sameTurn) UI.fx.priority(G.actingPlayer);   // 같은 턴 안에서 차례만 이동 (패스/우선권)
+  else UI.fx.turnStart(G.turn);                  // 턴이 넘어감 — 대형 띠 (추가 턴 포함 모든 경로)
 };

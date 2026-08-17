@@ -544,19 +544,21 @@ async function killGear(p, gearIdx){
 }
 
 // ---------- 카드 플레이 ----------
-function playRestriction(c, p){
+function playRestriction(c, p, fromHidden){
   // 유닛/도구: 자기 턴 중립 상태에서만 (행동/반응 키워드 예외)
+  // fromHidden: 뒷면(숨김) 카드는 뒷면인 동안 [반응]을 얻는다 (공식 739.1)
+  //   → 종류와 무관하게 결전·체인 중에도 플레이할 수 있다.
   const fx=FX[c.n]||{kw:{}};
   if(TF().noPlay[p]) return '이번 턴에는 카드를 플레이할 수 없습니다 (효과)';
   if(G.state==='showdown'){
-    if(!(fx.kw.action||fx.kw.reaction)) return '결전 중에는 [행동]/[반응] 카드만 플레이할 수 있습니다';
+    if(!(fx.kw.action||fx.kw.reaction||fromHidden)) return '결전 중에는 [행동]/[반응] 카드만 플레이할 수 있습니다';
     // 체인 진행 중(Closed 상태)에는 [반응]만 응수 가능 (규칙 338.1.a.2)
-    if(G.showdown && G.showdown.chain.length && !fx.kw.reaction)
+    if(G.showdown && G.showdown.chain.length && !(fx.kw.reaction||fromHidden))
       return '체인 진행 중에는 [반응] 카드만 낼 수 있습니다';
     return null;
   }
   // 중립 응수 창: 창이 열린 플레이어는 자기 턴이 아니어도 [반응] 주문을 낼 수 있다 (닫힌 상태 응수 — 규칙 309.2)
-  if(G._rwFor===p && fx.kw.reaction && c.type==='Spell') return null;
+  if(G._rwFor===p && ((fx.kw.reaction && c.type==='Spell') || fromHidden)) return null;
   if(G.turn!==p) return '자신의 턴에만 플레이할 수 있습니다';
   if(G.phase!=='action') return '행동 단계에만 플레이할 수 있습니다';
   return null;
@@ -569,7 +571,7 @@ async function playCardFromHand(p, handIdx, opts={}){
   const fx = FX[n]||{kw:{},triggers:{},activated:[],manual:[],playOps:[]};
   const sdAtStart = G.showdown;   // 이 카드로 결전이 새로 열린 경우와 구분하기 위해 시작 시점을 기억
 
-  const restr = playRestriction(c,p);
+  const restr = playRestriction(c, p, !!opts.fromHidden);
   if(restr){ UI.toast(restr,'warn'); return false; }
 
   // ── 수동 모드: 규칙 자동 처리 없이 카드만 배치, 효과는 로그로 안내 ──
@@ -688,8 +690,9 @@ async function playCardFromHand(p, handIdx, opts={}){
   payCost(p, energy, pips);
 
   // 손패/존에서 제거
+  // fromHidden도 여기서 소비한다 — 래퍼가 hand[0]에 임시 삽입해 두므로 건너뛰면
+  // 숨김 카드가 전장에 등장하면서 손패에도 복사본이 남는다 (실측으로 확인된 버그).
   if(opts.champZone){ P.champInZone=false; }
-  else if(opts.fromHidden){ /* 전장의 hidden 슬롯에서 제거됨 */ }
   else P.hand.splice(handIdx,1);
 
   // 추가 비용의 실제 지불 (손패 정리 후)
@@ -966,30 +969,18 @@ async function playHidden(p, bfIdx){
     if(!sel) return;
     h=sel;
   }
-  const n=h.n; const c=card(n);
+  const n=h.n;
+  // 안 되는 타이밍이면 공개 전에 거른다 (공개했다가 되돌리면 카드 정보만 새 나간다)
+  const restr = playRestriction(card(n), p, true);
+  if(restr){ UI.toast(restr,'warn'); return; }
   bf.hiddenCards.splice(bf.hiddenCards.indexOf(h),1);
-  if(c.type==='Unit'){
-    await playCardFromHand(p, -1, {fromHidden:true, bfIdx, directN:n});
-  } else {
-    // 주문/도구: 기본 비용 무시하고 실행
-    UI.log(`${pname(p)} 숨겨둔 「${c.ko}」 플레이 (비용 무시)`, 'p'+p);
-    const fx=FX[n]||{playOps:[],manual:[]};
-    const P=G.players[p];
-    const legionOK=P.playedCards>=1; P.playedCards++;
-    if(c.type==='Spell'){
-      for(const po of (fx.playOps||[])){
-        if(po.legion && !legionOK) continue;
-        await execOps(po.ops,{p,legionOK,bfIdx});
-      }
-      if(fx.manual.length) UI.manualNotice(c);
-      trashCard(p,n);
-    } else {
-      P.gear.push({n,ex:false,attachedTo:null});
-      if(fx.manual.length) UI.manualNotice(c);
-    }
-    await cleanup(p);
-    UI.render();
-  }
+  // 유닛·주문·도구 모두 정식 플레이 경로를 탄다 — 비용 0(738.1), 유닛은 이 전장에 등장(737.2),
+  // 주문 대상도 이 전장 컨텍스트(bfIdx), 결전 중이면 체인에 적재.
+  // 예전엔 주문/도구를 여기서 직접 해결해서 결전 중엔 체인을 건너뛰었고,
+  // 유닛은 playRestriction에 막혀 결전 중 공개가 아예 불가능했다(739.1 위반).
+  UI.log(`${pname(p)} 전장의 숨김 카드를 공개!`, 'p'+p);
+  const ok = await playCardFromHand(p, -1, {fromHidden:true, bfIdx, directN:n});
+  if(ok===false){ bf.hiddenCards.push(h); UI.render(); }   // 예상 밖 실패 — 다시 숨김
 }
 
 // playCardFromHand에서 fromHidden 유닛의 카드 번호 참조 보정
@@ -999,6 +990,7 @@ playCardFromHand = async function(p, handIdx, opts={}){
     const P=G.players[p];
     P.hand.unshift(opts.directN); // 임시 삽입
     const r = await _origPlay(p, 0, {...opts});
+    if(r===false && P.hand[0]===opts.directN) P.hand.shift(); // 실패 시 임시 삽입 회수 (손패로 순간이동 방지)
     return r;
   }
   return _origPlay(p, handIdx, opts);
@@ -1069,6 +1061,14 @@ function releaseEmptyBattlefields(){
     if(bf.controller!==null && bf.units.length===0){
       UI.log(`「${card(bf.n).ko}」 — 유닛이 없어 무주공산이 됩니다 (통제 해제)`, 'sys');
       bf.controller=null;
+      // 통제를 잃으면 뒷면(숨김) 카드는 다음 클린업에 제거된다 (공식 106.4.e).
+      // 정복으로 뺏길 때(resolveShowdown)만 처리하고 여기가 빠져 있어서,
+      // 효과로 전멸당해 무주공산이 된 전장에 숨김 카드가 계속 남아 있었다.
+      if(bf.hiddenCards.length){
+        bf.hiddenCards.forEach(hc=>{ G.players[hc.by].trash.push(hc.n); });
+        UI.log(`숨겨둔 카드 ${bf.hiddenCards.length}장이 폐기되었습니다 (전장 통제 상실)`, 'sys');
+        bf.hiddenCards=[];
+      }
     }
     if(bf.units.length===0) bf.contestedBy=null;   // 유닛이 모두 떠나면 경합도 해제
   });

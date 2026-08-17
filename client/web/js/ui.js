@@ -118,6 +118,25 @@ function _pickUnitLocal(p, candidates, promptText, optional){
 let _pickableUids = null;
 UI.isPicking = ()=>!!_resolver; // 봇 등 외부에서 선택 대기 여부 확인용
 
+// 텍스트 안의 「카드명」에 호버 미리보기를 달아 el에 채운다.
+// 로그(logEntryEl)와 같은 규칙이지만, 모달 안에서는 사이드 인스펙터가 오버레이에 가려지므로
+// 모달 위에 뜨는 미리보기(attachCardHover의 #card-hover)를 쓴다.
+// 예: 응수 창 제목 "「수렴 변이」 플레이 — [반응]으로 응수할까요?"의 카드명에 마우스를 올리면 효과가 보인다.
+function cardifyInto(el, text){
+  String(text).split(/(「[^」]+」)/).forEach(seg=>{
+    const m=seg.match(/^「([^」]+)」$/);
+    const c=m && nameToCard(m[1]);
+    if(c){
+      const span=document.createElement('span');
+      span.className='log-card';
+      span.textContent=seg;
+      attachCardHover(span, c);
+      el.appendChild(span);
+    } else el.appendChild(document.createTextNode(seg));
+  });
+  return el;
+}
+
 // 옵션 선택 (인덱스 기반 동기화)
 UI.pickOption = function(p, title, options){
   return routedPick(p,
@@ -129,7 +148,10 @@ UI.pickOption = function(p, title, options){
 function _pickOptionLocal(p, title, options, cancelLabel){
   return new Promise(res=>{
     const box=document.getElementById('modal-box');
-    box.innerHTML=`<h3>👉 ${esc(pname(p))}: ${esc(title)}</h3>`;
+    box.innerHTML='';
+    const h=document.createElement('h3');
+    cardifyInto(h, `👉 ${pname(p)}: ${title}`);   // 제목 속 「카드명」도 호버로 확인 가능
+    box.appendChild(h);
     const btns=document.createElement('div'); btns.className='modal-btns';
     options.forEach((o,i)=>{
       const b=document.createElement('button'); b.className='primary'; b.textContent=o.label;
@@ -161,8 +183,11 @@ UI.confirmP = function(p, text, previewCard){
 function _confirmLocal(p, text, previewCard){
   return new Promise(res=>{
     const box=document.getElementById('modal-box');
-    box.innerHTML=`<h3>👉 ${esc(pname(p))}</h3>
-      <div style="font-size:15px;line-height:1.65;max-width:420px;margin-bottom:8px">${esc(text)}</div>`;
+    box.innerHTML=`<h3>👉 ${esc(pname(p))}</h3>`;
+    const body=document.createElement('div');
+    body.style.cssText='font-size:15px;line-height:1.65;max-width:420px;margin-bottom:8px';
+    cardifyInto(body, text);                      // 확인 창의 「카드명」도 호버로 확인 가능
+    box.appendChild(body);
     if(previewCard){
       UI.inspect(previewCard);
       const wrap=document.createElement('div'); wrap.className='modal-cards';
@@ -492,6 +517,43 @@ function optionCard(o){
   if(o.n !== undefined && o.n !== null){ try { return card(o.n) || null; } catch(e){ return null; } }
   return null;
 }
+
+// ---------- 폐기장 목록 ----------
+// 폐기 더미를 클릭하면 안에 뭐가 있는지 순서와 함께 보여 준다 (폐기장은 공개 정보).
+// 번호 = 버려진 순서 (1이 가장 먼저, 마지막 번호가 가장 최근 = 더미 맨 위).
+function showTrashList(p){
+  if(!G) return;
+  const ov=document.getElementById('modal-overlay');
+  if(ov.style.display!=='none') return;          // 선택 대기 모달을 덮어쓰지 않는다
+  const arr=G.players[p].trash;
+  const box=document.getElementById('modal-box');
+  box.innerHTML=`<h3>🗑 ${esc(pname(p))}의 폐기장 — ${arr.length}장</h3>
+    <div style="font-size:12px;color:#9aa4bd;margin-bottom:8px">
+    번호는 버려진 순서입니다 (1 = 가장 먼저, ${arr.length||1} = 가장 최근 · 더미 맨 위)</div>`;
+  if(!arr.length){
+    box.innerHTML+='<div style="color:#5a6a90;padding:14px 4px">비어 있습니다</div>';
+  } else {
+    const wrap=document.createElement('div'); wrap.className='modal-cards';
+    arr.forEach((n,i)=>{
+      const el=cardMiniEl(card(n));
+      const b=document.createElement('div'); b.className='cm-order'; b.textContent=i+1;
+      el.appendChild(b);
+      attachCardHover(el, card(n));              // 모달 안이라 인스펙터 대신 호버 미리보기
+      wrap.appendChild(el);
+    });
+    box.appendChild(wrap);
+  }
+  const btns=document.createElement('div'); btns.className='modal-btns';
+  const close=document.createElement('button'); close.textContent='닫기'; close.onclick=closeModal;
+  btns.appendChild(close); box.appendChild(btns);
+  openModal(); markModalDismissable();
+}
+window.addEventListener('DOMContentLoaded', ()=>{
+  [0,1].forEach(p=>{
+    const el=document.getElementById('trash-'+p);
+    if(el){ el.title='클릭: 폐기장 내용 보기'; el.addEventListener('click', ()=>showTrashList(p)); }
+  });
+});
 
 // ---------- 카드 확대 (롱프레스 / Alt+클릭) ----------
 UI.showZoom = function(c){

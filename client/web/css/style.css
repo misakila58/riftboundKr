@@ -452,6 +452,15 @@ body.modal-open #inspector {
 /* 카드가 걸린 선택지 버튼임을 알린다 */
 .modal-btns button.has-card { cursor:help; }
 .modal-btns button.has-card::after { content:' 🔍'; font-size:11px; opacity:.6; }
+/* 폐기장 목록 — 버려진 순서 배지 + 더미 클릭 유도 */
+.pile.trash { cursor:pointer; }
+.pile.trash:hover { border-color:#8a7a4a; }
+.modal-cards .cm-order {
+  position:absolute; top:2px; left:2px; min-width:16px; padding:0 3px;
+  background:#0a1120e0; border:1px solid #4a6a9a; border-radius:8px;
+  font-size:10px; font-weight:bold; color:#ffd98a; text-align:center; line-height:15px;
+  pointer-events:none;
+}
 
 #build-tag { position:fixed; right:8px; bottom:6px; z-index:50; font-size:11px; color:#5a6a90; pointer-events:none; }
 
@@ -841,23 +850,46 @@ body.replay-mode #legal-footer { display:none; }
 .fx-band-p0 span { color:#9fc8ff; } .fx-band-p1 span { color:#ffc89f; }
 .fx-band-p0 { border-top:2px solid #4a7ab8; border-bottom:2px solid #4a7ab8; }
 .fx-band-p1 { border-top:2px solid #b87a4a; border-bottom:2px solid #b87a4a; }
-@keyframes fxBand { 0%{opacity:0;transform:scaleX(.2)} 20%{opacity:1;transform:scaleX(1)}
-                    75%{opacity:1;transform:scaleX(1)} 100%{opacity:0;transform:scaleX(1.05)} }
+.fx-band { animation-duration:1.6s; }
+@keyframes fxBand { 0%{opacity:0;transform:scaleX(.2)} 14%{opacity:1;transform:scaleX(1)}
+                    80%{opacity:1;transform:scaleX(1)} 100%{opacity:0;transform:scaleX(1.05)} }
 
-/* 행동 차례 전환 (간단히) */
+/* 턴 시작 대형 띠 — 턴 전환은 가장 중요한 신호라 크고 길게 (2.4초) */
+.fx-turnstart { height:96px; animation:fxBandBig 2.4s cubic-bezier(.2,.7,.3,1) forwards; }
+.fx-turnstart span { font-size:34px; letter-spacing:5px; }
+.fx-turnstart.fx-band-p0 {
+  background:linear-gradient(90deg,transparent,rgba(18,36,72,.95) 16%,rgba(18,36,72,.95) 84%,transparent);
+  border-top:3px solid #5a90d8; border-bottom:3px solid #5a90d8; box-shadow:0 0 44px rgba(90,144,216,.45);
+}
+.fx-turnstart.fx-band-p1 {
+  background:linear-gradient(90deg,transparent,rgba(72,40,16,.95) 16%,rgba(72,40,16,.95) 84%,transparent);
+  border-top:3px solid #d8905a; border-bottom:3px solid #d8905a; box-shadow:0 0 44px rgba(216,144,90,.45);
+}
+@keyframes fxBandBig { 0%{opacity:0;transform:scaleX(.12)} 10%{opacity:1;transform:scaleX(1.02)}
+                       16%{transform:scaleX(1)} 84%{opacity:1;transform:scaleX(1)}
+                       100%{opacity:0;transform:scaleX(1.04)} }
+
+/* 행동 차례 전환 배지 — 1.8초, 크게 */
 .fx-turnbadge {
   left:50%; top:14%; transform:translateX(-50%);
-  padding:5px 16px; border-radius:20px; font-size:15px; font-weight:bold;
-  background:rgba(10,14,24,.9); border:1px solid currentColor; text-shadow:0 1px 3px #000;
-  animation:fxBadge .9s ease-out forwards;
+  padding:8px 22px; border-radius:22px; font-size:19px; font-weight:bold;
+  background:rgba(10,14,24,.94); border:2px solid currentColor; text-shadow:0 1px 3px #000;
+  box-shadow:0 0 22px currentColor;
+  animation:fxBadge 1.8s ease-out forwards;
 }
 .fx-turnbadge-p0 { color:#9fc8ff; } .fx-turnbadge-p1 { color:#ffc89f; }
-@keyframes fxBadge { 0%{opacity:0;transform:translateX(-50%) translateY(-10px)}
-                     18%{opacity:1;transform:translateX(-50%) translateY(0)}
-                     78%{opacity:1} 100%{opacity:0;transform:translateX(-50%) translateY(-6px)} }
-.player-area.fx-pulse { animation:fxPulse .9s ease-out; border-radius:10px; }
-@keyframes fxPulse { 0%{box-shadow:0 0 0 0 rgba(255,224,127,0)} 25%{box-shadow:0 0 0 3px rgba(255,224,127,.7),0 0 22px rgba(255,224,127,.35)}
-                     100%{box-shadow:0 0 0 0 rgba(255,224,127,0)} }
+@keyframes fxBadge { 0%{opacity:0;transform:translateX(-50%) translateY(-12px) scale(.9)}
+                     10%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.05)}
+                     16%{transform:translateX(-50%) scale(1)}
+                     85%{opacity:1} 100%{opacity:0;transform:translateX(-50%) translateY(-6px)} }
+/* 진영 테두리 펄스 — 진영 색으로, 두 박자(강→약)로 길게 */
+.player-area.fx-pulse { animation:fxPulse 1.8s ease-out; border-radius:10px; }
+.player-area.fx-pulse-p0 { --pulse:90,150,255; }
+.player-area.fx-pulse-p1 { --pulse:255,160,84; }
+@keyframes fxPulse { 0%{box-shadow:0 0 0 0 rgba(var(--pulse,255,224,127),0)}
+                     15%{box-shadow:0 0 0 5px rgba(var(--pulse,255,224,127),.9),0 0 38px rgba(var(--pulse,255,224,127),.5)}
+                     60%{box-shadow:0 0 0 3px rgba(var(--pulse,255,224,127),.45),0 0 20px rgba(var(--pulse,255,224,127),.25)}
+                     100%{box-shadow:0 0 0 0 rgba(var(--pulse,255,224,127),0)} }
 
 /* 득점 */
 .fx-score {
@@ -874,7 +906,8 @@ body.replay-mode #legal-footer { display:none; }
 @media (orientation:landscape) and (max-height:520px){
   .fx-cast img { width:88px; } .fx-cast-cap { font-size:11px; padding:2px 8px; }
   .fx-band { height:40px; } .fx-band span { font-size:15px; }
-  .fx-turnbadge { font-size:11px; padding:3px 10px; top:8%; }
+  .fx-turnstart { height:58px; } .fx-turnstart span { font-size:21px; letter-spacing:3px; }
+  .fx-turnbadge { font-size:13px; padding:5px 14px; top:8%; }
   .fx-score { font-size:24px; }
   .fx-num { font-size:14px; }
   .rune-mini .rm-dom { font-size:8px; }
