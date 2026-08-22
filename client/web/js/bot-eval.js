@@ -124,7 +124,7 @@ function evalCombat(p, bfIdx, units, extraDef){
 
   // 처치 수: 치사량이 작은 것부터 채우면 최대가 된다
   const kills = (total, targets, role) => {
-    const leth = targets.map(u=>Math.max(1, might(u,role)-u.dmg)).sort((a,b)=>a-b);
+    const leth = targets.map(u=>Math.max(1, might(u,role,{forKill:true})-u.dmg)).sort((a,b)=>a-b);  // 기절 유닛도 원래 위력만큼 필요 (룰 410.1.c)
     let rest = total, k = 0;
     for(const l of leth){ if(rest >= l){ rest -= l; k++; } else break; }
     return k;

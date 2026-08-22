@@ -314,7 +314,7 @@ POLICY.mulligan = function(p){
 POLICY.assignTarget = function(p, candidates, remain, role){
   if(!candidates.length) return null;
   if(!polSmart()) return candidates[0];
-  const lethal = u => Math.max(1, might(u, role) - u.dmg);
+  const lethal = u => Math.max(1, might(u, role, {forKill:true}) - u.dmg);  // 기절 유닛도 원래 위력만큼 필요 (룰 410.1.c)
   const killable = candidates.filter(u=>lethal(u) <= remain);
   const pool = killable.length ? killable : candidates;
   const u = [...pool].sort((a,b)=>lethal(a)-lethal(b))[0];

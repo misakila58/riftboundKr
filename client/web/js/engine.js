@@ -121,8 +121,9 @@ function aloneAt(u){
 }
 
 // 유효 위력 (전투 상황 반영)
-function might(u, combatRole){
-  if(u.stunned && combatRole) return 0;
+function might(u, combatRole, opts){
+  // 기절: 전투 피해 기여만 0 — 처치 기준(forKill)에는 원래 위력을 사용한다 (공식 룰)
+  if(u.stunned && combatRole && !(opts && opts.forKill)) return 0;
   const c = unitCard(u);
   let m = (u.isToken? u.tokenMight : (c.m||0)) + u.buff;
   u.tempM.forEach(t=>{ m += t.v; });
@@ -395,7 +396,7 @@ function applyMulligan(p, idxs){
     const back=[];
     [...idxs].slice(0,2).sort((a,b)=>b-a).forEach(i=>{ const n=P.hand.splice(i,1)[0]; if(n!==undefined) back.push(n); });
     for(let i=0;i<back.length;i++) drawCard(p, true);  // 먼저 뽑고
-    P.deck.push(...back);                              // 빼둔 카드는 덱 맨 아래로 (섞지 않음)
+    P.deck.push(...shuffle(back));                     // 빼둔 카드는 무작위 순서로 덱 맨 아래로 (공식: 동시 재활용은 무작위)
     UI.log(`${pname(p)} 멀리건: ${back.length}장 교체 (덱 아래로 재활용)`, 'sys');
   } else {
     UI.log(`${pname(p)} 멀리건 없이 시작`, 'sys');
@@ -464,8 +465,8 @@ async function startTurn(){
   G.phase='draw'; UI.render();
   drawCard(p);
 
-  // 룬 풀 비우기
-  P.energy=0; Object.keys(P.power).forEach(k=>P.power[k]=0);
+  // 룬 풀 비우기 (공식: 드로우 단계가 끝나면 모든 플레이어의 풀이 비워진다)
+  G.players.forEach(pl=>{ pl.energy=0; Object.keys(pl.power).forEach(k=>pl.power[k]=0); });
 
   G.phase='action'; G.state='neutral';
   G.actingPlayer=p; // 이전 턴 결전 해결 시점의 행동 권한이 남지 않도록 턴 주인으로 초기화
@@ -510,12 +511,18 @@ function dealDamage(u, n, kind){
   return n;
 }
 async function buffUnit(u, byP){
-  u.buff++;
+  // 공식 룰: 유닛당 버프는 1개까지 — 이미 버프가 있으면 놓이지 않는다 (선택은 가능하되 효과 없음)
+  if(u.buff>=1){
+    UI.log(`${unitName(u)}은(는) 이미 버프가 있어 추가 버프가 놓이지 않음`, 'p'+byP);
+    return false;
+  }
+  u.buff=1;
   const extra=TF().buffPlus[byP]||0;
   if(extra) u.tempM.push({v:extra, dur:'turn'});
   UI.fx.unit(u, 'buff', '+'+(1+extra)+'⚔');
   UI.log(`${unitName(u)} 버프 (+1⚔${extra?` +${extra} 추가`:''})`, 'p'+byP);
   await fireEvent('onYouBuff', {p:byP, it:u});
+  return true;
 }
 async function readyUnit(u, byP){
   // 마법사냥꾼 간수: 적 유닛/도구는 준비 불가
@@ -1222,8 +1229,8 @@ async function resolveShowdown(){
     const defSum = defUnits().reduce((s,u)=>s+might(u,'defender'),0);
     UI.log(`전투! 공격 위력 합 ${atkSum} vs 방어 위력 합 ${defSum}`, 'combat');
 
-    // 초과 피해 (트린다미어): 방어측 총 체력 대비
-    const defHealth = defUnits().reduce((s,u)=>s+Math.max(0,might(u,'defender')-u.dmg),0);
+    // 초과 피해 (트린다미어): 방어측 총 체력 대비 (처치 기준 전투력)
+    const defHealth = defUnits().reduce((s,u)=>s+Math.max(0,might(u,'defender',{forKill:true})-u.dmg),0);
     sd.excess = Math.max(0, atkSum - defHealth);
 
     // 피해 배분 (치명 우선, 탱커 우선)
@@ -1236,7 +1243,7 @@ async function resolveShowdown(){
     // 사망 처리
     const dead = bf.units.filter(u=>{
       const role = u.ctrl===sd.attacker?'attacker':'defender';
-      return (u.dmg>0 && u.dmg>=might(u,role)) || u._decree;
+      return (u.dmg>0 && u.dmg>=might(u,role,{forKill:true})) || u._decree;
     });
     // 솔라리의 상징: 공격측 보유 + 무승부(모두 사망)면 모두 기지 귀환
     if(dead.length===bf.units.length && dead.length>0 && G.players[sd.attacker].gear.some(g=>g.n===227)){
@@ -1247,8 +1254,8 @@ async function resolveShowdown(){
     }
   }
 
-  // 해결 단계: 생존자 치유, 방어자 잔존 시 공격자 기지 귀환
-  bf.units.forEach(u=>u.dmg=0);
+  // 해결 단계: 전투 정리 — 모든 유닛 치유 (공식: 전장 밖 유닛 포함), 방어자 잔존 시 공격자 본진 귀환
+  everyUnit().forEach(u=>u.dmg=0);
   if(defUnits().length && atkUnits().length){
     UI.log(`방어 성공 — 공격 유닛은 기지으로 귀환합니다`, 'combat');
     atkUnits().forEach(u=>{ removeUnit(u); placeUnit(u,'base'); });
@@ -1313,7 +1320,7 @@ async function assignDamage(assigner, total, targets, role){
         `${pname(assigner)}: 피해를 배분할 유닛 선택 (남은 피해 ${remain})`);
       if(!pick) pick=candidates[0];
     }
-    const m = might(pick, role);
+    const m = might(pick, role, {forKill:true}); // 기절 유닛도 원래 전투력만큼 치명 배분 필요
     const lethal = Math.max(1,m - pick.dmg);
     const dealt = Math.min(remain, lethal);
     // 치명 우선 규칙: 남은 피해가 치명 미만이고 다른 대상이 없으면 그대로
@@ -1999,7 +2006,7 @@ async function equipGear(p, gearIdx){
 const ManualTools = {
   damage(u,n){ u.dmg+=n; UI.log(`(수동) ${unitName(u)} 피해 ${n}`, 'sys'); cleanup(G.turn).then(()=>UI.render()); },
   heal(u){ u.dmg=0; UI.render(); },
-  buff(u){ u.buff++; UI.log(`(수동) ${unitName(u)} 버프`, 'sys'); UI.render(); },
+  buff(u){ if(u.buff<1){ u.buff=1; UI.log(`(수동) ${unitName(u)} 버프`, 'sys'); } UI.render(); },
   unbuff(u){ u.buff=Math.max(0,u.buff-1); UI.render(); },
   might(u,n){ u.tempM.push({v:n,dur:'turn'}); UI.log(`(수동) ${unitName(u)} 위력 ${n>0?'+':''}${n}`, 'sys'); UI.render(); },
   kill(u){ killUnit(u).then(()=>UI.render()); },

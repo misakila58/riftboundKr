@@ -579,6 +579,37 @@ body.modal-open #inspector {
   border:1px solid #3a4a70; background:#0e1626; color:#9fd8ff; font-size:11px; font-family:monospace;
 }
 .p2p-status { min-height:20px; font-size:13px; color:#ffe07f; line-height:1.5; }
+/* ── 6자리 방 코드 ── */
+.p2p-code-box {
+  background:#0e1626; border:1px solid #3a4a70; border-radius:10px;
+  padding:12px; display:flex; flex-direction:column; gap:8px; align-items:center;
+}
+.p2p-code-label { font-size:11px; color:#8fa; letter-spacing:.5px; }
+.p2p-code {
+  font-family:monospace; font-size:34px; font-weight:700; letter-spacing:6px;
+  color:#ffe07f; text-shadow:0 0 12px rgba(255,224,127,.35); user-select:all;
+}
+.p2p-code-in {
+  width:100%; padding:12px; border-radius:8px; border:1px solid #3a4a70;
+  background:#0e1626; color:#ffe07f; font-family:monospace; font-weight:700;
+  font-size:26px; letter-spacing:5px; text-align:center; text-transform:uppercase;
+}
+.p2p-code-in::placeholder { color:#44557a; letter-spacing:5px; }
+
+/* ── 고급(폴백) 접이식 ── */
+.p2p-adv { margin-top:18px; border-top:1px solid #2e3d5e; padding-top:12px; }
+.p2p-adv > summary {
+  cursor:pointer; font-size:13px; color:#9aa4bd; padding:6px 2px; user-select:none;
+}
+.p2p-adv > summary:hover { color:#d8c27a; }
+.p2p-adv-body { padding-top:10px; }
+.p2p-adv-body > label { display:block; font-size:12px; color:#8fa; margin:6px 0 4px; }
+.p2p-adv-body > input {
+  width:100%; max-width:520px; padding:9px; border-radius:8px; border:1px solid #3a4a70;
+  background:#0e1626; color:#e8e6e0; font-size:13px;
+}
+.hint-inline { color:#6b7a99; font-weight:400; }
+
 
 /* ══════════ Riot 팬 콘텐츠 정책 필수 고지 ══════════ */
 #legal-footer {

@@ -1,2 +1,2 @@
 // 생성물: build-prep.js가 빌드 시 자동 갱신 (직접 수정 금지)
-const BUILDINFO={version:"1.0.24",built:"2026-08-23 02:47"};
+const BUILDINFO={version:"1.0.26",built:"2026-08-23 05:11"};

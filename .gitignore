@@ -25,6 +25,7 @@ data/db.json
 
 # 대용량/저작권 원본 (재수집 가능) — Riot 규칙 PDF는 재배포하지 않음
 tools/data/*.pdf
+client/web/assets/*.pdf
 tools/data/rules*.txt
 tools/data/ogn_*.json
 

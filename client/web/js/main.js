@@ -834,75 +834,134 @@ async function copyText(ta){
   try{ await navigator.clipboard.writeText(ta.value); UI.toast('복사되었습니다!'); }
   catch(e){ document.execCommand('copy'); UI.toast('복사되었습니다!'); }
 }
+async function copyStr(text){
+  try{ await navigator.clipboard.writeText(text); UI.toast('복사되었습니다!'); }
+  catch(e){ UI.toast('복사하지 못했습니다. 직접 선택해 복사해 주세요.','warn'); }
+}
+// 시그널링 설정: 비워 두면 공개 브로커, 채우면 직접 띄운 서버 (양쪽이 같아야 함)
+function p2pSignalOpts(){
+  return { signalUrl: (localStorage.getItem('rb_signal_url')||'').trim() };
+}
 function initP2P(){
-  document.getElementById('btn-goto-p2p').onclick=()=>{
-    document.getElementById('p2p-nick').value=localStorage.getItem('rb_nick')||'';
+  const $ = id => document.getElementById(id);
+  let role = null;   // 'host' | 'guest' — 연결 전 단계의 안내를 어느 쪽에 띄울지
+
+  $('btn-goto-p2p').onclick=()=>{
+    $('p2p-nick').value=localStorage.getItem('rb_nick')||'';
+    $('p2p-signal-url').value=localStorage.getItem('rb_signal_url')||'';
     p2pRefreshDecks();
     showScreen('p2p-screen');
   };
-  document.getElementById('btn-p2p-back').onclick=()=>{ P2P.reset(); showScreen('connect-screen'); };
-  document.getElementById('btn-p2p-decks').onclick=()=>{
+  $('btn-p2p-back').onclick=()=>{ P2P.reset(); showScreen('connect-screen'); };
+  $('btn-p2p-decks').onclick=()=>{
     DeckStore.local=true; DeckStore.returnTo='p2p-screen';
     DeckStore.list().then(d=>{ myDecks=d; renderDeckList(); showScreen('decks-screen'); });
   };
-  const hostStatus=t=>document.getElementById('p2p-host-status').textContent=t;
-  const guestStatus=t=>document.getElementById('p2p-guest-status').textContent=t;
+  $('p2p-signal-url').onchange=(e)=>localStorage.setItem('rb_signal_url', e.target.value.trim());
+
+  const hostStatus=t=>$('p2p-host-status').textContent=t;
+  const guestStatus=t=>$('p2p-guest-status').textContent=t;
 
   // 연결 상태 표시 (게임 시작은 start 메시지가 처리)
-  P2P.onStatus=(s)=>{
-    const set=(t)=>{ (P2P.isHost?hostStatus:guestStatus)(t); };
+  P2P.onStatus=(s, msg)=>{
+    // 연결 전에는 P2P.isHost가 아직 안 정해진 구간이 있어 role을 함께 본다
+    const set=(t)=>{ ((role ? role==='host' : P2P.isHost) ? hostStatus : guestStatus)(t); };
     if(s==='connected'){ hostStatus('✅ 연결됨! 게임을 시작합니다...'); guestStatus('✅ 연결됨! 게임을 시작합니다...'); }
+    else if(s==='answered'){ set('상대를 찾았습니다. 연결하는 중...'); }
+    else if(s==='sigerror'){ set('오류: '+msg); }
     else if(s==='failed'){
       set('❌ P2P 연결 실패 — 네트워크가 WebRTC 직결을 차단하는 것 같습니다 (사내망·방화벽·일부 공유기). '
         +'① Windows 방화벽에서 이 앱 허용 확인 ② 휴대폰 핫스팟으로 재시도 ③ 같은 네트워크라면 서버 모드(방법 B)가 확실합니다.');
       UI.toast('P2P 연결 실패 — 네트워크가 직결을 차단하는 것 같습니다','warn');
     }
     else if(s==='stalled'){
-      set(P2P.isHost
+      set((role ? role==='host' : P2P.isHost)
         ? '⏳ 20초째 연결 중 — 계속 안 되면 사내망/방화벽의 P2P 차단일 가능성이 큽니다. 휴대폰 핫스팟으로 시험해 보거나 서버 모드(방법 B)를 사용하세요.'
-        : '⏳ 아직 연결 대기 중 — 방장이 [연결하기]를 아직 안 눌렀거나, 네트워크가 P2P를 차단 중일 수 있습니다. 1분 넘게 지속되면 서버 모드(방법 B)를 사용하세요.');
+        : '⏳ 아직 연결 대기 중 — 네트워크가 P2P를 차단 중일 수 있습니다. 1분 넘게 지속되면 서버 모드(방법 B)를 사용하세요.');
     }
   };
 
-  // ── 호스트 ──
-  document.getElementById('btn-p2p-host').onclick=async ()=>{
+  // ══ 기본: 6자리 방 코드 ══
+  $('btn-p2p-host').onclick=async ()=>{
     const deck=p2pGetDeck();
     if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
-    const ban=document.getElementById('p2p-ban').checked;
+    const ban=$('p2p-ban').checked;
     if(!banSelfCheck(ban, deck)) return;
+    role='host';
+    $('p2p-code-box').style.display='none';
+    hostStatus('방을 만드는 중... (몇 초 걸릴 수 있음)');
+    try{
+      const manual = !$('p2p-auto').checked;
+      const code=await P2P.hostViaCode(p2pNick(), deck, manual, ban, p2pSignalOpts());
+      $('p2p-code').textContent=SIGNAL.pretty(code);
+      $('p2p-code-box').style.display='';
+      hostStatus('친구가 코드를 입력하기를 기다리는 중...');
+    }catch(e){
+      hostStatus('오류: '+e.message+' — [고급]에서 코드를 직접 교환해 보세요.');
+    }
+  };
+  $('btn-copy-code').onclick=()=>copyStr(SIGNAL.pretty(P2P.roomCode||''));
+
+  // 입력 편의: 대문자 + 3글자 뒤 하이픈 자동
+  $('p2p-code-in').oninput=(e)=>{
+    const raw=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,SIGNAL.CODE_LEN);
+    e.target.value = raw.length>3 ? raw.slice(0,3)+'-'+raw.slice(3) : raw;
+  };
+  $('p2p-code-in').onkeydown=(e)=>{ if(e.key==='Enter') $('btn-p2p-join').click(); };
+
+  $('btn-p2p-join').onclick=async ()=>{
+    const deck=p2pGetDeck();
+    if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+    const ban=$('p2p-ban').checked;
+    if(!banSelfCheck(ban, deck)) return;
+    const raw=$('p2p-code-in').value.trim();
+    if(!raw){ UI.toast('방 코드를 입력하세요','warn'); return; }
+    role='guest';
+    guestStatus('방을 찾는 중...');
+    try{ await P2P.joinViaCode(p2pNick(), deck, raw, ban, p2pSignalOpts()); }
+    catch(e){ guestStatus('오류: '+e.message); }
+  };
+
+  // ══ 고급(폴백): 초대/응답 코드 직접 교환 ══
+  $('btn-p2p-host-manual').onclick=async ()=>{
+    const deck=p2pGetDeck();
+    if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+    const ban=$('p2p-ban').checked;
+    if(!banSelfCheck(ban, deck)) return;
+    role='host';
     hostStatus('초대 코드 생성 중... (몇 초 걸릴 수 있음)');
     try{
-      const manual = !document.getElementById('p2p-auto').checked;
+      const manual = !$('p2p-auto').checked;
       const code=await P2P.host(p2pNick(), deck, manual, ban);
-      document.getElementById('p2p-offer-out').value=code;
+      $('p2p-offer-out').value=code;
       hostStatus('① 초대 코드를 친구에게 보내고, ② 응답 코드를 기다리세요.');
     }catch(e){ hostStatus('오류: '+e.message); }
   };
-  document.getElementById('btn-copy-offer').onclick=()=>copyText(document.getElementById('p2p-offer-out'));
-  document.getElementById('btn-p2p-connect').onclick=async ()=>{
-    const code=document.getElementById('p2p-answer-in').value.trim();
+  $('btn-copy-offer').onclick=()=>copyText($('p2p-offer-out'));
+  $('btn-p2p-connect').onclick=async ()=>{
+    const code=$('p2p-answer-in').value.trim();
     if(!code){ UI.toast('응답 코드를 붙여넣으세요','warn'); return; }
+    role='host';
     hostStatus('연결 중...');
     try{ await P2P.acceptAnswer(code); }
     catch(e){ hostStatus('오류: '+e.message); }
   };
-
-  // ── 게스트 ──
-  document.getElementById('btn-p2p-join').onclick=async ()=>{
+  $('btn-p2p-join-manual').onclick=async ()=>{
     const deck=p2pGetDeck();
     if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
-    const ban=document.getElementById('p2p-ban').checked;
+    const ban=$('p2p-ban').checked;
     if(!banSelfCheck(ban, deck)) return;
-    const code=document.getElementById('p2p-offer-in').value.trim();
+    const code=$('p2p-offer-in').value.trim();
     if(!code){ UI.toast('초대 코드를 붙여넣으세요','warn'); return; }
+    role='guest';
     guestStatus('응답 코드 생성 중... (몇 초 걸릴 수 있음)');
     try{
       const ans=await P2P.join(p2pNick(), deck, code, ban);
-      document.getElementById('p2p-answer-out').value=ans;
+      $('p2p-answer-out').value=ans;
       guestStatus('응답 코드를 방장에게 보내세요. 방장이 [연결하기]를 누르면 자동 시작!');
     }catch(e){ guestStatus('오류: '+e.message); }
   };
-  document.getElementById('btn-copy-answer').onclick=()=>copyText(document.getElementById('p2p-answer-out'));
+  $('btn-copy-answer').onclick=()=>copyText($('p2p-answer-out'));
 }
 
 // ---------- 재대결 (온라인 로비/P2P 공용 — 액션 릴레이에 핸드셰이크를 태운다) ----------
