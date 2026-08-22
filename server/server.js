@@ -67,18 +67,19 @@ const LIMITS = {
 };
 
 // ---------- 카드 검증 데이터 로드 ----------
-const VALID = { legend: new Set(), champ: new Set(), main: new Set(), rune: new Set(), bf: new Set(), size: 0 };
+const VALID = { legend: new Set(), champ: new Set(), main: new Set(), rune: new Set(), bf: new Set(), sig: new Set(), tags: {}, size: 0 };
 (function loadCards() {
   const candidates = [path.join(BASE, 'cards.json'), path.join(__dirname, 'cards.json')];
   for (const f of candidates) {
     try {
       const arr = JSON.parse(fs.readFileSync(f, 'utf8'));
       for (const c of arr) {
-        if (c.type === 'Legend') VALID.legend.add(c.n);
+        if (c.type === 'Legend') { VALID.legend.add(c.n); if (c.tags) VALID.tags[c.n] = c.tags; }
         else if (c.type === 'Rune') VALID.rune.add(c.n);
         else if (c.type === 'Battlefield') VALID.bf.add(c.n);
         else if (['Unit', 'Spell', 'Gear'].includes(c.type) && c.super !== 'Token') {
           VALID.main.add(c.n);
+          if (c.super === 'Signature') { VALID.sig.add(c.n); if (c.tags) VALID.tags[c.n] = c.tags; }
           if (c.type === 'Unit' && c.super === 'Champion') VALID.champ.add(c.n);
         }
       }
@@ -223,6 +224,11 @@ function validDeck(d) {
     if (VALID.main.size && !VALID.main.has(n)) return '유효하지 않은 카드가 포함됨';
     counts[n] = (counts[n] || 0) + 1;
     if (counts[n] > 3) return '같은 카드는 3장까지입니다';
+    // 시그니처 카드는 같은 챔피언의 전설 덱에만 (예: 티버스는 애니 전설)
+    if (VALID.sig.has(n)) {
+      const st = VALID.tags[n] || [], lt = VALID.tags[d.legendN] || [];
+      if (!st.some(t => lt.includes(t))) return '시그니처 카드는 같은 챔피언의 전설 덱에만 넣을 수 있습니다';
+    }
   }
   for (const n of d.runes) if (!Number.isInteger(n) || (VALID.rune.size && !VALID.rune.has(n))) return '유효하지 않은 룬이 포함됨';
   for (const n of d.bfs) if (!Number.isInteger(n) || (VALID.bf.size && !VALID.bf.has(n))) return '유효하지 않은 전장이 포함됨';

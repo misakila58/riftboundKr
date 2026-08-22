@@ -95,6 +95,10 @@ function collectStatics(){
     const bfx=FX[bf.n];
     if(bfx&&bfx.statics) for(const s of bfx.statics) out.push({s, p:bf.controller, bfIdx:i});
   });
+  for(const pi of [0,1]){                       // 전설의 상시효과 (OGS 스타터 전설 등)
+    const lfx=FX[G.players[pi].legendN];
+    if(lfx&&lfx.statics) for(const s of lfx.statics) out.push({s, p:pi, legend:true});
+  }
   return out;
 }
 function staticMatch(u, src, f){
@@ -139,6 +143,7 @@ function might(u, combatRole){
         if(s.kind==='mightAura' && staticMatch(u,src,s.filter)){ m+=s.n; if(s.min!==undefined) min=Math.max(min,s.min); }
         else if(s.kind==='selfMight' && src.unit===u) m+=s.fn(u)||0;
         else if(s.kind==='selfMightRole' && src.unit===u) m+=s.fn(u,combatRole)||0;
+        else if(s.kind==='auraMightRole' && src.p===u.ctrl) m+=s.fn(u,combatRole)||0;
       }
     } finally { _inStatic=false; }
   }
@@ -408,7 +413,7 @@ async function startTurn(){
   P.scoredBf={};
   G.bfs.forEach(bf=>bf.scored={});
   G.tflags=freshTF();
-  everyUnit().forEach(u=>{ u.turnMoves=0; u._armory=false; });
+  everyUnit().forEach(u=>{ u.turnMoves=0; u._armory=false; u._highlander=false; });
   G.phase='awaken'; UI.render();
   UI.log(`━━ ${pname(p)}의 턴 ${Math.ceil(G.turnCount/2)} ━━`, 'sys');
 
@@ -1329,6 +1334,14 @@ async function killUnit(u){
   const P=G.players[u.ctrl];
   const wasBuffed=u.buff>0, wasStunned=u.stunned, deathLoc=u.loc;
 
+  // 최후의 전사(OGS 320): 이번 턴 다음 사망 → 탈진 상태로 귀환 (대체, 비용 없음·강제)
+  if(u._highlander){
+    u._highlander=false;
+    u.dmg=0; u.ex=true; u._dead=false; u._decree=false;
+    removeUnit(u); placeUnit(u,'base');
+    UI.log(`「${unitName(u)}」 사망 대신 탈진 상태로 귀환 (최후의 전사)`, 'p'+u.ctrl);
+    UI.render(); return;
+  }
   // 무허가 무기고: 사망 대체 (분노 힘 1 지불)
   if(u._armory && canPay(u.ctrl,0,['Fury'])){
     const yes=await UI.confirmP(u.ctrl, `[무허가 무기고] 분노 힘 1을 지불하고 「${unitName(u)}」을(를) 회수할까요?`);
@@ -1613,8 +1626,13 @@ async function pickBySpec(p, spec, promptText){
 }
 
 // 전장 상시: 주문/능력 피해 +1
-function effDmgBonus(u){
-  return (u.loc!=='base' && G.bfs[u.loc] && G.bfs[u.loc].n===BF_STATIC.BONUS_DMG)?1:0;
+// 효과·주문 피해의 추가 피해. u=피해 대상, srcP=피해를 입히는 쪽(주문/능력의 시전자)
+function effDmgBonus(u, srcP){
+  let b = (u.loc!=='base' && G.bfs[u.loc] && G.bfs[u.loc].n===BF_STATIC.BONUS_DMG)?1:0;
+  // 애니 - 불같은(OGS 301): 내 주문·능력의 각 피해 +1 — 보드에 있는 동안
+  if(srcP!==undefined && srcP!==null &&
+     everyUnit().some(x=>x.ctrl===srcP && unitFx(x).spellBonusAll)) b+=1;
+  return b;
 }
 
 let _ctxBf = null;
@@ -1635,11 +1653,11 @@ async function execOps(ops, ctx){
       case 'drawIfHandLE': if(G.players[p].hand.length<=op.limit) for(let i=0;i<op.n;i++) drawCard(p); break;
       case 'damage': {
         const u=await pickBySpec(p, op.spec, `피해 ${op.n}을 줄 대상 선택`);
-        if(u){ const d=dealDamage(u, op.n+effDmgBonus(u), _curKind); it=u; UI.log(`${unitName(u)}에게 피해 ${d}`, 'combat'); }
+        if(u){ const d=dealDamage(u, op.n+effDmgBonus(u, p), _curKind); it=u; UI.log(`${unitName(u)}에게 피해 ${d}`, 'combat'); }
         break; }
       case 'damageAll': {
         const us=await pickBySpec(p,{...op.spec,count:'all'});
-        us.forEach(u=>{ dealDamage(u, op.n+effDmgBonus(u), _curKind); });
+        us.forEach(u=>{ dealDamage(u, op.n+effDmgBonus(u, p), _curKind); });
         UI.log(`대상 전체(${us.length})에게 피해 ${op.n}`, 'combat');
         break; }
       case 'dealSplit': {

@@ -9,13 +9,20 @@ const DATA = path.join(__dirname, 'data');
 const ROOT = path.join(__dirname, '..');
 
 const base = JSON.parse(fs.readFileSync(path.join(DATA, 'ogn_base.json'), 'utf8'));
+// OGS(증명의 전장, Origins: Proving Grounds) 24장 — n은 300+수집번호(301~324)로 부여해 OGN과 충돌하지 않게 한다
+const OGS_OFFSET = 300;
+const ogsFile = path.join(DATA, 'ogs_base.json');
+const ogs = fs.existsSync(ogsFile) ? JSON.parse(fs.readFileSync(ogsFile, 'utf8')) : [];
+ogs.forEach(c => { c.collector_number += OGS_OFFSET; });
 const ko = {};
 for (let i = 1; i <= 6; i++) {
   const f = path.join(DATA, `tr_out_batch${i}.json`);
   if (fs.existsSync(f)) JSON.parse(fs.readFileSync(f, 'utf8')).forEach(e => ko[e.n] = e);
 }
+const koOgs = path.join(DATA, 'tr_out_ogs.json');
+if (fs.existsSync(koOgs)) JSON.parse(fs.readFileSync(koOgs, 'utf8')).forEach(e => ko[e.n] = e);
 
-const db = base.map(c => ({
+const db = base.concat(ogs).map(c => ({
   n: c.collector_number,
   name: c.name,
   ko: (ko[c.collector_number] && ko[c.collector_number].name_ko) || c.name,
@@ -34,7 +41,12 @@ fs.writeFileSync(path.join(ROOT, 'client', 'web', 'js', 'cards.js'),
   '// Riftbound OGN card DB (data via Riftcodex API, KR fan translation)\n' +
   'const CARDS=' + JSON.stringify(db) + ';\nconst CARD_BY_N={};CARDS.forEach(c=>CARD_BY_N[c.n]=c);\n');
 
+// 서버 검증용 — 시그니처 카드는 전설 태그 일치 검사가 필요해서 태그를 함께 싣는다
 fs.writeFileSync(path.join(ROOT, 'server', 'cards.json'),
-  JSON.stringify(db.map(c => ({ n: c.n, type: c.type, super: c.super }))));
+  JSON.stringify(db.map(c => {
+    const e = { n: c.n, type: c.type, super: c.super };
+    if (c.super === 'Signature' || c.type === 'Legend') e.tags = c.tags;
+    return e;
+  })));
 
 console.log(`생성 완료: client/web/js/cards.js (${db.length}장), server/cards.json`);

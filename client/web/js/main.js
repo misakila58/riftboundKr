@@ -46,6 +46,8 @@ function buildDeck(legendN){
   const pool = CARDS.filter(c=>
     ['Unit','Spell','Gear'].includes(c.type) &&
     c.super!=='Token' &&
+    // 시그니처 카드는 같은 챔피언의 전설 덱에만 (OGS 티버스·최후의 전사 등)
+    (c.super!=='Signature' || c.tags.includes(champTag)) &&
     c.n!==champN &&
     !isBanned(c.n) &&
     (c.dom.length===0 || c.dom.every(d=>doms.includes(d)||d==='Colorless'))
@@ -492,6 +494,18 @@ function edAddCard(c){
     if(ED.bfs.includes(c.n)){ UI.toast('같은 전장은 1개까지입니다','warn'); return false; }
     if(ED.bfs.length>=3){ UI.toast('전장은 3개까지입니다','warn'); return false; }
     ED.bfs.push(c.n); warnBan(); return true;
+  }
+  // 시그니처 카드: 같은 챔피언의 전설이 선택된 덱에만 (예: 티버스 → 애니 전설)
+  if(c.super==='Signature'){
+    const legend=edLegend();
+    const tag=legend ? legend.name.split(' - ')[0] : null;
+    if(!tag || !c.tags.includes(tag)){
+      // 태그는 영문이므로 해당 챔피언 전설의 한글 이름으로 안내
+      const owner=legendList().find(l=>c.tags.includes(l.name.split(' - ')[0]));
+      const who=owner ? owner.ko.split(' - ')[0] : (c.tags[0]||'');
+      UI.toast(`「${c.ko}」는 시그니처 카드입니다 — ${who} 전설 덱에만 넣을 수 있습니다`,'warn');
+      return false;
+    }
   }
   const cnt=ED.main.filter(n=>n===c.n).length;
   if(cnt>=3){ UI.toast('같은 카드는 3장까지입니다','warn'); return false; }

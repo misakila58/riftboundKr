@@ -41,6 +41,7 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 - 서버: `server/server.js` 단일 파일 (계정 REST + WS 릴레이).
 - 리플레이: 데스크톱은 `client/replay-store.js`(메인 프로세스 fs) + `preload.js`의 `desktop.replay.*` IPC로 `문서\RiftboundSim\Replays\*.rbr`에 저장, 웹/APK는 IndexedDB(`rb_replays`). **client 루트에 파일을 추가하면 package.json의 `build.files`에도 넣을 것** (안 넣으면 패키징에서 빠져 앱이 시작조차 못 함).
 - 카드 데이터 수정: `tools/data/`의 번역본 수정 → `node tools/build-cards.js` (요청 시에만).
+- **카드 풀**: OGN(Origins) 298장 + OGS(증명의 전장, Origins: Proving Grounds) 24장 = 322장. OGS는 n=300+수집번호(301~324), 수집은 `tools/fetch-ogs.js`, 번역은 `tools/data/tr_out_ogs.json`. **시그니처 카드**(티버스·최후의 전사 등 4장)는 같은 챔피언의 전설 덱에만 — buildDeck/에디터/selfplay/서버 4곳 모두에서 태그 일치 검사.
 - **룰 절충(의도된 단순화 — 룰북 대조 감사 2026-08 완료)**: ① 격발(트리거) 능력은 체인에 쌓이지 않고 즉시 해결(공식은 Initial Chain·응수 가능, 방어자 트리거 선해결) ② 복수 전장 동시 경합 시 인덱스 순 고정(공식은 턴 플레이어 선택) ③ 결전 체인의 대상 지정은 해결 시점(공식은 플레이 시점). 룰북 원문: `tools/data/rules1.txt` 1107~1610행(상태·우선권·체인·결전), 3290~3490행(전투).
 - **BOT 대전의 좌석 경계**: 오프라인은 로컬 핫시트 때문에 좌석을 가리지 않는 것이 기본이라, 봇 대전에서 봇 좌석을 지키는 것은 `botIs(p)` 검사뿐이다 — 손패 렌더(`handFaceUp`), 조작(`canInitiate`), 능력 메뉴(전설·도구·유닛), 전장 클릭(`playHidden`) 네 곳. `BOT.active`가 대전 중에 꺼지면 이 방어가 한꺼번에 풀리므로(봇도 멈춘다) **진행 중인 판에서 `BOT.active=false`를 하지 말 것**. 새 판은 `startBotGame`→`newGame` 래퍼가 알아서 초기화한다.
 - 카드 이미지: `node tools/fetch-card-images.js` 가 Riot CDN → `client/web/assets/cards/*.webp`(480w, 약 11MB)로 받고 `web/js/imgmap.js`를 생성. **둘 다 gitignore** — 빌드(predist)가 자동으로 확보하고, 없으면 앱이 CDN에서 직접 불러온다(그래서 없어도 동작함).
@@ -53,5 +54,6 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 - 클라 개발 실행: `cd client && npm start` / 웹 확인: `npx http-server client/web -p 8777`
 - 서버: `cd server && node server.js`
 - 빌드: 클라 `npm run dist`, 서버 `node build-dist.js --exe`
+- **드라이브 업로드 (사용자가 요청할 때만 — 빌드 루틴에 넣지 말 것)**: `rclone copy "client/dist/RiftboundSim-<버전>-portable.exe" "gdrive:리프트바운드/" --progress` — rclone 원격 `gdrive`는 misakila58@gmail.com 계정으로 인증돼 있음(2026-08 설정). rclone이 PATH에 없으면 `C:\Users\SHIFTUP\AppData\Local\Microsoft\WinGet\Packages\Rclone.Rclone_*\rclone-*\rclone.exe` 직접 호출.
 - 모바일 APK: `cd mobile && npm i && npm run sync && cd android && gradlew assembleDebug` (JAVA_HOME=포터블 JDK17 `C:/Users/SHIFTUP/android-build/jdk-17.0.20+8`, sdk.dir은 android/local.properties — `C:/Users/SHIFTUP/android-build/sdk`). android/·www/는 생성물(gitignore), 산출물은 `release/`에 복사
 - 클라 빌드 시 `predist`(build-prep.js)가 **패치 버전 자동 +1** 하고 `web/js/buildinfo.js`(생성물)에 버전·빌드 일시를 기록 → 첫 화면 우하단에 표시. 빌드 후 package.json/buildinfo.js 변경분도 함께 커밋할 것.

@@ -88,6 +88,7 @@ function mkDeck(legendN){
     .sort((a,b)=>(a.e||0)-(b.e||0));
   const champN=champUnits.length?champUnits[0].n:null;
   const pool=CARDS.filter(c=>['Unit','Spell','Gear'].includes(c.type)&&c.super!=='Token'&&c.n!==champN
+    &&(c.super!=='Signature'||c.tags.includes(champTag))
     &&(c.dom.length===0||c.dom.every(d=>doms.includes(d)||d==='Colorless')));
   const preferred=pool.filter(c=>c.tags.includes(champTag));
   const rest=shuffleR([...pool.filter(c=>!c.tags.includes(champTag))]);

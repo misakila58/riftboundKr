@@ -1,0 +1,307 @@
+<title>리프트바운드 시뮬레이터 가이드</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;900&family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* ── 팔레트: 게임 화면(우드 테이블·네이비·금박)에서 가져온 토큰 ──
+   잉크네이비 #1a2336 · 딥테이블 #101a2e · 금박 #c9a45c · 밝은금 #ffe6a0
+   내진영파랑 #4a7ab8 · 상대주황 #b87a4a */
+:root{
+  --bg:#eef0f4;            /* 옅은 청회지 (게임의 네이비 세계를 밝게 뒤집은 종이) */
+  --panel:#ffffff;
+  --panel2:#e4e8ef;
+  --ink:#1a2336;
+  --ink2:#4a5670;
+  --line:#c9cfdc;
+  --gold:#96742e;          /* 밝은 바탕용 금박 (명도 낮춤) */
+  --gold-soft:#f3ead2;
+  --me:#2f5e9e;  --me-soft:#dfe9f6;
+  --foe:#9e5a2f; --foe-soft:#f6e9df;
+  --code-bg:#e7eaf1;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#101a2e; --panel:#182238; --panel2:#131c30;
+    --ink:#e8e6e0; --ink2:#9aa4bd; --line:#33436a;
+    --gold:#d8c27a; --gold-soft:#2a2846;
+    --me:#9fc8ff; --me-soft:#1c2c48;
+    --foe:#ffc89f; --foe-soft:#3a2a1c;
+    --code-bg:#0e1626;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101a2e; --panel:#182238; --panel2:#131c30;
+  --ink:#e8e6e0; --ink2:#9aa4bd; --line:#33436a;
+  --gold:#d8c27a; --gold-soft:#2a2846;
+  --me:#9fc8ff; --me-soft:#1c2c48;
+  --foe:#ffc89f; --foe-soft:#3a2a1c;
+  --code-bg:#0e1626;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:'IBM Plex Sans KR', 'Malgun Gothic', sans-serif;
+  font-size:15.5px; line-height:1.75; word-break:keep-all;
+}
+.wrap{max-width:780px; margin:0 auto; padding:56px 22px 80px}
+h1,h2,h3{font-family:'Noto Serif KR', serif; text-wrap:balance; line-height:1.3}
+h1{font-weight:900; font-size:34px; margin:6px 0 4px}
+h2{
+  font-weight:900; font-size:22px; margin:64px 0 14px; padding-top:22px;
+  border-top:3px double var(--gold);
+}
+h3{font-weight:600; font-size:17px; margin:26px 0 8px; color:var(--gold)}
+p{margin:10px 0}
+a{color:var(--me)}
+.eyebrow{
+  font-size:12px; letter-spacing:.24em; color:var(--gold); font-weight:700;
+  text-transform:uppercase;
+}
+.lede{color:var(--ink2); font-size:16px; max-width:60ch}
+.meta{display:flex; gap:14px; flex-wrap:wrap; margin-top:18px; font-size:13px; color:var(--ink2)}
+.meta b{color:var(--ink)}
+kbd{
+  font-family:'IBM Plex Mono', monospace; font-size:12.5px; font-weight:500;
+  background:var(--code-bg); border:1px solid var(--line); border-bottom-width:2px;
+  border-radius:5px; padding:1px 7px; white-space:nowrap;
+}
+code{font-family:'IBM Plex Mono', monospace; font-size:13px; background:var(--code-bg);
+  border-radius:4px; padding:1px 6px}
+.kw{color:var(--gold); font-weight:700}
+
+/* 목차 */
+nav.toc{
+  background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  padding:18px 22px; margin-top:34px;
+}
+nav.toc b{font-size:13px; letter-spacing:.18em; color:var(--ink2)}
+nav.toc ol{margin:8px 0 0; padding-left:22px; columns:2; column-gap:34px}
+nav.toc li{margin:3px 0}
+nav.toc a{color:var(--ink); text-decoration:none; border-bottom:1px dotted var(--gold)}
+
+/* 모드 카드 */
+.modes{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin:18px 0}
+.mode{
+  background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  padding:16px 18px;
+}
+.mode b{display:block; font-size:15.5px; margin-bottom:4px}
+.mode small{color:var(--ink2); display:block; line-height:1.6}
+.mode .tag{
+  display:inline-block; font-size:11px; font-weight:700; letter-spacing:.08em;
+  color:var(--gold); border:1px solid var(--gold); border-radius:99px;
+  padding:0 9px; margin-bottom:8px;
+}
+
+/* 보드 다이어그램 */
+.board{
+  border:1px solid var(--line); border-radius:14px; overflow:hidden; margin:18px 0;
+  background:var(--panel2); font-size:12.5px; line-height:1.45;
+}
+.board .row{display:grid; grid-template-columns:1.1fr .9fr 1.6fr .8fr; gap:6px; padding:8px}
+.board .row.mid{grid-template-columns:1fr 1fr; background:var(--panel)}
+.board .cell{
+  border-radius:8px; padding:8px 10px; border:1px dashed var(--line);
+  min-height:52px;
+}
+.board .foe .cell{background:var(--foe-soft); border-color:var(--foe)}
+.board .me  .cell{background:var(--me-soft);  border-color:var(--me)}
+.board .mid .cell{background:var(--gold-soft); border-style:solid; border-color:var(--gold); text-align:center}
+.board .cell b{display:block; font-size:12.5px}
+.board .cell small{color:var(--ink2)}
+.board .who{
+  padding:3px 12px; font-size:11.5px; font-weight:700; letter-spacing:.1em;
+}
+.board .who.foe-t{color:var(--foe)} .board .who.me-t{color:var(--me)}
+
+/* 표 */
+table{width:100%; border-collapse:collapse; margin:14px 0; font-size:14.5px}
+th,td{border:1px solid var(--line); padding:9px 12px; text-align:left; vertical-align:top}
+th{background:var(--panel2); font-size:13px; letter-spacing:.04em}
+td:first-child{white-space:nowrap}
+tr>td:first-child{font-weight:500}
+.tablewrap{overflow-x:auto}
+
+/* 단계 리스트 */
+ol.steps{padding-left:24px}
+ol.steps li{margin:7px 0}
+ul.tight{padding-left:22px; margin:8px 0}
+ul.tight li{margin:5px 0}
+
+/* 콜아웃 */
+.note{
+  border-left:4px solid var(--gold); background:var(--panel);
+  border-radius:0 10px 10px 0; padding:12px 16px; margin:16px 0; font-size:14.5px;
+}
+.note b:first-child{color:var(--gold)}
+
+footer{
+  margin-top:70px; padding-top:20px; border-top:1px solid var(--line);
+  font-size:12.5px; color:var(--ink2); line-height:1.7;
+}
+@media (max-width:560px){
+  nav.toc ol{columns:1}
+  .board .row{grid-template-columns:1fr 1fr}
+}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Riftbound Simulator · Origins + Proving Grounds 한글판</div>
+  <h1>리프트바운드 시뮬레이터 가이드</h1>
+  <p class="lede">라이엇 TCG <b>리프트바운드</b>의 Origins 298장 + 증명의 전장(Proving Grounds) 24장,
+  총 <b>322장 전부를 한글</b>로 플레이하는 비공식 팬 시뮬레이터입니다. 설치 없이 실행 파일 하나로 튜토리얼·봇 대전·친구와의 온라인 대전까지 즐길 수 있습니다.</p>
+  <div class="meta">
+    <span>기준 버전 <b>v1.0.24</b></span>
+    <span>플랫폼 <b>Windows</b></span>
+    <span>파일 <b>RiftboundSim-*-portable.exe</b> (무설치)</span>
+  </div>
+
+  <nav class="toc">
+    <b>차례</b>
+    <ol>
+      <li><a href="#start">시작하기</a></li>
+      <li><a href="#modes">게임 모드</a></li>
+      <li><a href="#screen">화면 구성</a></li>
+      <li><a href="#controls">기본 조작</a></li>
+      <li><a href="#rules">핵심 룰 요약</a></li>
+      <li><a href="#bot">봇 난이도</a></li>
+      <li><a href="#deck">덱 만들기</a></li>
+      <li><a href="#replay">리플레이</a></li>
+      <li><a href="#faq">문제 해결</a></li>
+    </ol>
+  </nav>
+</header>
+
+<h2 id="start">1. 시작하기</h2>
+<ol class="steps">
+  <li><code>RiftboundSim-portable.exe</code>를 내려받아 <b>더블클릭</b>합니다. 설치 과정이 없으며 실행하면 바로 첫 화면이 뜹니다.</li>
+  <li>Windows가 <b>"PC를 보호했습니다"</b>(SmartScreen) 경고를 띄우면 — 서명되지 않은 개인 제작 프로그램이라 나오는 표준 경고입니다 —
+  <kbd>추가 정보</kbd> → <kbd>실행</kbd>을 누르면 됩니다.</li>
+  <li>처음이라면 첫 화면의 <b>🎓 튜토리얼</b>부터 시작하세요. 25단계로 규칙 전체를 직접 플레이하며 배웁니다.</li>
+</ol>
+<div class="note"><b>내 데이터는 어디에?</b> 닉네임·덱은 내 컴퓨터에만 저장됩니다.
+리플레이는 <code>문서\RiftboundSim\Replays</code> 폴더에 <code>.rbr</code> 파일로 저장됩니다.</div>
+
+<h2 id="modes">2. 게임 모드</h2>
+<div class="modes">
+  <div class="mode"><span class="tag">혼자</span><b>🎓 튜토리얼</b>
+    <small>고정 덱과 연습 봇을 상대로 턴 구조부터 결전·득점까지 25단계로 배웁니다. 완료 후 자유 연습도 가능합니다.</small></div>
+  <div class="mode"><span class="tag">혼자</span><b>🤖 BOT 대전</b>
+    <small>난이도 5단계 봇과 대전합니다. 상대 덱으로 실제 대회 우승 덱을 고를 수도 있습니다.</small></div>
+  <div class="mode"><span class="tag">둘이 · 원격</span><b>👥 친구와 직접 대전</b>
+    <small>서버 없이 초대 코드만 주고받아 P2P로 연결합니다. 계정 불필요 — 가장 간단한 온라인 대전.</small></div>
+  <div class="mode"><span class="tag">둘이 · 원격</span><b>🌐 서버 접속</b>
+    <small>방장이 서버 프로그램을 켜고 주소를 공유하면, 접속해서 회원가입 후 로비에서 대전합니다. 상시 운영에 적합.</small></div>
+  <div class="mode"><span class="tag">둘이 · 한 PC</span><b>💺 오프라인 핫시트</b>
+    <small>한 화면에서 두 사람이 번갈아 플레이합니다. 양쪽 손패가 모두 보이므로 규칙 연습·복기에 좋습니다.</small></div>
+</div>
+
+<h3>친구와 직접 대전 (초대 코드) 순서</h3>
+<ol class="steps">
+  <li>두 사람 모두 프로그램 실행 → <b>👥 친구와 직접 대전</b> 선택</li>
+  <li><b>방장</b>: [초대 코드 만들기] → 코드를 카톡·디스코드로 전송</li>
+  <li><b>상대</b>: 코드를 붙여넣고 [응답 코드 만들기] → 응답 코드를 방장에게 회신</li>
+  <li><b>방장</b>: 응답 코드를 붙여넣고 [연결하기] → 자동으로 게임 시작</li>
+</ol>
+<div class="note"><b>연결이 안 되면</b> 일부 사내망·특수 공유기에서는 P2P가 막힐 수 있습니다.
+그 경우 서버 접속 방식을 사용하세요. 온라인 대전에서는 항상 <b>내 진영이 화면 아래(6시)</b>에 표시됩니다.</div>
+
+<h2 id="screen">3. 화면 구성</h2>
+<div class="board" role="img" aria-label="게임 보드 배치도: 위가 상대, 가운데가 전장, 아래가 나">
+  <div class="who foe-t">▲ 상대 진영</div>
+  <div class="row foe">
+    <div class="cell"><b>전설 · 챔피언 존</b><small>리더와 선발 챔피언</small></div>
+    <div class="cell"><b>룬 · 덱 · 폐기</b><small>폐기 더미는 클릭하면 목록</small></div>
+    <div class="cell"><b>기지</b><small>유닛 소환지 — 공격받지 않음</small></div>
+    <div class="cell"><b>손패</b><small>뒷면 (장수만 공개)</small></div>
+  </div>
+  <div class="row mid">
+    <div class="cell"><b>⚔ 전장 1</b><small>점수의 원천</small></div>
+    <div class="cell"><b>⚔ 전장 2</b><small>차지하고 지켜라</small></div>
+  </div>
+  <div class="row me">
+    <div class="cell"><b>손패</b><small>클릭해서 플레이</small></div>
+    <div class="cell"><b>기지</b><small>내 유닛 대기소</small></div>
+    <div class="cell"><b>룬 · 덱 · 폐기</b><small>자원과 더미</small></div>
+    <div class="cell"><b>전설 · 챔피언 존</b><small>클릭해서 능력 사용</small></div>
+  </div>
+  <div class="who me-t">▼ 내 진영</div>
+</div>
+<ul class="tight">
+  <li><b>전장 2곳(중앙)</b>이 승부처입니다 — 유닛을 보내 차지하면 점수가 들어옵니다.</li>
+  <li>우측 사이드바에 턴·점수·행동 버튼([🚶 이동], [턴 종료], [패스])과 로그가 있습니다.</li>
+  <li>로그와 선택 창의 <b>「카드명」</b>에 마우스를 올리면 그 카드의 효과가 바로 보입니다.</li>
+</ul>
+
+<h2 id="controls">4. 기본 조작</h2>
+<div class="tablewrap"><table>
+  <tr><th>하고 싶은 것</th><th>조작</th></tr>
+  <tr><td>카드 자세히 보기</td><td>카드에 마우스 오버(우측 정보 패널) · <b>꾹 누르기</b> / <kbd>Alt</kbd>+클릭 / 우클릭 → 전체 확대</td></tr>
+  <tr><td>카드 플레이</td><td>손패 카드 클릭 → <b>▶ 플레이</b>. 유닛은 배치 위치(기지/통제 전장)를 선택</td></tr>
+  <tr><td>유닛 이동·공격</td><td>사이드바 <b>[🚶 이동]</b> → 유닛 클릭 → 목적지 전장 클릭 (드래그로도 가능)</td></tr>
+  <tr><td>능력 발동</td><td>유닛·전설·도구 카드를 클릭하면 ⚡ 능력 메뉴가 뜹니다</td></tr>
+  <tr><td>카드 숨기기</td><td>[숨겨짐] 카드는 플레이 메뉴에서 <b>숨기기</b> → 통제 중인 전장에 뒷면으로</td></tr>
+  <tr><td>숨긴 카드 공개</td><td>그 전장의 빈 곳 클릭 — 결전 중에도 공개할 수 있습니다(뒷면 카드는 [반응] 취급)</td></tr>
+  <tr><td>결전 응수</td><td>결전 중 [행동]/[반응] 카드를 플레이하거나 <b>[패스]</b> — 양쪽 다 패스하면 해결</td></tr>
+  <tr><td>폐기장 확인</td><td>폐기 더미 클릭 → 버려진 순서 번호와 함께 목록 표시</td></tr>
+  <tr><td>봇 손패 보기</td><td>봇 대전에서 상대 손패 옆 <b>☐ 손패 확인</b> 토글 (연습용 · 보기 전용)</td></tr>
+  <tr><td>메뉴 열기</td><td><kbd>Esc</kbd> — 항복(서렌) · 다시 하기 · 리플레이 저장 · 이펙트 끄기</td></tr>
+</table></div>
+
+<h2 id="rules">5. 핵심 룰 요약</h2>
+<p><b>8점을 먼저 얻으면 승리</b>합니다. 점수는 전장에서만 나옵니다.</p>
+<div class="tablewrap"><table>
+  <tr><th>개념</th><th>설명</th></tr>
+  <tr><td><span class="kw">턴 구조</span></td><td><b>각성</b>(탈진 해제) → <b>시작</b>(유지 득점) → <b>전개</b>(룬 2개) → <b>드로우</b> → 행동 단계</td></tr>
+  <tr><td><span class="kw">자원</span></td><td><b>에너지</b> = 룬을 탈진(다음 턴 복구) · <b>힘</b> = 룬을 룬 덱으로 재활용. 비용은 자동 지불</td></tr>
+  <tr><td><span class="kw">정복</span></td><td>전장의 통제권을 <b>새로 얻으면</b> +1점 (전장당 턴에 1번)</td></tr>
+  <tr><td><span class="kw">유지</span></td><td>내 턴 시작까지 전장을 지키면 +1점 — 단, <b>유닛이 주둔</b>해야 합니다. 비면 무주공산(통제 해제)</td></tr>
+  <tr><td><span class="kw">결전</span></td><td>전장에 유닛이 들어가면 열리는 대응 창. [행동]/[반응] 카드가 <b>체인</b>에 쌓이고, 양측 패스 시 나중 것부터 해결</td></tr>
+  <tr><td><span class="kw">전투</span></td><td>양측 위력(⚔) 합계만큼 서로에게 동시에 피해 배분. 방어 성공은 득점 없음</td></tr>
+  <tr><td><span class="kw">마지막 1점</span></td><td>7점 이후의 정복은 그 턴 모든 전장을 득점했을 때만 인정 (아니면 카드 1장 대체) — 유지는 제한 없음</td></tr>
+  <tr><td><span class="kw">번아웃</span></td><td>덱이 떨어지면 폐기장을 덱으로 되돌리고 <b>상대가 +1점</b></td></tr>
+</table></div>
+<div class="note"><b>글보다 튜토리얼.</b> 위 내용 전부를 튜토리얼에서 직접 두면서 배울 수 있습니다 — 15분이면 충분합니다.</div>
+
+<h2 id="bot">6. 봇 난이도</h2>
+<div class="tablewrap"><table>
+  <tr><th>단계</th><th>플레이 스타일</th></tr>
+  <tr><td>😊 초보</td><td>무작위 위주로 둡니다. 규칙을 익히는 용도</td></tr>
+  <tr><td>🙂 중수</td><td>대상·비용·손패를 따져 둡니다. 큰 실수는 하지 않습니다</td></tr>
+  <tr><td>😎 고수</td><td>전투 계산과 승점 레이스를 읽고 공격·점거 가치를 판단합니다</td></tr>
+  <tr><td>😈 초고수</td><td>한 턴에 여러 갈래로 압박하고 카드 능력·숨김 카드까지 활용합니다</td></tr>
+  <tr><td>👹 초고수 (내 패를 고려함)</td><td>초고수와 같되 <b>당신의 손패와 덱을 봅니다</b> — 가장 강하지만 공정하지 않습니다</td></tr>
+</table></div>
+<p>상대 덱으로 <b>🏆 실제 대회 우승 덱</b>을 고르면 메타 덱을 상대로 연습할 수 있습니다.</p>
+
+<h2 id="deck">7. 덱 만들기</h2>
+<ul class="tight">
+  <li>첫 화면 <b>🗂 내 덱 관리</b> → 새 덱. 전설을 고르면 <b>[자동 완성]</b>으로 40장이 채워집니다 — 그대로 써도 되고 바꿔도 됩니다.</li>
+  <li>카드 풀은 <b>코스트순·가나다순·세트순</b>으로 정렬할 수 있고, 검색·타입 필터·전설 영역 필터를 지원합니다.</li>
+  <li>구성: 메인 덱 40장(같은 카드 3장까지) + 룬 12개 + 전장 3곳 + 선발 챔피언.</li>
+  <li><b>시그니처 카드</b>(티버스, 최후의 전사, 최후의 섬광, 결정타)는 <b>같은 챔피언의 전설 덱에만</b> 넣을 수 있습니다 — 예: 티버스는 애니 전설 덱 전용.</li>
+  <li>KR <b>밴 리스트</b>가 표시되며, 밴 적용 대전에서는 해당 카드를 쓸 수 없습니다.</li>
+</ul>
+
+<h2 id="replay">8. 리플레이</h2>
+<ul class="tight">
+  <li>경기가 끝나면 <b>자동 저장</b>됩니다. 진행 중에도 <kbd>Esc</kbd> → 리플레이 저장으로 남길 수 있습니다.</li>
+  <li>첫 화면 <b>🎬 리플레이 보관함</b>에서 재생 — 양측 손패가 모두 공개되고, 슬라이더·재생 속도·턴 점프로 복기할 수 있습니다.</li>
+  <li>파일은 <code>문서\RiftboundSim\Replays\*.rbr</code>에 저장되며, <b>파일을 친구에게 보내면</b> 상대도 보관함에서 열어 볼 수 있습니다.</li>
+</ul>
+
+<h2 id="faq">9. 문제 해결</h2>
+<div class="tablewrap"><table>
+  <tr><th>증상</th><th>해결</th></tr>
+  <tr><td>실행 시 파란 경고창</td><td>SmartScreen 표준 경고입니다 — <kbd>추가 정보</kbd> → <kbd>실행</kbd></td></tr>
+  <tr><td>초대 코드 연결 실패</td><td>사내망·특수 공유기의 P2P 차단이 원인 — 서버 접속 방식으로 전환</td></tr>
+  <tr><td>연출이 거슬림 / 느림</td><td><kbd>Esc</kbd> → <b>✨ 이펙트 끄기</b></td></tr>
+  <tr><td>진행이 막힌 것 같음</td><td>결전 중에는 상대 응수 대기일 수 있습니다 — 사이드바 안내문 확인. 그래도 막히면 <kbd>Esc</kbd> → 다시 하기</td></tr>
+  <tr><td>자동화 안 되는 카드</td><td>일부 효과는 ⚙️ 안내가 뜨며 수동 처리 도구(유닛 우클릭)로 직접 적용합니다</td></tr>
+</table></div>
+
+<footer>
+  <b>법적 고지</b> — 리프트바운드 시뮬레이터는 Riot Games가 보증하지 않으며, Riot Games의
+  팬 콘텐츠 정책에 따라 제작된 비영리 팬 프로젝트입니다. Riftbound, League of Legends 및 관련 자산은
+  Riot Games, Inc.의 상표 또는 등록 상표입니다. 카드 데이터·이미지의 권리는 Riot Games에 있습니다.
+</footer>
+</div>

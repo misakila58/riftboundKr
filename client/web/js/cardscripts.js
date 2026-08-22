@@ -615,3 +615,96 @@ const EXTRA_OPS = {
   async itCtrlDraw(op, ctx, h){ const it=h.it(); if(!it) return;
     for(let i=0;i<(op.n||1);i++) drawCard(it.ctrl); },
 };
+
+// ══════════ OGS: 증명의 전장 (Origins: Proving Grounds, 301~324) ══════════
+// 스타터 세트 24장. 파서가 처리하는 카드(303,305,307,309,312,313,316,322 등)는 여기 없다.
+Object.assign(SCRIPTS, {
+  // 애니 - 불같은: 내 주문·능력의 각 피해 +1 (engine effDmgBonus가 보드의 spellBonusAll을 본다)
+  301: fx=>{ fx.manual=[]; fx.spellBonusAll=1; return fx; },
+  // 화염 폭풍: '한 전장'을 골라 그곳의 적 유닛 전부에 3 (파서는 모든 전장으로 오해석)
+  302: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('bfDamageEnemies',{n:3})]}]; return fx; },
+  // 마스터 이 - 명상 중: 룬 8개 이상이면 +4
+  304: fx=>{ fx.manual=[]; fx.statics=[{kind:'selfMight',fn:u=>G.players[u.ctrl].runes.length>=8?4:0}]; return fx; },
+  // 럭스 - 빛나는: 비용 5+ 주문 플레이 시 나에게 이번 턴 +3
+  306: fx=>{ fx.manual=[]; fx.triggers.onYouPlayCard=[{cond:(ctx)=>ctx.type==='Spell'&&(card(ctx.n).e||0)>=5,
+      ops:[OPX('might',{n:3,self:true,dur:'turn'})]}]; return fx; },
+  // 신사의 결투: 아군 +3 후 적과 서로 위력만큼 피해 (동시 계산)
+  308: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('gentlemenDuel')]}]; return fx; },
+  // 애니 - 고집쟁이: 폐기장에서 주문 회수
+  310: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('trashToHand',{type:'Spell'})]}]; return fx; },
+  // 점멸: 아군 유닛 최대 2기를 기지로
+  311: fx=>{ fx.manual=[]; fx.playOps=[{ops:[
+      OPX('moveSpec',{spec:{side:'friendly',where:'bf',count:1,optional:true},to:'base'}),
+      OPX('moveSpec',{spec:{side:'friendly',where:'bf',count:1,optional:true},to:'base'})]}]; return fx; },
+  // 럭스 - 크라운가드: 탈진 → [추가] 에너지 2 (주문 전용 — 카이사 247과 같은 절충: 용도 제한은 라벨로 안내)
+  314: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},
+      ops:[{op:'addEnergy',n:2}], label:'⚡ 에너지 2 추가 (주문 전용)', reaction:true}]; return fx; },
+  // 선봉대 소집: 신병 토큰 4개 — 각각 기지/통제 전장 선택
+  315: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('vanguardTokens',{count:4})]}]; return fx; },
+  // 애니 - 어둠의 아이 (전설): 내 턴 종료 시 룬 2개 준비 (상대 턴 응수 자원)
+  317: fx=>{ fx.manual=[]; fx.triggers.onEndTurn=[{ops:[OPX('readyRunes',{n:2})]}]; return fx; },
+  // 티버스: 등장 시 전장의 모든 유닛(양측)에 3 (파서는 기지까지 포함해 오해석)
+  318: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('damageAll',{n:3,spec:{side:'any',where:'bf',count:'all'}})]}]; return fx; },
+  // 마스터 이 - 무주 검술의 달인 (전설): 단독 방어 아군 +2 (engine collectStatics가 전설 statics를 읽는다)
+  319: fx=>{ fx.manual=[]; fx.statics=[{kind:'auraMightRole',fn:(u,role)=>(role==='defender'&&aloneAt(u))?2:0}]; return fx; },
+  // 최후의 전사: 아군 하나 — 이번 턴 다음 사망 시 탈진 귀환으로 대체 (killUnit의 _highlander)
+  320: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('highlanderMark')]}]; return fx; },
+  // 럭스 - 빛의 소녀 (전설): 비용 5+ 주문 플레이 시 드로우 1
+  321: fx=>{ fx.manual=[]; fx.triggers.onYouPlayCard=[{cond:(ctx)=>ctx.type==='Spell'&&(card(ctx.n).e||0)>=5,ops:[D1]}]; return fx; },
+  // 가렌 - 데마시아의 힘 (전설): 정복 시 그 전장에 아군 4기+면 드로우 2
+  323: fx=>{ fx.manual=[]; fx.triggers.onConquerYou=[{cond:(ctx)=>ctx.bfIdx!=null &&
+      G.bfs[ctx.bfIdx].units.filter(u=>u.ctrl===ctx.p).length>=4, ops:[D2]}]; return fx; },
+  // 결정타: 아군 유닛 전부 이번 턴 +2
+  324: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('might',{n:2,dur:'turn',all:true,spec:{side:'friendly',where:'any',count:'all'}})]}]; return fx; },
+});
+
+Object.assign(EXTRA_OPS, {
+  // 전장 하나를 골라 그곳의 적 유닛 전부에 피해 (화염 폭풍)
+  async bfDamageEnemies(op, ctx, h){
+    const sel=await UI.pickOption(ctx.p,'피해를 줄 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})));
+    if(sel===null) return;
+    [...G.bfs[sel].units].filter(u=>u.ctrl!==ctx.p).forEach(u=>{
+      const d=dealDamage(u, op.n+effDmgBonus(u, ctx.p), 'spell');
+      UI.log(`${unitName(u)}에게 피해 ${d}`, 'combat');
+    });
+    await cleanup(ctx.p); },
+  // 신사의 결투: 아군 +3(이번 턴) 후 적 하나와 서로 위력만큼 피해 (위력은 동시 계산)
+  async gentlemenDuel(op, ctx, h){
+    const mine=everyUnit().filter(u=>u.ctrl===ctx.p);
+    if(!mine.length) return;
+    const a=await UI.pickUnitFrom(ctx.p, mine, '+3 위력을 받고 결투할 아군 유닛');
+    if(!a) return;
+    a.tempM.push({v:3,dur:'turn'});
+    UI.log(`${unitName(a)} 위력 +3 (이번 턴)`, 'p'+ctx.p);
+    const foes=everyUnit().filter(u=>u.ctrl!==ctx.p);
+    if(!foes.length) return;
+    const b=await UI.pickUnitFrom(ctx.p, foes, '결투할 적 유닛 선택');
+    if(!b) return;
+    const ma=might(a), mb=might(b);
+    dealDamage(b, ma, 'effect'); dealDamage(a, mb, 'effect');
+    UI.log(`⚔ 결투: ${unitName(a)}(${ma}) ↔ ${unitName(b)}(${mb})`, 'combat');
+    await cleanup(ctx.p); },
+  // 신병 토큰 N개 — 하나씩 기지/통제 전장 선택 (선봉대 소집)
+  async vanguardTokens(op, ctx, h){
+    for(let i=0;i<op.count;i++){
+      const opts=[{v:'base',label:'기지'}];
+      G.bfs.forEach((bf,j)=>{ if(bf.controller===ctx.p) opts.push({v:j,label:'전장: '+card(bf.n).ko}); });
+      let loc='base';
+      if(opts.length>1){
+        const sel=await UI.pickOption(ctx.p, `신병 토큰 배치 (${i+1}/${op.count})`, opts);
+        if(sel!==null) loc=sel;
+      }
+      const u=makeUnit(0, ctx.p, {loc, isToken:true, tokenMight:1, tokenName:'Recruit'});
+      placeUnit(u, loc);
+    }
+    UI.log(`${pname(ctx.p)} 1⚔ 신병 토큰 ${op.count}개 플레이`, 'p'+ctx.p);
+    await cleanup(ctx.p); },
+  // 최후의 전사 표식 — 이번 턴 다음 사망을 탈진 귀환으로 대체 (startTurn에서 해제)
+  async highlanderMark(op, ctx, h){
+    const mine=everyUnit().filter(u=>u.ctrl===ctx.p);
+    if(!mine.length) return;
+    const u=await UI.pickUnitFrom(ctx.p, mine, '「최후의 전사」 대상 아군 유닛');
+    if(!u) return;
+    u._highlander=true;
+    UI.log(`「${unitName(u)}」 — 이번 턴 다음 사망 시 탈진 상태로 귀환한다 (최후의 전사)`, 'p'+ctx.p); },
+});

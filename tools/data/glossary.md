@@ -46,12 +46,14 @@ Fury=분노, Calm=평정, Mind=정신, Body=신체, Order=질서, Chaos=혼돈, 
 코그모(Kog'Maw), 케인(Kayn), 쉔(Shen), 타릭(Taric), 소나(Sona), 케이틀린(Caitlyn),
 블리츠크랭크(Blitzcrank), 베인(Vayne), 트린다미어(Tryndamere), 드레이븐(Draven), 워윅(Warwick),
 우디르(Udyr), 키아나(Qiyana), 애니비아(Anivia), 하이머딩거(Heimerdinger), 말자하(Malzahar),
-에코(Ekko), 문도 박사(Dr. Mundo)
+에코(Ekko), 문도 박사(Dr. Mundo),
+애니(Annie), 마스터 이(Master Yi), 럭스(Lux), 가렌(Garen), 티버스(Tibbers)
 
 전설 칭호(공식): 구미호(Nine-Tailed Fox), 용서받지 못한 자(Unforgiven), 난폭한 말괄량이(Loose Cannon),
 녹서스의 실력자(Hand of Noxus), 가차없는 폭풍(Relentless Storm), 공허의 딸(Daughter of the Void),
 눈먼 수도승(Blind Monk), 대장(The Boss), 현상금 사냥꾼(Bounty Hunter), 신속한 정찰병(Swift Scout),
-여명의 빛(Radiant Dawn), 비전의 선구자(Herald of the Arcane)
+여명의 빛(Radiant Dawn), 비전의 선구자(Herald of the Arcane),
+어둠의 아이(Dark Child), 무주 검술의 달인(Wuju Bladesman), 빛의 소녀(Lady of Luminosity), 데마시아의 힘(Might of Demacia)
 ※ 전설/챔피언 카드명 형식: "아리 - 구미호"
 
 지역/종족: 데마시아(Demacia), 녹서스(Noxus), 프렐요드(Freljord), 빌지워터(Bilgewater),
