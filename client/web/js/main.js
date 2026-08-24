@@ -1205,6 +1205,33 @@ window.addEventListener('DOMContentLoaded', ()=>{
   initP2P();
   initHotseat();
   document.getElementById('btn-replays').onclick=()=>REPLAY.openLibrary('connect-screen');
+  // 오픈톡방 — 누르면 링크 복사 (Electron/브라우저 공통: clipboard API 실패 시 textarea 폴백)
+  document.getElementById('btn-openchat').onclick=async()=>{
+    const url='https://open.kakao.com/o/gFmCtkKi';
+    let ok=false;
+    try{ await navigator.clipboard.writeText(url); ok=true; }
+    catch(e){
+      try{
+        const ta=document.createElement('textarea'); ta.value=url;
+        ta.style.cssText='position:fixed;opacity:0'; document.body.appendChild(ta);
+        ta.select(); ok=document.execCommand('copy'); ta.remove();
+      }catch(e2){}
+    }
+    if(ok){ UI.toast('💬 오픈톡방 링크가 복사되었습니다 — 카톡에 붙여넣으세요'); return; }
+    // 클립보드가 막힌 환경(권한 거부 등): 직접 복사할 수 있게 선택된 입력창을 띄운다
+    const box=document.getElementById('modal-box');
+    box.innerHTML='<h3>💬 시뮬레이터 오픈톡방</h3><div style="font-size:13px;color:#9aa4bd;margin-bottom:8px">자동 복사가 막혀 있습니다 — 아래 링크를 직접 복사하세요 (Ctrl+C)</div>';
+    const inp=document.createElement('input');
+    inp.type='text'; inp.readOnly=true; inp.value=url;
+    inp.style.cssText='width:100%;padding:9px 10px;border-radius:6px;border:1px solid #3a4a70;background:#0e1626;color:#ffe990;font-size:14px';
+    inp.onclick=()=>inp.select();
+    box.appendChild(inp);
+    const btns=document.createElement('div'); btns.className='modal-btns';
+    const close=document.createElement('button'); close.textContent='닫기'; close.onclick=closeModal;
+    btns.appendChild(close); box.appendChild(btns);
+    openModal(); markModalDismissable();
+    inp.select();
+  };
   document.getElementById('btn-goto-replays').onclick=()=>REPLAY.openLibrary('menu-screen');
   document.getElementById('btn-banlist-decks').onclick=showBanlist;
   document.getElementById('btn-banlist-editor').onclick=showBanlist;

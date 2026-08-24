@@ -1,7 +1,8 @@
 // ══════════ 대회 덱 데이터 (메타별 → 대회별 4강) ══════════
 // 실제 대회 입상 덱리스트 — 원문(piltoverarchive/riftdecks/topdeck.gg) 대조 검증(2026-07-30~31 웹 조사).
 // 200명 이상 대회는 4강(Top4)까지 수록. main 40장 = 선발 챔피언 포함 (newGame이 1장을 챔피언 존으로 분리).
-// unavailable: true = 스타터(OGS/Proving Grounds) 카드 포함이라 시뮬레이터 카드풀(OGN 298장)로 재현 불가 — 정보만 표시.
+// 스타터(OGS/증명의 전장) 카드를 쓰는 12개 덱은 2026-08 OGS 24장 추가 후 원문 재조사로 전부 수록됨
+// (piltoverarchive/riftdecks 페이지 열람 대조 — unavailable 표기는 더 이상 사용하지 않는다).
 // record: 해당 플레이어의 대회 전적(승-패-무). 출처에 공개된 것만 기재 (CCS 4위는 스위스 전적만 공개).
 // 당시 대회 규칙 기준 리스트라 현행 밴 카드가 포함될 수 있음 — 봇전은 밴 미적용, 밴 적용 대전에서는 사용 불가.
 const TOURNAMENT_METAS = [
@@ -23,11 +24,15 @@ const TOURNAMENT_METAS = [
         bfs: [280,288,292],
       },
       {
-        id: 'yi-shanghai-2nd', unavailable: true,
+        id: 'yi-shanghai-2nd', tag: '상하이',
         name: '마스터 이 미드레인지', place: '2위',
         event: 'Shanghai National Open (2025-11-02)', players: 2048,
         player: '不吃糖的乙酸盐、 (SugarFree)', record: '',
         source: 'https://riftdecks.com/riftbound-metagame/deck-xian-shou6fei3ge-qi-ya-na-371',
+        legendN: 319, champN: 309,
+        main: [309,44,44,44,136,136,136,52,52,52,132,132,155,155,155,75,75,161,82,82,82,77,77,43,43,43,45,45,45,46,46,156,129,58,58,58,50,47,47,47],
+        runes: [126,126,126,126,126,126,42,42,42,42,42,42],
+        bfs: [280,284,295],
       },
       {
         id: 'kaisa-shanghai-3rd', tag: '상하이',
@@ -41,41 +46,61 @@ const TOURNAMENT_METAS = [
         bfs: [285,292,296],
       },
       {
-        id: 'yi-shanghai-4th', unavailable: true,
+        id: 'yi-shanghai-4th', tag: '상하이',
         name: '마스터 이 램프', place: '4위',
         event: 'Shanghai National Open (2025-11-02)', players: 2048,
         player: 'ARBD-lay', record: '',
         source: 'https://riftdecks.com/riftbound-metagame/deck-jj-373',
+        legendN: 319, champN: 309,
+        main: [309,44,44,44,136,136,136,52,52,52,132,132,75,75,161,161,161,82,82,77,77,77,43,43,43,45,45,45,46,46,46,58,58,58,47,47,47,138,138,138],
+        runes: [126,126,126,126,126,126,42,42,42,42,42,42],
+        bfs: [275,280,284],
       },
 
       // ── Riftbound Regional Qualifier Houston (2025-12-05~07) · 1,129명 ──
       {
-        id: 'annie-houston', unavailable: true,
+        id: 'annie-houston', tag: '휴스턴',
         name: '애니 템포', place: '우승',
         event: 'Regional Qualifier Houston (2025-12-05~07)', players: 1129,
         player: 'Dhawally (Shawn Dhaliwal)', record: '',
         source: 'https://piltoverarchive.com/decks/view/203bc68e-06e8-4c9e-8417-336687a5aa33',
+        legendN: 317, champN: 310,
+        main: [310,4,4,4,169,183,183,183,168,168,311,311,311,13,13,13,182,182,182,185,185,185,173,173,173,36,36,36,172,176,176,176,24,24,39,39,39,27,27,27],
+        runes: [7,7,7,7,7,7,166,166,166,166,166,166],
+        bfs: [298,292,290],
       },
       {
-        id: 'yi-houston-2nd', unavailable: true,
+        id: 'yi-houston-2nd', tag: '휴스턴',
         name: '마스터 이 컨트롤', place: '2위',
         event: 'Regional Qualifier Houston (2025-12-05~07)', players: 1129,
         player: 'Challenger TCG', record: '',
         source: 'https://piltoverarchive.com/decks/view/09a53b62-dd76-4f9c-8db4-04035cf98d82',
+        legendN: 319, champN: 309,
+        main: [309,43,43,43,45,45,45,156,58,58,134,134,134,77,77,77,128,50,50,47,47,47,64,138,138,138,75,75,75,161,161,161,82,82,142,142,160,160,160,158],
+        runes: [42,42,42,42,42,42,126,126,126,126,126,126],
+        bfs: [276,284,295],
       },
       {
-        id: 'annie-houston-3rd', unavailable: true,
+        id: 'annie-houston-3rd', tag: '휴스턴',
         name: '애니 어그로', place: '3위',
         event: 'Regional Qualifier Houston (2025-12-05~07)', players: 1129,
         player: 'Zent', record: '',
         source: 'https://piltoverarchive.com/decks/view/c4bbb454-3935-47a0-a82e-310fb56be08c',
+        legendN: 317, champN: 310,
+        main: [310,4,4,4,169,169,183,183,183,168,168,168,311,311,311,13,13,13,185,185,185,173,173,173,36,36,36,176,176,176,24,24,24,39,39,39,35,27,27,27],
+        runes: [7,7,7,7,7,7,166,166,166,166,166,166],
+        bfs: [290,292,298],
       },
       {
-        id: 'annie-houston-4th', unavailable: true,
+        id: 'annie-houston-4th', tag: '휴스턴',
         name: '애니 어그로 (Scrapheap형)', place: '4위',
         event: 'Regional Qualifier Houston (2025-12-05~07)', players: 1129,
         player: 'Prymor', record: '',
         source: 'https://piltoverarchive.com/decks/view/27b99b8d-211a-454f-9356-3e14ae73477e',
+        legendN: 317, champN: 310,
+        main: [310,4,4,4,169,169,183,183,183,168,168,311,311,10,13,13,182,182,182,185,185,185,173,173,173,36,36,36,172,176,176,176,24,24,39,39,39,27,27,27],
+        runes: [7,7,7,7,7,7,166,166,166,166,166,166],
+        bfs: [290,292,298],
       },
 
       // ── PPG Summit Orlando Saturday $10K (2025-12-13) · 400명 ──
@@ -113,11 +138,15 @@ const TOURNAMENT_METAS = [
         bfs: [280,297,282],
       },
       {
-        id: 'annie-ppg10k-4th', unavailable: true,
+        id: 'annie-ppg10k-4th', tag: '올랜도',
         name: '애니 어그로', place: '4위',
         event: 'PPG Summit Orlando Saturday $10K (2025-12-13)', players: 400,
         player: 'Taylor Mauck', record: '9-2-1',
         source: 'https://piltoverarchive.com/decks/view/be4f25bb-db3b-4892-9af9-df05d6775afd',
+        legendN: 317, champN: 310,
+        main: [310,4,4,4,169,183,183,183,168,168,311,311,311,10,13,13,182,182,182,185,185,185,173,173,173,36,36,36,172,176,176,176,24,24,39,39,39,27,27,27],
+        runes: [7,7,7,7,7,7,166,166,166,166,166,166],
+        bfs: [290,292,298],
       },
 
       // ── CCS Riftbound $10K Atlanta (2025-11-22~23) · 257명 ──
@@ -133,18 +162,26 @@ const TOURNAMENT_METAS = [
         bfs: [280,282,292],
       },
       {
-        id: 'yi-ccs-2nd', unavailable: true,
+        id: 'yi-ccs-2nd', tag: 'CCS',
         name: '마스터 이 미드레인지', place: '2위',
         event: 'CCS Riftbound $10K Atlanta (2025-11-22~23)', players: 257,
         player: 'db_lunaloveee', record: '10-2-1',
         source: 'https://piltoverarchive.com/decks/view/016405f5-6d6f-4df3-9853-341b9ee3931a',
+        legendN: 319, champN: 309,
+        main: [309,46,46,46,43,43,43,45,45,45,44,44,44,58,58,58,136,136,136,52,52,52,77,77,77,47,47,47,55,55,155,155,155,75,75,161,161,161,82,82],
+        runes: [42,42,42,42,42,42,126,126,126,126,126,126],
+        bfs: [280,284,295],
       },
       {
-        id: 'annie-ccs-3rd', unavailable: true,
+        id: 'annie-ccs-3rd', tag: 'CCS',
         name: '애니 어그로', place: '3위',
         event: 'CCS Riftbound $10K Atlanta (2025-11-22~23)', players: 257,
         player: 'TSS Dizzee', record: '9-3-0',
         source: 'https://piltoverarchive.com/decks/view/84dc205a-3222-4ed8-a756-e820d97af17f',
+        legendN: 317, champN: 310,
+        main: [310,4,4,4,183,183,183,168,168,311,311,311,13,13,13,182,182,182,185,185,185,173,173,173,36,36,36,29,176,176,176,24,24,24,39,39,39,27,27,27],
+        runes: [7,7,7,7,7,7,7,166,166,166,166,166],
+        bfs: [290,292,298],
       },
       {
         id: 'kaisa-ccs-4th', tag: 'CCS',
@@ -217,11 +254,15 @@ const TOURNAMENT_METAS = [
         bfs: [285,288,289],
       },
       {
-        id: 'yi-ppgfri-2nd', unavailable: true,
+        id: 'yi-ppgfri-2nd', tag: '올랜도',
         name: '마스터 이 컨트롤', place: '2위',
         event: 'PPG Summit Orlando Friday $5K (2025-12-12)', players: 241,
         player: 'Daniel Zidenberg', record: '',
         source: 'https://piltoverarchive.com/decks/view/ea87bbbc-100b-4f0b-8722-cbac29bc5420',
+        legendN: 319, champN: 309,
+        main: [309,43,43,43,45,45,45,156,58,58,134,134,134,77,77,77,128,50,50,47,47,47,64,138,138,138,75,75,75,161,161,161,82,82,142,142,160,160,160,158],
+        runes: [42,42,42,42,42,42,126,126,126,126,126,126],
+        bfs: [276,284,295],
       },
       {
         id: 'kaisa-ppgfri-3rd', tag: 'PPG 금5K',
@@ -235,11 +276,15 @@ const TOURNAMENT_METAS = [
         bfs: [280,292,285],
       },
       {
-        id: 'annie-ppgfri-4th', unavailable: true,
+        id: 'annie-ppgfri-4th', tag: '올랜도',
         name: '애니 어그로', place: '4위',
         event: 'PPG Summit Orlando Friday $5K (2025-12-12)', players: 241,
         player: 'Cynthia Moreno', record: '',
         source: 'https://piltoverarchive.com/decks/view/8c9caf36-2313-4dbb-a0cb-02c857371bf6',
+        legendN: 317, champN: 310,
+        main: [310,4,4,4,169,183,183,183,168,168,311,311,311,13,13,13,182,182,182,185,185,185,173,173,173,36,36,36,172,176,176,176,24,24,39,39,39,27,27,27],
+        runes: [7,7,7,7,7,7,166,166,166,166,166,166],
+        bfs: [290,292,298],
       },
 
       // ── PPG Summit Orlando Sunday $5K (2025-12-14) · 202명 ──
@@ -255,11 +300,15 @@ const TOURNAMENT_METAS = [
         bfs: [285,290,291],
       },
       {
-        id: 'annie-ppgsun-2nd', unavailable: true,
+        id: 'annie-ppgsun-2nd', tag: '올랜도',
         name: '애니 어그로', place: '2위',
         event: 'PPG Summit Orlando Sunday $5K (2025-12-14)', players: 202,
         player: 'Jason', record: '8-2-1',
         source: 'https://piltoverarchive.com/decks/view/0450b7a1-37f3-4fb8-8b8c-d4842220bed0',
+        legendN: 317, champN: 310,
+        main: [310,4,4,4,183,183,183,168,168,168,311,311,311,13,13,182,182,182,185,185,185,173,173,173,36,36,36,172,176,176,176,24,24,24,39,39,39,27,27,27],
+        runes: [7,7,7,7,7,7,166,166,166,166,166,166],
+        bfs: [290,292,298],
       },
       {
         id: 'kaisa-ppgsun-t4', tag: 'PPG 일5K',
