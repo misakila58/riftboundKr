@@ -1112,6 +1112,11 @@ function openSystemMenu(){
     add('🚪 처음 화면으로', ()=>location.reload());
   }
   if(G && G.winner===null) add('🏳 항복하기 (서렌)', ()=>{ closeModal(); confirmSurrender(); });
+  // 채팅 무시 — 온라인 대전에서만 의미가 있다. 켜면 수신 숨김 + 입력창 숨김 (localStorage로 유지)
+  if(NET.online) add(UI.chatMuted ? '🔊 채팅 무시 해제' : '🔇 채팅 무시하기', ()=>{
+    UI.setChatMuted(!UI.chatMuted); closeModal(); UI.render();
+    UI.toast(UI.chatMuted ? '채팅을 무시합니다 — 상대 메시지가 표시되지 않습니다' : '채팅 무시를 해제했습니다');
+  });
   add('🎬 리플레이 저장 (지금까지)', ()=>{ closeModal(); REPLAY.saveNow(); });
   add(UI.fx.on?'✨ 이펙트 끄기':'✨ 이펙트 켜기', ()=>{ UI.fx.setOn(!UI.fx.on); closeModal();
     UI.toast(UI.fx.on?'이펙트를 켰습니다':'이펙트를 껐습니다'); });

@@ -364,6 +364,10 @@
     <div id="inspector"><div class="insp-placeholder">카드에 마우스를 올리면 정보 표시<br>확대: 꾹 누르기 / Alt+클릭</div></div>
     <div id="prompt-area"></div>
     <div id="log"></div>
+    <!-- 온라인 대전 전용 채팅 (봇·핫시트·리플레이에서는 숨김 — ui.js updateButtons가 제어) -->
+    <div id="chat-bar" style="display:none">
+      <input id="chat-input" type="text" placeholder="상대에게 메시지 (Enter로 전송)" maxlength="200" autocomplete="off">
+    </div>
     <div id="action-buttons">
       <button id="btn-move" class="act-btn">🚶 이동</button>
       <button id="btn-endturn" class="act-btn primary">턴 종료</button>

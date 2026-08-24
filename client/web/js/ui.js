@@ -553,7 +553,48 @@ window.addEventListener('DOMContentLoaded', ()=>{
     const el=document.getElementById('trash-'+p);
     if(el){ el.title='클릭: 폐기장 내용 보기'; el.addEventListener('click', ()=>showTrashList(p)); }
   });
+  // ── 채팅 입력 (온라인 대전 전용 — 표시 여부는 updateButtons가 제어) ──
+  const chat=document.getElementById('chat-input');
+  if(chat) chat.addEventListener('keydown', e=>{
+    e.stopPropagation();                       // 게임 단축키(Esc 메뉴 등)와 분리
+    if(e.key==='Escape'){ chat.blur(); return; }
+    if(e.key!=='Enter') return;
+    const text=chat.value.trim();
+    if(!text || !NET.online) return;
+    chat.value='';
+    NET.send({t:'chat', msg:text.slice(0,200)});
+    // 서버 릴레이는 발신자에게도 에코가 오지만, P2P는 에코가 없어 직접 표시한다
+    if(typeof P2P!=='undefined' && P2P.active) chatShow(P2P.myName||'나', text, true);
+  });
 });
+
+// ── 채팅 표시 ──
+// 수신 경로: 서버 릴레이(net.js 'chat' 에코) / P2P 데이터채널 → NET.onChat
+// 무시하기(ESC 메뉴): 수신을 숨기고 입력창도 감춘다 — localStorage로 유지
+UI.chatMuted = (localStorage.getItem('rb_chat_mute') === 'on');
+UI.setChatMuted = function(v){
+  UI.chatMuted = !!v;
+  try{ localStorage.setItem('rb_chat_mute', v ? 'on' : 'off'); }catch(e){}
+};
+function chatShow(from, msg, mine){
+  const d=document.createElement('div');
+  d.className='log-entry log-chat';
+  const b=document.createElement('b'); b.textContent='💬 '+from+': ';
+  d.appendChild(b); d.appendChild(document.createTextNode(msg));   // textContent — HTML 삽입 차단
+  const el=document.getElementById('log');
+  if(el){ el.appendChild(d); el.scrollTop=el.scrollHeight; }
+  if(!mine) UI.toast('💬 '+String(from).slice(0,16)+': '+msg.slice(0,60));
+}
+NET.onChat = function(m){
+  if(UI.chatMuted) return;                       // 무시하기 — 수신 자체를 버린다
+  if(!m || typeof m.msg!=='string' || !m.msg.trim()) return;
+  const msg=m.msg.slice(0,200);
+  const myNames=[NET.userId, (typeof P2P!=='undefined'&&P2P.active)?P2P.myName:null].filter(Boolean);
+  let from=m.from;
+  const mine=from!=null && myNames.includes(from);
+  if(!from) from=(typeof P2P!=='undefined'&&P2P.active&&P2P.peerName) || '상대';
+  chatShow(String(from).slice(0,20), msg, mine);
+};
 
 // ---------- 카드 확대 (롱프레스 / Alt+클릭) ----------
 UI.showZoom = function(c){
@@ -1044,6 +1085,9 @@ function replayLock(){ return typeof REPLAY!=='undefined' && REPLAY.viewing; }
 
 function updateButtons(){
   document.getElementById('action-buttons').style.display = replayLock() ? 'none' : '';
+  // 채팅은 상대가 실제 사람일 때만 (온라인 대전 — 서버 릴레이·P2P 공통)
+  const chatBar=document.getElementById('chat-bar');
+  if(chatBar) chatBar.style.display = (NET.online && !replayLock() && !UI.chatMuted) ? '' : 'none';
   if(replayLock()) return;
   const btnMove=document.getElementById('btn-move');
   btnMove.className='act-btn'+(_moveArmed?' armed':'');

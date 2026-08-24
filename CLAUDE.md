@@ -22,7 +22,7 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 | main.js (~600줄) | 화면 전환·메뉴·덱편집·로비 | showScreen, buildDeck, openEditor, initLobby, p2p* |
 | effects.js (~550줄) | 카드 텍스트 파서 → FX (298장 전부 자동화, manual 0장) | compileCard, parseOp, parseMiscClause(상시효과), TRIGGER_PATTERNS, SCRIPTS, BF_STATIC |
 | cardscripts.js (~500줄) | 파서로 안 되는 카드의 개별 스크립트 + 전용 op | SCRIPTS[n] 추가분, EXTRA_OPS (engine execOps default에서 호출) |
-| net.js / p2p.js | 서버 릴레이 / WebRTC 직결 (락스텝 동기화) | NET 객체, P2P.hostViaCode·joinViaCode(6자리 방 코드), _pack/_unpack(SDP 압축 ~100자, 구버전 코드 호환) |
+| net.js / p2p.js | 서버 릴레이 / WebRTC 직결 (락스텝 동기화). **채팅('t:chat')**: 릴레이는 양쪽 에코(발신자 포함), P2P는 에코 없음(발신자가 로컬 표시) — UI는 ui.js chatShow/NET.onChat, 입력은 #chat-bar(온라인 전용, updateButtons가 표시 제어) | NET 객체, P2P.hostViaCode·joinViaCode(6자리 방 코드), _pack/_unpack(SDP 압축 ~100자, 구버전 코드 호환) |
 | signal.js (~230줄) | 6자리 방 코드 시그널링. offer/answer만 잠깐 중계하고 연결되면 닫음 | SIGNAL.open/newCode/normalize, 전송 2종: 공개 MQTT(기본·무설정) / 자체 WS(server/signal-worker) |
 | tutorial.js | 튜토리얼 시나리오 | TUT, tutSteps |
 | bot.js | BOT 대전(오프라인 전용). 900ms 턴 드라이버 + UI.pick* 래핑. **판단도 진행 순서도 하지 않고 전부 POLICY.step에 위임** | BOT, BOT_LEVELS(5티어), botStep, botShowdown, startBotGame |

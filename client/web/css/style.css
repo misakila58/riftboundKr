@@ -364,6 +364,15 @@ body.modal-open #inspector {
 #log .log-p1 { color:#ffc89f; }
 #log .log-sys { color:#8a94b0; }
 #log .log-score { color:#ffe07f; font-weight:bold; }
+#log .log-chat { color:#b8f0b8; }
+#log .log-chat b { color:#7fe07f; }
+/* 채팅 입력 (온라인 대전 전용) */
+#chat-bar { flex:0 0 auto; padding:4px 0; }
+#chat-bar input {
+  width:100%; padding:7px 10px; border-radius:7px; border:1px solid #3a4a70;
+  background:#0e1626; color:#e8e6e0; font-size:13px; font-family:inherit;
+}
+#chat-bar input:focus { outline:none; border-color:#7fe07f; }
 #log .log-combat { color:#ff9b9b; }
 
 #action-buttons { flex:0 0 auto; display:flex; flex-direction:column; gap:8px; }

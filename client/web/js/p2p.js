@@ -399,6 +399,7 @@ P2P.relay = function(m, seat){
 // NET.send 후킹 대상: P2P 활성 시 게임 메시지를 데이터채널로
 P2P.netSend = function(m){
   if(m.t==='act'||m.t==='choice'||m.t==='chat'){
+    if(m.t==='chat') m={...m, from:P2P.myName};   // 수신 측이 보낸 사람 이름을 표시할 수 있게
     if(P2P.isHost) (m.t==='chat') ? P2P.ch.send(JSON.stringify(m)) : P2P.relay(m, 0);
     else { try{ P2P.ch.send(JSON.stringify(m)); }catch(e){} }
   }
