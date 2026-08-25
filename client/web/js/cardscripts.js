@@ -708,3 +708,35 @@ Object.assign(EXTRA_OPS, {
     u._highlander=true;
     UI.log(`「${unitName(u)}」 — 이번 턴 다음 사망 시 탈진 상태로 귀환한다 (최후의 전사)`, 'p'+ctx.p); },
 });
+
+// ══════════ 오컴파일 수정 (2026-08-24 제보) ══════════
+// 파서가 '도구(gear)' 처치를 유닛 처치로 오해석하던 카드 2장.
+// 인양(224)으로 자기 유닛이 죽었다는 제보로 발견 — 열 광선(22)은 전 유닛 몰살이라 더 심각했다.
+Object.assign(SCRIPTS, {
+  // 열 광선: Kill all gear — 양측 도구 전부 폐기 (파서는 killAll 유닛으로 오해석)
+  22: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('killAllGear')]}]; return fx; },
+  // 인양: You may kill up to one gear. Draw 1 — 도구 하나 선택 폐기(선택) 후 드로우
+  224: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('pickKillGear',{optional:true}), OPX('draw',{n:1})]}]; return fx; },
+});
+Object.assign(EXTRA_OPS, {
+  // 보드의 모든 도구 폐기 (양측) — killGear가 splice하므로 뒤에서부터 순회
+  async killAllGear(op, ctx, h){
+    for(const pi of [0,1]){
+      const P=G.players[pi];
+      for(let i=P.gear.length-1;i>=0;i--) await killGear(pi, i);
+    } },
+  // 도구 하나를 골라 폐기 (양측 후보). optional이면 '처치 안 함' 포함.
+  // 선택지 순서는 봇 정책(첫 항목 선택)을 고려한 것: 적 도구 → 안 함 → 내 도구.
+  // (적 도구가 있으면 그걸 부수고, 없으면 자기 도구를 부수는 대신 넘어간다)
+  async pickKillGear(op, ctx, h){
+    const o=opp(ctx.p);
+    const opts=[];
+    G.players[o].gear.forEach((g,i)=>opts.push({v:{p:o,i},label:'상대 도구: '+card(g.n).ko, n:g.n}));
+    if(op.optional) opts.push({v:'skip',label:'처치 안 함'});
+    G.players[ctx.p].gear.forEach((g,i)=>opts.push({v:{p:ctx.p,i},label:'내 도구: '+card(g.n).ko, n:g.n}));
+    if(!G.players[o].gear.length && !G.players[ctx.p].gear.length) return;   // 도구가 없으면 조용히 통과
+    const sel=await UI.pickOption(ctx.p, op.optional?'처치할 도구 선택 (선택)':'처치할 도구 선택', opts);
+    if(sel===null || sel==='skip') return;
+    await killGear(sel.p, sel.i);
+  },
+});
