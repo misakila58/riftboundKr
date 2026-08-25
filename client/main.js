@@ -33,9 +33,9 @@ function createWindow() {
   win.setMenuBarVisibility(false);
   win.loadFile(path.join(__dirname, 'web', 'index.html'));
 
-  // 외부 링크는 기본 브라우저로
+  // 외부 링크는 기본 브라우저로. kakaoopen:은 카카오톡 앱 딥링크(오픈톡방 참여)라 함께 허용
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/i.test(url)) shell.openExternal(url);
+    if (/^(https?|kakaoopen):/i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
 }

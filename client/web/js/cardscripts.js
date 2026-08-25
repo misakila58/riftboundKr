@@ -63,7 +63,8 @@ Object.assign(SCRIPTS, {
   73: fx=>{ fx.manual=[]; fx.triggers.onEndTurn=[{cond:(ctx,src)=>src&&src.loc!=='base',ops:[OPX('readyRunes',{n:4})]}]; return fx; },
   76: fx=>{ fx.manual=[]; fx.triggers.onAttack=[{ops:[OPX('dmgEqMyMight',{spec:{side:'enemy',where:'here',count:1}})]}]; return fx; },
   77: fx=>{ fx.manual=[]; fx.zhonya=true; return fx; },
-  78: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},label:'나를 버프',ops:[OPX('buffSelf')]}]; return fx; },
+  78: fx=>{ fx.manual=[]; fx.multiBuff=true;   // "나는 버프를 몇 개든 가질 수 있다" — 705.1의 카드 예외
+       fx.activated=[{cost:{exhaustSelf:true},label:'나를 버프',ops:[OPX('buffSelf')]}]; return fx; },
   79: fx=>{ fx.manual=[]; fx.entersReady='nearWin';
       fx.statics=[{kind:'mightAura',n:-8,min:1,filter:{side:'enemy',where:'here',stunned:true}}]; return fx; },
   80: fx=>{ fx.manual=[]; fx.steal=true; fx.playOps=[]; return fx; },

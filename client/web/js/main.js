@@ -1210,9 +1210,13 @@ window.addEventListener('DOMContentLoaded', ()=>{
   initP2P();
   initHotseat();
   document.getElementById('btn-replays').onclick=()=>REPLAY.openLibrary('connect-screen');
-  // 오픈톡방 — 누르면 링크 복사 (Electron/브라우저 공통: clipboard API 실패 시 textarea 폴백)
+  // 오픈톡방 — 누르면 카카오톡 앱이 바로 뜨며 참여(딥링크, open.kakao.com PC 참여 버튼과 같은 형식).
+  // 카톡 미설치 등에 대비해 링크도 함께 복사해 둔다 (clipboard API 실패 시 textarea 폴백)
   document.getElementById('btn-openchat').onclick=async()=>{
     const url='https://open.kakao.com/o/gFmCtkKi';
+    const deep='kakaoopen://join?l=gFmCtkKi&r=EW';
+    if(window.desktop) window.open(deep);            // Electron: setWindowOpenHandler → shell.openExternal
+    else location.href=deep;                         // 브라우저: 프로토콜 열기 확인창 (페이지 이탈 없음)
     let ok=false;
     try{ await navigator.clipboard.writeText(url); ok=true; }
     catch(e){
@@ -1222,7 +1226,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
         ta.select(); ok=document.execCommand('copy'); ta.remove();
       }catch(e2){}
     }
-    if(ok){ UI.toast('💬 오픈톡방 링크가 복사되었습니다 — 카톡에 붙여넣으세요'); return; }
+    if(ok){ UI.toast('💬 카카오톡으로 오픈톡방을 엽니다 — 안 열리면 복사된 링크를 브라우저에 붙여넣으세요'); return; }
     // 클립보드가 막힌 환경(권한 거부 등): 직접 복사할 수 있게 선택된 입력창을 띄운다
     const box=document.getElementById('modal-box');
     box.innerHTML='<h3>💬 시뮬레이터 오픈톡방</h3><div style="font-size:13px;color:#9aa4bd;margin-bottom:8px">자동 복사가 막혀 있습니다 — 아래 링크를 직접 복사하세요 (Ctrl+C)</div>';

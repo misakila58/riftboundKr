@@ -511,12 +511,13 @@ function dealDamage(u, n, kind){
   return n;
 }
 async function buffUnit(u, byP){
-  // 공식 룰: 유닛당 버프는 1개까지 — 이미 버프가 있으면 놓이지 않는다 (선택은 가능하되 효과 없음)
-  if(u.buff>=1){
+  // 공식 룰: 유닛당 버프는 1개까지(705.1) — 단, 카드 텍스트가 예외면 그쪽이 우선
+  // (리 신 - 수행자 #78 "나는 버프를 몇 개든 가질 수 있다" → FX.multiBuff)
+  if(u.buff>=1 && !unitFx(u).multiBuff){
     UI.log(`${unitName(u)}은(는) 이미 버프가 있어 추가 버프가 놓이지 않음`, 'p'+byP);
     return false;
   }
-  u.buff=1;
+  u.buff++;
   const extra=TF().buffPlus[byP]||0;
   if(extra) u.tempM.push({v:extra, dur:'turn'});
   UI.fx.unit(u, 'buff', '+'+(1+extra)+'⚔');
@@ -2006,7 +2007,7 @@ async function equipGear(p, gearIdx){
 const ManualTools = {
   damage(u,n){ u.dmg+=n; UI.log(`(수동) ${unitName(u)} 피해 ${n}`, 'sys'); cleanup(G.turn).then(()=>UI.render()); },
   heal(u){ u.dmg=0; UI.render(); },
-  buff(u){ if(u.buff<1){ u.buff=1; UI.log(`(수동) ${unitName(u)} 버프`, 'sys'); } UI.render(); },
+  buff(u){ if(u.buff<1 || unitFx(u).multiBuff){ u.buff++; UI.log(`(수동) ${unitName(u)} 버프`, 'sys'); } UI.render(); },
   unbuff(u){ u.buff=Math.max(0,u.buff-1); UI.render(); },
   might(u,n){ u.tempM.push({v:n,dur:'turn'}); UI.log(`(수동) ${unitName(u)} 위력 ${n>0?'+':''}${n}`, 'sys'); UI.render(); },
   kill(u){ killUnit(u).then(()=>UI.render()); },
