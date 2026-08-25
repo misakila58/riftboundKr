@@ -510,7 +510,8 @@ function edAddCard(c){
   const cnt=ED.main.filter(n=>n===c.n).length;
   if(cnt>=3){ UI.toast('같은 카드는 3장까지입니다','warn'); return false; }
   if(ED.main.length>=40){ UI.toast('메인 덱은 40장입니다','warn'); return false; }
-  if(c.n===edChampN()){ UI.toast('선발 챔피언은 자동 배정됩니다 (챔피언 존)','warn'); return false; }
+  // 선발 챔피언도 메인 40장에 넣을 수 있다(같은 카드 3장 제한만 적용, 룰 103) —
+  // 게임 시작 시 메인에서 1장을 챔피언 존으로 분리하는 건 newGame이 처리한다
   ED.main.push(c.n); warnBan(); return true;
 }
 function edRemoveCard(c){
