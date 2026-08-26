@@ -279,8 +279,10 @@ const EXTRA_OPS = {
     if(!others.length) return;
     const t=await UI.pickUnitFrom(ctx.p, others, '위치를 교환할 아군 유닛 선택', true); if(!t) return;
     const a=me.loc, b=t.loc;
-    removeUnit(me); removeUnit(t); placeUnit(me,b); placeUnit(t,a);
-    UI.log(`「물결을 바꾸는 자」 위치 교환!`,'p'+ctx.p); },
+    UI.log(`「물결을 바꾸는 자」 위치 교환!`,'p'+ctx.p);
+    // 교환도 두 유닛 각각의 '이동' — effectMove로 이동 횟수·트리거 반영
+    await effectMove(ctx.p, me, b);
+    await effectMove(ctx.p, t, a); },
   async possess(op, ctx, h){ const u=await pickBySpec(ctx.p,{side:'enemy',where:'bf',count:1},'통제권을 뺏을 적 유닛'); if(!u) return;
     removeUnit(u); u.ctrl=ctx.p; placeUnit(u,'base');
     UI.log(`「빙의」: ${unitName(u)}의 통제권 획득!`,'p'+ctx.p); h.setIt(u); },

@@ -1783,7 +1783,8 @@ async function execOps(ops, ctx){
           if(op.to==='here') dest=_ctxBf;
           else if(op.to==='its base') dest='base';
           else dest=await UI.pickOption(p,'이동할 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})));
-          if(dest!==null){ removeUnit(u); placeUnit(u,dest); it=u; UI.log(`${unitName(u)} 이동됨`, 'p'+p); }
+          // effectMove 경유 — 이동 횟수(turnMoves)와 이동 트리거(케인·야스오 등)에 반영
+          if(dest!==null){ await effectMove(p, u, dest); it=u; }
         }
         break; }
       case 'bounce': {
@@ -1845,11 +1846,11 @@ async function execOps(ops, ctx){
         const mine=everyUnit().filter(u=>u.ctrl===p);
         const u=await UI.pickUnitFrom(p,mine,'이동시킬 아군 유닛 선택');
         if(u){
+          // effectMove 경유 — 이동 횟수·이동 트리거 반영 (야스오 205의 3회 이동 득점 등)
           if(u.loc==='base'){
             const sel=await UI.pickOption(p,'이동할 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})));
-            if(sel!==null){ removeUnit(u); placeUnit(u,sel); }
-          } else { removeUnit(u); placeUnit(u,'base'); }
-          UI.log(`${unitName(u)} 이동 (전설 능력)`, 'p'+p);
+            if(sel!==null){ await effectMove(p, u, sel); UI.log(`(전설 능력)`, 'p'+p); }
+          } else { await effectMove(p, u, 'base'); UI.log(`(전설 능력)`, 'p'+p); }
         }
         break; }
       case 'teemoFetch': {
