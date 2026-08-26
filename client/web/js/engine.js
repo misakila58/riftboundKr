@@ -1920,15 +1920,27 @@ async function execOps(ops, ctx){
         }
         break; }
       case 'scryTop': {
+        // 촛불 밝힌 성소(291): 맨 위 n장을 '동시에' 본 뒤 원하는 만큼 재순환(덱 맨 아래),
+        // 남긴 카드는 원하는 순서로 맨 위에 되돌린다 — 한 장씩 보고 중간에 끊는 방식은 원문과 다름
         const P=G.players[p];
-        let rec=false;
-        for(let i=0;i<op.n;i++){
-          if(!P.deck.length) break;
-          const top=P.deck[0];
-          const yes=await UI.confirmP(p,`덱 맨 위: 「${card(top).ko}」 — 덱 맨 아래로 되돌릴까요?`, card(top));
-          if(yes){ P.deck.shift(); P.deck.push(top); rec=true; }
-          else break;
+        const seen=P.deck.slice(0, op.n);
+        if(!seen.length) break;
+        P.deck.splice(0, seen.length);
+        const names=seen.map(n=>`「${card(n).ko}」`).join(' · ');
+        const keep=[]; let rec=false;
+        for(const n of seen){
+          const yes=await UI.confirmP(p, `덱 위 ${seen.length}장: ${names} — 「${card(n).ko}」를 재순환(덱 맨 아래)할까요?`, card(n));
+          if(yes){ P.deck.push(n); rec=true; } else keep.push(n);
         }
+        // 남긴 카드가 2장 이상이면 되돌릴 순서를 고른다 (위에 둘 카드부터)
+        const order=[];
+        while(keep.length>1){
+          const sel=await UI.pickOption(p, '덱 맨 위에 둘 카드부터 차례로 선택', keep.map((n,i)=>({v:i, label:card(n).ko, n})));
+          const i=(sel==null)?0:sel;
+          order.push(keep.splice(i,1)[0]);
+        }
+        order.push(...keep);
+        for(let i=order.length-1;i>=0;i--) P.deck.unshift(order[i]);
         if(rec) await fireEvent('onYouRecycle',{p});
         break; }
       case 'winIf7Here': {

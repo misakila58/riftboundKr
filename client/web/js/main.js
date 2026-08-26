@@ -588,8 +588,11 @@ function renderEditor(){
     const c=card(+n);
     const row=document.createElement('div'); row.className='ed-row';
     row.innerHTML=`<span class="cnt">×${cnt}</span> [${c.e??0}] ${esc(c.ko)}`;
+    row.title='클릭: 1장 제거 · 우클릭/Alt+클릭: 카드 상세';
     row.onmouseenter=()=>UI.inspect(c);
-    row.onclick=()=>{ ED.main.splice(ED.main.indexOf(+n),1); renderEditor(); };
+    // Alt+클릭·우클릭: 제거하지 않고 카드 상세(확대)만 보여준다
+    row.onclick=e=>{ if(e.altKey){ UI.showZoom(c); return; } ED.main.splice(ED.main.indexOf(+n),1); renderEditor(); };
+    row.oncontextmenu=e=>{ e.preventDefault(); UI.showZoom(c); };
     mainEl.appendChild(row);
   });
   document.getElementById('ed-main-count').textContent=ED.main.length;
@@ -620,8 +623,10 @@ function renderEditor(){
     const c=card(n);
     const row=document.createElement('div'); row.className='ed-row';
     row.textContent=c.ko;
+    row.title='클릭: 제거 · 우클릭/Alt+클릭: 카드 상세';
     row.onmouseenter=()=>UI.inspect(c);
-    row.onclick=()=>{ ED.bfs.splice(ED.bfs.indexOf(n),1); renderEditor(); };
+    row.onclick=e=>{ if(e.altKey){ UI.showZoom(c); return; } ED.bfs.splice(ED.bfs.indexOf(n),1); renderEditor(); };
+    row.oncontextmenu=e=>{ e.preventDefault(); UI.showZoom(c); };
     bfEl.appendChild(row);
   });
   document.getElementById('ed-bf-count').textContent=ED.bfs.length;
