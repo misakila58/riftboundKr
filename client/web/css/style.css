@@ -364,15 +364,41 @@ body.modal-open #inspector {
 #log .log-p1 { color:#ffc89f; }
 #log .log-sys { color:#8a94b0; }
 #log .log-score { color:#ffe07f; font-weight:bold; }
-#log .log-chat { color:#b8f0b8; }
-#log .log-chat b { color:#7fe07f; }
-/* 채팅 입력 (온라인 대전 전용) */
+/* 채팅 (온라인 대전 전용) — 사이드바에는 버튼만, 대화는 팝업(#chat-pop)에서 */
 #chat-bar { flex:0 0 auto; padding:4px 0; }
-#chat-bar input {
-  width:100%; padding:7px 10px; border-radius:7px; border:1px solid #3a4a70;
+#chat-bar button {
+  width:100%; padding:6px 10px; border-radius:8px; border:1px solid #3a4a70;
+  background:#141c30; color:#b8f0b8; font-size:13px; cursor:pointer; font-family:inherit;
+}
+#chat-bar button:hover { border-color:#7fe07f; }
+#chat-dot {
+  display:inline-block; width:9px; height:9px; border-radius:50%;
+  background:#ff5252; margin-left:7px; vertical-align:middle;
+  box-shadow:0 0 6px #ff5252;
+}
+/* 채팅 팝업 — 선택 모달(z-index 100+) 아래에 둔다 (게임 진행 방해 금지) */
+#chat-pop {
+  position:fixed; right:14px; bottom:60px; width:300px; height:360px; z-index:95;
+  background:#182238; border:1px solid #3a4a70; border-radius:12px;
+  display:flex; flex-direction:column; box-shadow:0 8px 30px rgba(0,0,0,.55);
+}
+#chat-pop-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 12px; border-bottom:1px solid #2a3856; color:#d8c27a; font-size:14px;
+}
+#chat-pop-head button {
+  background:none; border:none; color:#8090b8; font-size:15px; cursor:pointer; padding:2px 6px;
+}
+#chat-pop-head button:hover { color:#fff; }
+#chat-pop-msgs { flex:1; overflow-y:auto; padding:8px 10px; font-size:13px; }
+#chat-pop-msgs .chat-msg { margin-bottom:6px; color:#c8d4ee; word-break:break-word; }
+#chat-pop-msgs .chat-msg b { color:#7fe07f; font-weight:600; }
+#chat-pop-msgs .chat-msg.mine b { color:#d8c27a; }
+#chat-pop input {
+  margin:8px; padding:8px 10px; border-radius:8px; border:1px solid #3a4a70;
   background:#0e1626; color:#e8e6e0; font-size:13px; font-family:inherit;
 }
-#chat-bar input:focus { outline:none; border-color:#7fe07f; }
+#chat-pop input:focus { outline:none; border-color:#7fe07f; }
 #log .log-combat { color:#ff9b9b; }
 
 #action-buttons { flex:0 0 auto; display:flex; flex-direction:column; gap:8px; }

@@ -553,11 +553,18 @@ window.addEventListener('DOMContentLoaded', ()=>{
     const el=document.getElementById('trash-'+p);
     if(el){ el.title='클릭: 폐기장 내용 보기'; el.addEventListener('click', ()=>showTrashList(p)); }
   });
-  // ── 채팅 입력 (온라인 대전 전용 — 표시 여부는 updateButtons가 제어) ──
+  // ── 채팅 (온라인 대전 전용 — 버튼/팝업 표시 여부는 updateButtons가 제어) ──
+  const chatBtn=document.getElementById('btn-chat');
+  if(chatBtn) chatBtn.addEventListener('click', ()=>{
+    const pop=document.getElementById('chat-pop');
+    if(pop && pop.style.display!=='none') chatPopClose(); else chatPopOpen();
+  });
+  const chatX=document.getElementById('chat-pop-close');
+  if(chatX) chatX.addEventListener('click', chatPopClose);
   const chat=document.getElementById('chat-input');
   if(chat) chat.addEventListener('keydown', e=>{
     e.stopPropagation();                       // 게임 단축키(Esc 메뉴 등)와 분리
-    if(e.key==='Escape'){ chat.blur(); return; }
+    if(e.key==='Escape'){ chatPopClose(); return; }
     if(e.key!=='Enter') return;
     const text=chat.value.trim();
     if(!text || !NET.online) return;
@@ -576,14 +583,36 @@ UI.setChatMuted = function(v){
   UI.chatMuted = !!v;
   try{ localStorage.setItem('rb_chat_mute', v ? 'on' : 'off'); }catch(e){}
 };
+// 대화는 로그와 분리된 팝업(#chat-pop)에만 표시. 팝업이 닫혀 있을 때 수신하면
+// 내용 없이 레드닷(#chat-dot)만 켠다 — 열면 꺼짐
+const CHAT={ msgs:[] };
+function chatRender(){
+  const box=document.getElementById('chat-pop-msgs'); if(!box) return;
+  box.innerHTML='';
+  for(const m of CHAT.msgs){
+    const d=document.createElement('div'); d.className='chat-msg'+(m.mine?' mine':'');
+    const b=document.createElement('b'); b.textContent=m.from+': ';
+    d.appendChild(b); d.appendChild(document.createTextNode(m.msg));   // textContent — HTML 삽입 차단
+    box.appendChild(d);
+  }
+  box.scrollTop=box.scrollHeight;
+}
+function chatPopOpen(){
+  const pop=document.getElementById('chat-pop'); if(!pop) return;
+  pop.style.display='flex';
+  const dot=document.getElementById('chat-dot'); if(dot) dot.style.display='none';
+  chatRender();
+  const inp=document.getElementById('chat-input'); if(inp) inp.focus();
+}
+function chatPopClose(){
+  const pop=document.getElementById('chat-pop'); if(pop) pop.style.display='none';
+}
 function chatShow(from, msg, mine){
-  const d=document.createElement('div');
-  d.className='log-entry log-chat';
-  const b=document.createElement('b'); b.textContent='💬 '+from+': ';
-  d.appendChild(b); d.appendChild(document.createTextNode(msg));   // textContent — HTML 삽입 차단
-  const el=document.getElementById('log');
-  if(el){ el.appendChild(d); el.scrollTop=el.scrollHeight; }
-  if(!mine) UI.toast('💬 '+String(from).slice(0,16)+': '+msg.slice(0,60));
+  CHAT.msgs.push({from, msg, mine});
+  if(CHAT.msgs.length>200) CHAT.msgs.shift();
+  const pop=document.getElementById('chat-pop');
+  if(pop && pop.style.display!=='none') chatRender();
+  else if(!mine){ const dot=document.getElementById('chat-dot'); if(dot) dot.style.display=''; }
 }
 NET.onChat = function(m){
   if(UI.chatMuted) return;                       // 무시하기 — 수신 자체를 버린다
@@ -1086,8 +1115,10 @@ function replayLock(){ return typeof REPLAY!=='undefined' && REPLAY.viewing; }
 function updateButtons(){
   document.getElementById('action-buttons').style.display = replayLock() ? 'none' : '';
   // 채팅은 상대가 실제 사람일 때만 (온라인 대전 — 서버 릴레이·P2P 공통)
+  const chatOn = NET.online && !replayLock() && !UI.chatMuted;
   const chatBar=document.getElementById('chat-bar');
-  if(chatBar) chatBar.style.display = (NET.online && !replayLock() && !UI.chatMuted) ? '' : 'none';
+  if(chatBar) chatBar.style.display = chatOn ? '' : 'none';
+  if(!chatOn) chatPopClose();   // 채팅 불가 상태(오프라인·무시·리플레이)면 팝업도 닫는다
   if(replayLock()) return;
   const btnMove=document.getElementById('btn-move');
   btnMove.className='act-btn'+(_moveArmed?' armed':'');

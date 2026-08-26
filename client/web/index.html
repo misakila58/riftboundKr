@@ -364,9 +364,15 @@
     <div id="inspector"><div class="insp-placeholder">카드에 마우스를 올리면 정보 표시<br>확대: 꾹 누르기 / Alt+클릭</div></div>
     <div id="prompt-area"></div>
     <div id="log"></div>
-    <!-- 온라인 대전 전용 채팅 (봇·핫시트·리플레이에서는 숨김 — ui.js updateButtons가 제어) -->
+    <!-- 온라인 대전 전용 채팅 (봇·핫시트·리플레이에서는 숨김 — ui.js updateButtons가 제어)
+         버튼만 사이드바에 두고, 대화는 별도 팝업(#chat-pop)에서. 안 읽은 메시지는 레드닷 -->
     <div id="chat-bar" style="display:none">
-      <input id="chat-input" type="text" placeholder="상대에게 메시지 (Enter로 전송)" maxlength="200" autocomplete="off">
+      <button id="btn-chat">💬 채팅<span id="chat-dot" style="display:none"></span></button>
+    </div>
+    <div id="chat-pop" style="display:none">
+      <div id="chat-pop-head"><span>💬 채팅</span><button id="chat-pop-close" title="닫기">✕</button></div>
+      <div id="chat-pop-msgs"></div>
+      <input id="chat-input" type="text" placeholder="메시지 입력 (Enter로 전송)" maxlength="200" autocomplete="off">
     </div>
     <div id="action-buttons">
       <button id="btn-move" class="act-btn">🚶 이동</button>
