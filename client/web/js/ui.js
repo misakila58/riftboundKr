@@ -1026,6 +1026,11 @@ UI.render = function(){
     const bz=document.getElementById('base-'+p);
     bz.innerHTML='<div class="zone-label">기지</div>';
     attachDropZone(bz, 'base'); // 드래그 이동: 자기 기지으로 귀환 (moveUnits가 소유자 검증)
+    // 클릭 이동: 전장처럼 기지도 이동 목적지로 클릭 가능해야 한다 (드래그가 안 되는 터치 환경 필수)
+    bz.onclick=(e)=>{
+      if(e.target.closest('.card-mini')) return;
+      if(_moveArmed && _moveSel.size) executeMove('base');
+    };
     Pl.base.forEach(u=>bz.appendChild(unitEl(u)));
     // 도구 (기지에 표시)
     Pl.gear.forEach(g=>{
