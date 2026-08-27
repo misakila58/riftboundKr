@@ -6,6 +6,47 @@ function showScreen(id){
   // 법적 고지 푸터: 게임 화면에서는 보드를 가리지 않게 숨김, 그 외 입장 화면에서는 상시 노출
   const lf=document.getElementById('legal-footer');
   if(lf) lf.style.display = (id==='game-screen') ? 'none' : 'block';
+  updateLegalPad();
+}
+// 고정 푸터의 실제 높이를 CSS 변수(--legal-h)로 알려, 각 화면이 그만큼 하단 여백을 확보한다
+// (여백 없이는 낮은 해상도에서 스크롤 끝까지 내려도 마지막 내용이 푸터에 깔려 안 보인다)
+function updateLegalPad(){
+  const lf=document.getElementById('legal-footer');
+  const h=(lf && lf.style.display!=='none') ? lf.offsetHeight : 0;
+  document.documentElement.style.setProperty('--legal-h', h+'px');
+}
+window.addEventListener('resize', updateLegalPad);
+// 초기 로드 직후엔 폰트·줄바꿈이 확정되기 전이라 푸터 높이가 실제보다 작게 재어진다
+// → 푸터의 렌더 크기 변화를 직접 감시해 그때마다 다시 잰다
+window.addEventListener('DOMContentLoaded', ()=>{
+  const lf=document.getElementById('legal-footer');
+  if(lf && window.ResizeObserver) new ResizeObserver(updateLegalPad).observe(lf);
+});
+
+// ---------- 화면 배율 ----------
+// 폰마다 체감 크기가 달라, 기기 해상도 자동 감지 대신 사용자가 눈으로 보고 배율을 고른다.
+// zoom은 vh/고정 요소 포함 전체 UI에 적용되고 localStorage로 유지된다.
+const UISCALE_KEY='rb_ui_scale';
+function uiScale(){ const v=parseFloat(localStorage.getItem(UISCALE_KEY)); return (v>=0.6&&v<=1.6)?v:1; }
+function applyUiScale(v){ document.documentElement.style.zoom=v; updateLegalPad(); }
+function showScalePicker(firstRun){
+  const box=document.getElementById('modal-box');
+  box.innerHTML='<h3>🔍 화면 배율</h3><div style="font-size:13px;color:#9aa4bd;margin-bottom:10px">'+
+    (firstRun ? '화면이 잘리거나 글자가 너무 작으면 배율을 조절하세요.<br>누르는 즉시 적용됩니다 — 나중에 첫 화면·ESC 메뉴에서 언제든 변경 가능'
+              : '누르는 즉시 적용됩니다')+'</div>';
+  const btns=document.createElement('div'); btns.className='modal-btns';
+  [0.7,0.8,0.9,1,1.1,1.25,1.4].forEach(v=>{
+    const b=document.createElement('button');
+    b.textContent=Math.round(v*100)+'%';
+    if(Math.abs(uiScale()-v)<0.01) b.className='primary';
+    b.onclick=()=>{ applyUiScale(v); try{localStorage.setItem(UISCALE_KEY,String(v));}catch(e){} showScalePicker(firstRun); };
+    btns.appendChild(b);
+  });
+  box.appendChild(btns);
+  const done=document.createElement('div'); done.className='modal-btns';
+  const ok=document.createElement('button'); ok.className='primary'; ok.textContent='완료'; ok.onclick=closeModal;
+  done.appendChild(ok); box.appendChild(done);
+  openModal(); markModalDismissable();
 }
 
 let myDecks = [];
@@ -1126,6 +1167,7 @@ function openSystemMenu(){
   add('🎬 리플레이 저장 (지금까지)', ()=>{ closeModal(); REPLAY.saveNow(); });
   add(UI.fx.on?'✨ 이펙트 끄기':'✨ 이펙트 켜기', ()=>{ UI.fx.setOn(!UI.fx.on); closeModal();
     UI.toast(UI.fx.on?'이펙트를 켰습니다':'이펙트를 껐습니다'); });
+  add(`🔍 화면 배율 (${Math.round(uiScale()*100)}%)`, ()=>{ closeModal(); showScalePicker(false); });
   add('계속하기', closeModal);
   box.appendChild(btns);
   openModal(); markModalDismissable();
@@ -1254,5 +1296,13 @@ window.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('btn-tourney-editor').onclick=showTourneyDecks;
   if(typeof BUILDINFO!=='undefined')
     document.getElementById('build-tag').textContent=`v${BUILDINFO.version} · ${BUILDINFO.built}`;
+  // 화면 배율: 저장값 적용 + 첫 화면 버튼. 모바일 첫 실행이면 선택 안내를 한 번 띄운다
+  applyUiScale(uiScale());
+  document.getElementById('btn-uiscale').onclick=()=>showScalePicker(false);
+  const isMobileUA=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+  if(isMobileUA && !localStorage.getItem(UISCALE_KEY) && !localStorage.getItem('rb_ui_scale_seen')){
+    try{ localStorage.setItem('rb_ui_scale_seen','1'); }catch(e){}
+    setTimeout(()=>showScalePicker(true), 400);
+  }
   showScreen('connect-screen');
 });

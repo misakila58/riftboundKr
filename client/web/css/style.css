@@ -13,8 +13,8 @@ button { cursor:pointer; font-family:inherit; }
   height:100%; display:flex; align-items:flex-start; justify-content:center;
   background:radial-gradient(ellipse at center,#1a2540 0%,#0e1420 75%);
   overflow-y:auto;
-  /* 하단 고정 고지문(#legal-footer, 최대 22vh)에 내용이 깔리지 않게 여백 확보 */
-  padding:14px 8px 23vh;
+  /* 하단 고정 고지문(#legal-footer)에 내용이 깔리지 않게 실측 높이(--legal-h)만큼 여백 확보 */
+  padding:14px 8px calc(var(--legal-h, 12vh) + 14px);
 }
 /* align-items:center는 내용이 화면보다 길 때 위쪽이 잘려 스크롤로도 못 본다(플렉스 오버플로 클리핑)
    → flex-start + 자식 margin:auto로 "공간 있으면 중앙, 넘치면 위부터 스크롤" */
@@ -22,6 +22,8 @@ button { cursor:pointer; font-family:inherit; }
 .full-screen {
   height:100%; display:flex; flex-direction:column;
   background:#0e1420; overflow:hidden;
+  /* 게임 외 화면(덱 편집 등)에서 고정 고지문이 하단 내용을 가리지 않게 — 게임 화면은 푸터가 숨겨져 0 */
+  padding-bottom:var(--legal-h, 0px);
 }
 .screen-head {
   display:flex; align-items:center; justify-content:space-between; gap:10px;
