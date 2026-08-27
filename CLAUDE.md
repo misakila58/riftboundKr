@@ -55,6 +55,6 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 - 클라 개발 실행: `cd client && npm start` / 웹 확인: `npx http-server client/web -p 8777`
 - 서버: `cd server && node server.js`
 - 빌드: 클라 `npm run dist`, 서버 `node build-dist.js --exe`
-- **드라이브 업로드 (사용자가 요청할 때만 — 빌드 루틴에 넣지 말 것)**: `rclone copy "client/dist/RiftboundSim-<버전>-portable.exe" "gdrive:리프트바운드/" --progress` — rclone 원격 `gdrive`는 misakila58@gmail.com 계정으로 인증돼 있음(2026-08 설정). rclone이 PATH에 없으면 `C:\Users\SHIFTUP\AppData\Local\Microsoft\WinGet\Packages\Rclone.Rclone_*\rclone-*\rclone.exe` 직접 호출.
+- **드라이브 업로드 (사용자가 요청할 때만 — 빌드 루틴에 넣지 말 것)**: portable.exe를 zip으로도 압축해 **exe와 zip 둘 다** `gdrive:리프트바운드/`에 올린다(사용자 요청 2026-08-25, 매번). `Compress-Archive`로 zip 생성 → `rclone copy "client/dist/RiftboundSim-<버전>-portable.exe" "gdrive:리프트바운드/"` + zip 동일. rclone 원격 `gdrive`는 misakila58@gmail.com 계정으로 인증돼 있음(2026-08 설정). rclone이 PATH에 없으면 `C:\Users\SHIFTUP\AppData\Local\Microsoft\WinGet\Packages\Rclone.Rclone_*\rclone-*\rclone.exe` 직접 호출.
 - 모바일 APK: `cd mobile && npm i && npm run sync && cd android && gradlew assembleDebug` (JAVA_HOME=포터블 JDK17 `C:/Users/SHIFTUP/android-build/jdk-17.0.20+8`, sdk.dir은 android/local.properties — `C:/Users/SHIFTUP/android-build/sdk`). android/·www/는 생성물(gitignore), 산출물은 `release/`에 복사
 - 클라 빌드 시 `predist`(build-prep.js)가 **패치 버전 자동 +1** 하고 `web/js/buildinfo.js`(생성물)에 버전·빌드 일시를 기록 → 첫 화면 우하단에 표시. 빌드 후 package.json/buildinfo.js 변경분도 함께 커밋할 것.
