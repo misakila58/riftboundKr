@@ -697,6 +697,11 @@ body.modal-open #inspector {
   .p2p-cols{ flex-direction:column; }
   .ed-pool .card-mini{ width:64px; height:90px; }
   #editor-body{ flex-direction:column; }
+  /* 세로 배치에서는 세로축이 주축이 된다 — min-height:0이 없으면 카드 풀이 내용만큼
+     화면 밖까지 커져(overflow:hidden에 잘림) 아래 카드를 스크롤로도 못 본다 */
+  #ed-pool-panel{ min-height:0; border-right:none; border-bottom:1px solid #2e3d5e; }
+  #ed-deck-panel{ min-height:0; }
+  .ed-pool{ min-height:0; }
   .cz-box{ flex-direction:column; max-width:94vw; }
   .cz-img{ width:auto; max-width:80vw; max-height:52vh; }
   /* ── 모달(멀리건 등) 모바일 보정 ── */
