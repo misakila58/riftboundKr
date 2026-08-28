@@ -33,7 +33,9 @@ function parseTargetSpec(s){
   if(/friendly|you control|your/.test(s)) spec.side='friendly';
   if(/enemy|an opponent controls/.test(s)) spec.side='enemy';
   if(/\bhere\b/.test(s)) spec.where='here';
-  if(/at a battlefield/.test(s)) spec.where='bf';
+  if(/at (a battlefield|battlefields)/i.test(s)) spec.where='bf';
+  if(/at my battlefield/i.test(s)) spec.where='here';
+  if(/in combat/i.test(s)) spec.where='combat';
   if(/in (a|your|its owner'?s?) base/.test(s)) spec.where='base';
   if(/champion/.test(s)) spec.champion=true;
   if(/buffed/.test(s)) spec.buffed=true;
@@ -45,7 +47,7 @@ function parseTargetSpec(s){
   // "다른(another/other)" 대상 = 효과 발생원 자신 제외.
   // 두 번째 패턴은 안전망: 앞의 규칙이 관사 'a'를 먼저 떼어가 'another' → 'nother'로 잘린 경우도 잡는다.
   if(/\b(an)?other\b/.test(s) || /(^|\s)n?other\b/.test(s)) spec.other=true;
-  if(/each|all/.test(s)) spec.count='all';
+  if(/each|all/i.test(s)) spec.count='all';
   if(/up to two|up to 2/.test(s)) spec.count=2, spec.optional=true;
   if(/you may/.test(s)) spec.optional=true;
   return spec;
@@ -91,7 +93,7 @@ function parseOp(s){
     const tgt = m[2];
     if(/split among any number of enemy units/.test(tgt))
       return { op:'dealSplit', n:+m[1], spec:{side:'enemy', where:/here/.test(tgt)?'here':'any'} };
-    if(/each|all/.test(tgt))
+    if(/each|all/i.test(tgt))
       return { op:'damageAll', n:+m[1], spec:parseTargetSpec(tgt) };
     return { op:'damage', n:+m[1], spec:parseTargetSpec(tgt) };
   }
@@ -283,19 +285,31 @@ function compileCard(c){
   const text = c.text||'';
   if(!text.trim()) return fx;
 
-  // 키워드 플래그 (원문 전체에서)
+  // 키워드 플래그 — 원문 전체 스캔은 조건부("If ..., I have [X]")·타 유닛 부여("Other units have [X]")·
+  // 참조("opponents' [Hidden] cards")까지 상시 키워드로 오인한다. 카드 인쇄상 '자기 상시 키워드'는
+  // 문두에 단독 절([KW] (리마인더))로 나오므로, 단독 키워드 절에서만 줍는다.
+  // [Action]/[Reaction]은 주문 타이밍 표기라 조건부로 등장하지 않아 전체 스캔을 유지한다.
   let m;
-  if(/\[Accelerate\]/.test(text)) fx.kw.accelerate=true;
   if(/\[Action\]/.test(text)) fx.kw.action=true;
   if(/\[Reaction\]/.test(text)) fx.kw.reaction=true;
-  if(/\[Ganking\]/.test(text)) fx.kw.ganking=true;
-  if(/\[Tank\]/.test(text)) fx.kw.tank=true;
-  if(/\[Hidden\]/.test(text)) fx.kw.hidden=true;
-  if(/\[Temporary\]/.test(text)) fx.kw.temporary=true;
-  if(/\[Vision\]/.test(text)) fx.kw.vision=true;
-  if((m=text.match(/\[Assault ?(\d*)\]/))) fx.kw.assault=(m[1]?+m[1]:1);
-  if((m=text.match(/\[Shield ?(\d*)\]/))) fx.kw.shield=(m[1]?+m[1]:1);
-  if((m=text.match(/\[Deflect ?(\d*)\]/))) fx.kw.deflect=(m[1]?+m[1]:1);
+  for(const cl of splitClauses(text)){
+    // 절 '시작'의 키워드 토큰 연속(쉼표 나열 허용)만 자기 상시 키워드로 인정.
+    // 부여("Give a unit [X]")·조건("While ..., I have [X]")·참조는 토큰이 절 중간에 오므로 제외된다.
+    const lead = cl.match(/^(\s*\[(?:Accelerate|Ganking|Tank|Hidden|Temporary|Vision|Assault ?\d*|Shield ?\d*|Deflect ?\d*|Action|Reaction)\]\s*,?\s*)+/);
+    if(!lead) continue;
+    for(const tk of lead[0].match(/\[[A-Za-z]+ ?\d*\]/g)||[]){
+      const tok = tk.slice(1,-1);
+      if(tok==='Accelerate') fx.kw.accelerate=true;
+      else if(tok==='Ganking') fx.kw.ganking=true;
+      else if(tok==='Tank') fx.kw.tank=true;
+      else if(tok==='Hidden') fx.kw.hidden=true;
+      else if(tok==='Temporary') fx.kw.temporary=true;
+      else if(tok==='Vision') fx.kw.vision=true;
+      else if(/^Assault/.test(tok)) fx.kw.assault=+(tok.match(/\d+/)||[1])[0];
+      else if(/^Shield/.test(tok)) fx.kw.shield=+(tok.match(/\d+/)||[1])[0];
+      else if(/^Deflect/.test(tok)) fx.kw.deflect=+(tok.match(/\d+/)||[1])[0];
+    }
+  }
 
   // 모달 주문: "Choose one — A. [or] B."
   const chooseM = text.replace(/\((?:[^()]*)\)/g,'').match(/^Choose one\s*—\s*(.+)$/s);
@@ -309,8 +323,8 @@ function compileCard(c){
 
   const clauses = splitClauses(text);
   for(let cl of clauses){
-    // 단독 키워드 절은 이미 처리됨
-    if(/^\[(Accelerate|Action|Reaction|Ganking|Tank|Hidden|Temporary|Vision|Assault ?\d*|Shield ?\d*|Deflect ?\d*)\]$/.test(cl.trim())) continue;
+    // 단독 키워드 절(쉼표 나열 포함, 예: "[Assault 2], [Shield 2]")은 이미 처리됨
+    if(/^(\s*\[(Accelerate|Action|Reaction|Ganking|Tank|Hidden|Temporary|Vision|Assault ?\d*|Shield ?\d*|Deflect ?\d*)\]\s*,?\s*)+$/.test(cl.trim())) continue;
 
     let legion = false;
     let body = cl;

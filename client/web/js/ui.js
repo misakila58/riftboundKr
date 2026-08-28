@@ -283,7 +283,12 @@ function _pickMulliganLocal(p){
   return new Promise(res=>{
     const P=G.players[p];
     const box=document.getElementById('modal-box');
+    // 선후공을 알아야 멀리건 판단이 선다 — 여기서 함께 안내한다
+    const firstTxt = G.turn===p
+      ? '<b style="color:#ffe990">🎲 당신이 선공입니다</b>'
+      : `<b style="color:#9fc8ff">🎲 선공: ${esc(pname(G.turn))}</b> — 당신은 후공입니다`;
     box.innerHTML=`<h3>🔄 ${esc(pname(p))}: 멀리건</h3>
+      <div style="font-size:14px;margin-bottom:8px">${firstTxt}</div>
       <div style="font-size:13px;color:#9aa4bd;margin-bottom:10px">
       교체할 카드를 <b>최대 2장</b> 선택하세요. 그 수만큼 새로 뽑은 뒤, 선택한 카드는 덱 맨 아래로 갑니다. (1회)</div>`;
     const wrap=document.createElement('div'); wrap.className='modal-cards';
@@ -936,7 +941,7 @@ UI.render = function(){
   const P=G.players[G.actingPlayer];
   const powStr=Object.entries(P.power).filter(([,v])=>v>0).map(([d,v])=>`${DOMAIN_ICON[d]}${v}`).join(' ');
   document.getElementById('pool-display').innerHTML=
-    `<b>${esc(pname(G.actingPlayer))}</b> 풀<br>에너지 ${P.energy} ${powStr?'· '+powStr:''}<br>준비 룬 ${readyRunes(G.actingPlayer).length}/${P.runes.length}`;
+    `<b>${esc(pname(G.actingPlayer))}</b> 풀<br>에너지 ${P.energy}${P.energySpell?` (+주문 전용 ${P.energySpell})`:''} ${powStr?'· '+powStr:''}<br>준비 룬 ${readyRunes(G.actingPlayer).length}/${P.runes.length}`;
 
   if(G.state!=='showdown'){
     document.getElementById('showdown-banner').style.display='none';
@@ -977,6 +982,13 @@ UI.render = function(){
           NET.dispatch({k:'play',p,handIdx:-1,opts:{champZone:true}},
             ()=>playCardFromHand(p,-1,{champZone:true})); };
         menu.appendChild(play);
+        // [숨겨짐] 챔피언은 챔피언 존에서도 숨길 수 있다 (룰 737 — 티모 121·197 등)
+        if(FX[cc.n] && FX[cc.n].kw.hidden && G.turn===p && G.state==='neutral'){
+          const hd=document.createElement('div'); hd.className='ctx-item';
+          hd.textContent='🕶 전장에 숨기기 (힘 1)';
+          hd.onclick=()=>{ hideMenu(); NET.dispatch({k:'hide',p,handIdx:'champ'}, ()=>hideCard(p,'champ')); };
+          menu.appendChild(hd);
+        }
         openMenuAt(menu, e);
       };
       cslot.appendChild(cel);
@@ -997,9 +1009,31 @@ UI.render = function(){
       const badge=document.createElement('span');
       badge.className='rm-dom'; badge.textContent=DOMAIN_ICON[dom]||'◆';
       rel.appendChild(badge);
-      rel.title=rc.ko+(r.ex?' (탈진)':'');
+      rel.title=rc.ko+(r.ex?' (탈진)':'')+' — 클릭: 자원 띄우기';
       rel.onmouseenter=()=>UI.inspect(rc);
       rel._card=rc; attachZoom(rel);           // 꾹 누르기/우클릭/Alt+클릭으로 확대
+      // 룬 플로팅(룰 745): 클릭 → 탈진해 에너지 +1 / 재활용해 힘 +1 을 미리 풀에 올린다
+      const ri=Pl.runes.indexOf(r);
+      rel.onclick=(e)=>{
+        if(replayLock() || G.winner!==null) return;
+        if(e.altKey) return;                    // 확대 제스처와 충돌 방지
+        if(!canInitiate(p)) return;             // 내 좌석/차례에만
+        if(p!==G.actingPlayer) return;
+        e.stopPropagation();
+        const menu=document.getElementById('ctx-menu');
+        menu.innerHTML='';
+        if(!r.ex){
+          const en=document.createElement('div'); en.className='ctx-item';
+          en.textContent='⚡ 탈진: 에너지 +1';
+          en.onclick=()=>{ hideMenu(); NET.dispatch({k:'runeFloat',p,idx:ri,mode:'energy'}, ()=>runeFloat(p,ri,'energy')); };
+          menu.appendChild(en);
+        }
+        const pw=document.createElement('div'); pw.className='ctx-item';
+        pw.textContent=`✳ 재활용: ${DOMAIN_KO[runeDomain(rc.n)]||''} 힘 +1 (룬 덱으로)`;
+        pw.onclick=()=>{ hideMenu(); NET.dispatch({k:'runeFloat',p,idx:ri,mode:'power'}, ()=>runeFloat(p,ri,'power')); };
+        menu.appendChild(pw);
+        openMenuAt(menu, e);
+      };
       rz.appendChild(rel);
     });
     // 더미

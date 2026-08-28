@@ -113,6 +113,7 @@ NET._authorized = function(a, seat){
     case 'manual':
       // 수동 도구는 현재 행동 좌석(자기 턴 또는 결전 응답 차례)만 사용 가능
       return seat === G.actingPlayer;
+    case 'runeFloat': return seat === G.actingPlayer;   // 자원 띄우기는 행동 차례에만
     default: return true;
   }
 };
@@ -127,6 +128,7 @@ NET._execAction = async function(a){
       break; }
     case 'endTurn':   await endTurn(); break;
     case 'pass':      await showdownPass(); break;
+    case 'runeFloat': await runeFloat(a.p, a.idx, a.mode); break;
     case 'ability': {
       let src=null;
       if(a.src.kind==='legend') src={kind:'legend'};
