@@ -461,7 +461,9 @@ async function startTurn(){
   // A: 각성 — 룬/유닛/도구/전설 모두 준비 (공식: Ready all your Runes, Units, and Gear)
   P.legendEx=false; P.legendUsed=false;
   P.runes.forEach(r=>r.ex=false);
-  allUnits(p).forEach(u=>{ u.ex=false; });
+  // 각성의 준비도 규칙상 Ready 액션이므로 '준비 시' 트리거가 돌아야 한다 (룰 315.1.a/402.3.a).
+  // 로그가 길어지지 않게 개별 준비 로그는 생략한다.
+  for(const u of allUnits(p)) await readyUnit(u, p, {rule:true, quiet:true});
   P.gear.forEach(g=>{ g.ex=false; });
   UI.render();
 
@@ -578,16 +580,17 @@ async function buffUnit(u, byP){
   await fireEvent('onYouBuff', {p:byP, it:u});
   return true;
 }
-async function readyUnit(u, byP){
+async function readyUnit(u, byP, opts){
   // 마법사냥꾼 간수(70): 전장에 있는 동안 주문·능력은 '간수 기준 적' 유닛을 준비시킬 수 없다
   // (byP가 있으면 주문/능력에 의한 준비 — 상대 진영에 간수가 있으면 차단. 기존엔 방향이 반대였다)
-  if(byP!==undefined && everyUnit().some(x=>x.ctrl!==u.ctrl && x.loc!=='base' && unitFx(x).jailerReady)){
+  // opts.rule = 규칙에 의한 준비(각성 단계) — 간수는 주문·능력만 막으므로 통과시킨다
+  if(byP!==undefined && !(opts&&opts.rule) && everyUnit().some(x=>x.ctrl!==u.ctrl && x.loc!=='base' && unitFx(x).jailerReady)){
     UI.log(`「마법사냥꾼 간수」: 준비시킬 수 없습니다`, 'sys'); return;
   }
   if(!u.ex) return;
   u.ex=false;
   UI.fx.unit(u, 'ready');
-  UI.log(`${unitName(u)} 준비됨`, 'p'+(byP??u.ctrl));
+  if(!(opts&&opts.quiet)) UI.log(`${unitName(u)} 준비됨`, 'p'+(byP??u.ctrl));
   if(byP!==undefined && u.ctrl===byP) await fireEvent('onYouReadyUnit', {p:byP, it:u});
 }
 // 효과에 의한 이동 (스펠/능력) — 이동 트리거 포함
@@ -1322,6 +1325,14 @@ async function resolveShowdown(){
 
   // 해결 단계: 전투 정리 — 모든 유닛 치유 (공식: 전장 밖 유닛 포함), 방어자 잔존 시 공격자 본진 귀환
   everyUnit().forEach(u=>u.dmg=0);
+  // "이번 전투" 한정으로 부여된 키워드([보호막] 등)를 되돌린다
+  for(const gr of (G._combatGrants||[])){
+    if(gr.numeric){
+      const left=(typeof gr.u.grants[gr.key]==='number'?gr.u.grants[gr.key]:0)-gr.v;
+      if(left>0) gr.u.grants[gr.key]=left; else delete gr.u.grants[gr.key];
+    } else delete gr.u.grants[gr.key];
+  }
+  G._combatGrants=[];
   if(defUnits().length && atkUnits().length){
     UI.log(`방어 성공 — 공격 유닛은 기지으로 귀환합니다`, 'combat');
     atkUnits().forEach(u=>{ removeUnit(u); placeUnit(u,'base'); });
@@ -1516,6 +1527,12 @@ async function fireEvent(ev, ctx){
     for(const g of [...G.players[pi].gear]){
       const gf=FX[g.n];
       if(gf && gf.triggers && gf.triggers[ev]) srcs.push({list:gf.triggers[ev], gear:g});
+    }
+    // 폐기장에서 스스로를 회수하는 카드(초강력 초토화 로켓 252 등)는 폐기장에 있을 때도 격발한다.
+    // 같은 카드가 여러 장이어도 한 번만 (회수 대상은 한 장이므로).
+    for(const tn of new Set(G.players[pi].trash)){
+      const tf=FX[tn];
+      if(tf && tf.trashTrigger && tf.triggers && tf.triggers[ev]) srcs.push({list:tf.triggers[ev]});
     }
     for(const s of srcs){
       for(const t of s.list){
@@ -1822,7 +1839,9 @@ async function execOps(ops, ctx){
             // 수치 키워드는 거듭 부여 시 '합산' (룰 733/735/740 — 덮어쓰기 아님)
             if(numeric) u.grants[key]=(typeof u.grants[key]==='number'?u.grants[key]:0)+v;
             else u.grants[key]=true;
-            UI.log(`${unitName(u)}에게 [${KEYWORDS_KO[kw]?.ko||kw}${v>1?' '+v:''}] 부여 (이번 턴)`, 'p'+p);
+            // "this combat" 부여는 전투가 끝나면 사라진다 (턴 끝까지 남으면 안 됨)
+            if(op.dur==='combat') (G._combatGrants=G._combatGrants||[]).push({u,key,v,numeric});
+            UI.log(`${unitName(u)}에게 [${KEYWORDS_KO[kw]?.ko||kw}${v>1?' '+v:''}] 부여 (${op.dur==='combat'?'이번 전투':'이번 턴'})`, 'p'+p);
           });
           it=u;
         }

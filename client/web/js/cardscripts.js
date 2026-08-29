@@ -336,9 +336,17 @@ const EXTRA_OPS = {
       if(op.thenRecycle){ G.players[ctx.p].deck.push(sel); await fireEvent('onYouRecycle',{p:ctx.p}); } else P.trash.push(sel); }
     },
   async kaisaTrashSpell(op, ctx, h){ await EXTRA_OPS.playFromTrash({type:'Spell',ltPoints:true,optional:true,thenRecycle:true}, ctx, h); },
-  async recycleFromTrash(op, ctx, h){ const P=G.players[ctx.p]; let cnt=0;
-    for(let i=0;i<op.n && P.trash.length;i++){ P.deck.push(P.trash.splice(Math.floor(rng()*P.trash.length),1)[0]); cnt++; }
-    if(cnt){ UI.log(`${pname(ctx.p)} 폐기장 ${cnt}장 재활용`,'p'+ctx.p); await fireEvent('onYouRecycle',{p:ctx.p}); } },
+  async recycleFromTrash(op, ctx, h){ const P=G.players[ctx.p]; const picked=[];
+    // 룰 403.6: 재활용할 카드는 플레이어가 고른다 (기존엔 무작위로 돌렸다)
+    for(let i=0;i<op.n && P.trash.length;i++){
+      const opts=P.trash.map((n,idx)=>({v:idx, label:card(n).ko, n}));
+      const idx=await UI.pickOption(ctx.p, `덱 아래로 재활용할 카드 (${i+1}/${op.n})`, opts);
+      if(idx===null || idx===undefined) break;
+      picked.push(P.trash.splice(idx,1)[0]);
+    }
+    // 룰 403.5: 동시에 재활용되는 카드들은 무작위 순서로 덱 맨 아래에 놓인다
+    if(picked.length){ P.deck.push(...shuffle(picked));
+      UI.log(`${pname(ctx.p)} 폐기장 ${picked.length}장 재활용`,'p'+ctx.p); await fireEvent('onYouRecycle',{p:ctx.p}); } },
   async lookTopHand(op, ctx, h){ const P=G.players[ctx.p];
     const top=P.deck.splice(0, op.n); if(!top.length) return;
     const sel=await UI.pickOption(ctx.p,'손패에 넣을 카드 1장',top.map(n=>({v:n,label:card(n).ko,n})));
@@ -792,6 +800,7 @@ Object.assign(SCRIPTS, {
   // 초강력 초토화 로켓!: 정복 시 1장 버리면 이 카드를 폐기장에서 손패로 회수 (회수가 누락돼 있었다)
   252: fx=>{ fx.manual=[];
     fx.playOps=[{ops:[OPX('damage',{n:5,spec:{type:'unit',side:'any',where:'any',count:1}})]}];
+    fx.trashTrigger=true;   // 폐기장에 있을 때 발동하는 트리거 (fireEvent가 폐기장도 훑게 함)
     fx.triggers.onConquerYou=[{ops:[OPX('rocketRecover')]}]; return fx; },
   // 녹서스의 단두대: '이번 턴 다음 피해 시 처치' / 군단이면 즉시 처치 (기존: 항상 즉시 + 군단 시 2회)
   254: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('guillotine')]}]; return fx; },
@@ -800,7 +809,7 @@ Object.assign(SCRIPTS, {
   // 요새화된 진지: 방어 시 유닛을 골라 실제로 [보호막 2] 부여 (기존: 고르기만 하고 아무 효과 없음)
   279: fx=>{ fx.manual=[]; fx.playOps=[];
     fx.triggers.onDefendHere=[{ops:[OPX('chooseUnit',{spec:{type:'unit',side:'friendly',where:'here',count:1}}),
-                                    OPX('grantKw',{who:'it',kws:[['Shield',2]],dur:'turn'})]}]; return fx; },
+                                    OPX('grantKw',{who:'it',kws:[['Shield',2]],dur:'combat'})]}]; return fx; },
   // 타곤의 정상: 룬 준비는 '이 턴 종료 시' (기존: 정복 즉시)
   289: fx=>{ fx.manual=[]; fx.triggers.onConquerHere=[{ops:[OPX('setFlag',{flag:'readyRunesAtEnd',add:2})]}]; return fx; },
 });
@@ -845,8 +854,9 @@ Object.assign(EXTRA_OPS, {
   // 안면 분쇄(220): 같은 전장의 아군 1 + 적 1 기절. 양측이 함께 있는 전장이 있으면 그곳으로 제한
   async facebreaker(op, ctx, h){
     const bothBfs=G.bfs.map((bf,i)=>i).filter(i=>G.bfs[i].units.some(u=>u.ctrl===ctx.p)&&G.bfs[i].units.some(u=>u.ctrl!==ctx.p));
-    let enCands=everyUnit().filter(u=>u.ctrl!==ctx.p&&u.loc!=='base');
-    if(bothBfs.length) enCands=enCands.filter(u=>bothBfs.includes(u.loc));
+    // 아군과 적이 함께 있는 전장이 없으면 대상 쌍을 고를 수 없다 — 아무도 기절하지 않는다
+    if(!bothBfs.length){ UI.log('「안면 분쇄」: 아군과 적이 같은 전장에 있어야 합니다', 'sys'); return; }
+    const enCands=everyUnit().filter(u=>u.ctrl!==ctx.p&&bothBfs.includes(u.loc));
     if(!enCands.length) return;
     const en=await UI.pickUnitFrom(ctx.p,enCands,'기절시킬 적 유닛 (같은 전장의 아군도 기절)'); if(!en) return;
     en.stunned=true; UI.log(`${unitName(en)} 기절`,'p'+ctx.p);
