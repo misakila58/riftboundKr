@@ -115,7 +115,10 @@ function parseOp(s){
   // 관사 뒤에 공백을 필수로 둔다 — 없으면 'another'의 'a'를 관사로 삼켜 "다른 유닛" 제한이 사라진다
   if((m = s.match(/^[Bb]uff (?:(?:a|one|two|up to two)\s+)?(.*)$/))){
     const two = /two/.test(s);
-    return { op:'buff', count: two?2:1, spec:parseTargetSpec(m[1]||'a friendly unit') };
+    const spec = parseTargetSpec(m[1]||'a friendly unit');
+    // 접두어를 떼어낸 뒤에도 "up to"(최대 N개)의 선택 가능 여부를 보존한다
+    if(/up to two/i.test(s)) spec.optional=true;
+    return { op:'buff', count: two?2:1, spec };
   }
 
   // 위력 증감
@@ -289,9 +292,6 @@ function compileCard(c){
   // 참조("opponents' [Hidden] cards")까지 상시 키워드로 오인한다. 카드 인쇄상 '자기 상시 키워드'는
   // 문두에 단독 절([KW] (리마인더))로 나오므로, 단독 키워드 절에서만 줍는다.
   // [Action]/[Reaction]은 주문 타이밍 표기라 조건부로 등장하지 않아 전체 스캔을 유지한다.
-  let m;
-  if(/\[Action\]/.test(text)) fx.kw.action=true;
-  if(/\[Reaction\]/.test(text)) fx.kw.reaction=true;
   for(const cl of splitClauses(text)){
     // 절 '시작'의 키워드 토큰 연속(쉼표 나열 허용)만 자기 상시 키워드로 인정.
     // 부여("Give a unit [X]")·조건("While ..., I have [X]")·참조는 토큰이 절 중간에 오므로 제외된다.
@@ -299,7 +299,9 @@ function compileCard(c){
     if(!lead) continue;
     for(const tk of lead[0].match(/\[[A-Za-z]+ ?\d*\]/g)||[]){
       const tok = tk.slice(1,-1);
-      if(tok==='Accelerate') fx.kw.accelerate=true;
+      if(tok==='Action') fx.kw.action=true;
+      else if(tok==='Reaction') fx.kw.reaction=true;
+      else if(tok==='Accelerate') fx.kw.accelerate=true;
       else if(tok==='Ganking') fx.kw.ganking=true;
       else if(tok==='Tank') fx.kw.tank=true;
       else if(tok==='Hidden') fx.kw.hidden=true;

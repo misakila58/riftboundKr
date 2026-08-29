@@ -60,7 +60,7 @@ Object.assign(SCRIPTS, {
   70: fx=>{ fx.manual=[]; fx.jailerUnits=true; fx.jailerReady=true; return fx; },
   71: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('partyFavor')]}]; return fx; },
   72: fx=>{ fx.manual=[]; fx.triggers.onYouKillStunned=[{ops:[OPX('exhThisDraw',{n:1})]}]; return fx; },
-  73: fx=>{ fx.manual=[]; fx.triggers.onEndTurn=[{cond:(ctx,src)=>src&&src.loc!=='base',ops:[OPX('readyRunes',{n:4})]}]; return fx; },
+  73: fx=>{ fx.manual=[]; fx.triggers.onEndTurn=[{cond:(ctx,src)=>src&&src.loc!=='base',ops:[OPX('readyRunes',{n:4,optional:true})]}]; return fx; },
   76: fx=>{ fx.manual=[]; fx.triggers.onAttack=[{ops:[OPX('dmgEqMyMight',{spec:{side:'enemy',where:'here',count:1}})]}]; return fx; },
   77: fx=>{ fx.manual=[]; fx.zhonya=true; return fx; },
   78: fx=>{ fx.manual=[]; fx.multiBuff=true;   // "나는 버프를 몇 개든 가질 수 있다" — 705.1의 카드 예외
@@ -154,12 +154,9 @@ Object.assign(SCRIPTS, {
   205: fx=>{ fx.manual=[]; fx.triggers.onMoveSelf=[{cond:(ctx,src)=>src.turnMoves===3,ops:[OPX('scorePoint')]}]; return fx; },
 
   // ── 질서(Order) ──
-  206: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('might',{n:2,spec:{side:'friendly'},dur:'turn'}),OPX('might',{n:2,spec:{side:'friendly'},dur:'turn'})]}]; return fx; },
   207: fx=>{ fx.manual=[]; fx.addCost={kind:'spendBuff',optional:true,ignoreCost:true,label:'버프 소모 (비용 무시)'};
       fx.playOps=[{ops:[OPX('might',{n:3,spec:{side:'any'},dur:'turn'})]}]; return fx; },
   208: fx=>{ fx.manual=[]; fx.addCost={kind:'killUnit',optional:false,label:'아군 유닛 처치 (추가 비용)'}; return fx; },
-  212: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('token',{count:1,might:1,name:'Recruit',where:'base'})]}];
-      fx.activated=[{cost:{killSelfGear:true},label:'폐기: 폐기장 4장 재활용',ops:[OPX('recycleFromTrash',{n:4})]}]; return fx; },
   213: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('kill',{spec:{side:'any',where:'bf',count:1}}),OPX('itCtrlDraw',{n:2})]}]; return fx; },
   221: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('setFlag',{flag:'dmgKill',val:true,global:true})]}]; return fx; },
   222: fx=>{ fx.manual=[]; fx.triggers.onMoveSelf=[{cond:ctx=>ctx.dest!=='base',ops:[OPX('token',{count:1,might:1,name:'Recruit',where:'here'})]}]; return fx; },
@@ -665,12 +662,10 @@ Object.assign(SCRIPTS, {
       OPX('moveSpec',{spec:{side:'friendly',where:'bf',count:1,optional:true},to:'base'}),
       OPX('moveSpec',{spec:{side:'friendly',where:'bf',count:1,optional:true},to:'base'})]}]; return fx; },
   // 럭스 - 크라운가드: 탈진 → [추가] 에너지 2 (주문 전용 — 카이사 247과 같은 절충: 용도 제한은 라벨로 안내)
-  314: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},
-      ops:[{op:'addEnergy',n:2}], label:'⚡ 에너지 2 추가 (주문 전용)', reaction:true}]; return fx; },
   // 선봉대 소집: 신병 토큰 4개 — 각각 기지/통제 전장 선택
   315: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('vanguardTokens',{count:4})]}]; return fx; },
   // 애니 - 어둠의 아이 (전설): 내 턴 종료 시 룬 2개 준비 (상대 턴 응수 자원)
-  317: fx=>{ fx.manual=[]; fx.triggers.onEndTurn=[{ops:[OPX('readyRunes',{n:2})]}]; return fx; },
+  317: fx=>{ fx.manual=[]; fx.triggers.onEndTurn=[{ops:[OPX('readyRunes',{n:2,optional:true})]}]; return fx; },
   // 티버스: 등장 시 전장의 모든 유닛(양측)에 3 (파서는 기지까지 포함해 오해석)
   318: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('damageAll',{n:3,spec:{side:'any',where:'bf',count:'all'}})]}]; return fx; },
   // 마스터 이 - 무주 검술의 달인 (전설): 단독 방어 아군 +2 (engine collectStatics가 전설 statics를 읽는다)

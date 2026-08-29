@@ -274,6 +274,22 @@ function surrender(p){
 
 // ---------- 자원(룬) ----------
 function readyRunes(p){ return G.players[p].runes.filter(r=>!r.ex); }
+// "룬 최대 N개 준비" — 어떤 룬을 준비할지는 도메인이 달라 선택 가치가 있으므로 직접 고르게 한다.
+// optional 이면 중간에 그만둘 수 있다. routedPick 경유라 온라인 락스텝에서도 안전하다.
+async function readyRunesPick(p, n, optional){
+  let cnt=0;
+  for(let i=0;i<n;i++){
+    const opts=G.players[p].runes.map((r,idx)=>({r,idx})).filter(x=>x.r.ex);
+    if(!opts.length) break;
+    if(opts.length===1 && !optional){ opts[0].r.ex=false; cnt++; continue; }
+    const choices=opts.map(x=>({v:x, label:`${card(x.r.n).ko} (탈진)`, n:x.r.n}));
+    if(optional) choices.push({v:'skip', label:'더 준비하지 않음'});
+    const sel=await UI.pickOption(p, `준비할 룬 (${i+1}/${n})`, choices);
+    if(sel===null || sel==='skip') break;
+    sel.r.ex=false; cnt++;
+  }
+  return cnt;
+}
 function channelRunes(p, n, exhausted){
   const P=G.players[p];
   for(let i=0;i<n;i++){
@@ -516,10 +532,10 @@ async function endTurn(){
   });
   // 타곤의 정상(289): 이 턴 종료 시 룬 준비
   for(const pi of [0,1]){
-    let nR=TF().readyRunesAtEnd[pi]||0;
+    const nR=TF().readyRunesAtEnd[pi]||0;
     if(nR){
-      for(const r of G.players[pi].runes){ if(!nR) break; if(r.ex){ r.ex=false; nR--; } }
-      UI.log(`${pname(pi)} 「타곤의 정상」: 룬 준비`, 'p'+pi);
+      const got = await readyRunesPick(pi, nR, true);
+      if(got) UI.log(`${pname(pi)} 「타곤의 정상」: 룬 ${got}개 준비`, 'p'+pi);
     }
   }
   P.energy=0; P.energySpell=0; Object.keys(P.power).forEach(k=>P.power[k]=0);
@@ -1967,8 +1983,7 @@ async function execOps(ops, ctx){
         break; }
       // ── 룬/득점 유틸 ──
       case 'readyRunes': {
-        let cnt=0;
-        for(const r of G.players[p].runes){ if(r.ex && cnt<op.n){ r.ex=false; cnt++; } }
+        const cnt = await readyRunesPick(p, op.n, op.optional);
         if(cnt) UI.log(`${pname(p)} 룬 ${cnt}개 준비됨`, 'p'+p);
         break; }
       case 'recycleRune': {
