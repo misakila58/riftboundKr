@@ -508,7 +508,7 @@ const SCRIPTS = {
         ops:[{op:'teemoFetch'}], label:'티모 유닛을 손패로'}]; fx.altHideCost=true; return fx; },
   // 빅토르 — 1+탈진: 1⚔ 신병 토큰 플레이
   265: fx=>{ fx.manual=[]; fx.activated=[{cost:{energy:1,exhaustSelf:true},
-        ops:[{op:'token',count:1,might:1,name:'Recruit',where:'base'}], label:'신병 토큰 1개 플레이'}]; return fx; },
+        ops:[{op:'token',count:1,might:1,name:'Recruit',where:'play'}], label:'신병 토큰 1개 플레이'}]; return fx; },
   // 세트 — 탈진: 유닛에게 이번 턴 [개입] 부여
   267: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},
         ops:[{op:'grantKw',who:'a unit',kws:[['Ganking',1]],dur:'turn'}], label:'유닛에게 [개입] 부여'}]; return fx; },

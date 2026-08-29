@@ -220,7 +220,7 @@ const EXTRA_OPS = {
     const sel=await UI.pickOption(o,`「갈취」: 선택하세요`,[{v:'dmg',label:`${unitName(u)}이(가) 피해 6을 받는다`},{v:'draw',label:`상대가 카드 2장을 뽑는다`}]);
     if(sel==='draw'){ drawCard(ctx.p); drawCard(ctx.p); } else dealDamage(u,6,'spell'); },
   async stunOrKillIt(op, ctx, h){ const it=h.it(); if(!it) return;
-    if(it.stunned){ await killUnit(it); } else { it.stunned=true; UI.log(`${unitName(it)} 기절됨 💫`,'p'+ctx.p); await fireEvent('onYouStun',{p:ctx.p}); } },
+    if(it.stunned){ await killUnit(it); } else { await stunUnits(ctx.p, it); } },
 
   // ── 위력 조작 ──
   async mightDouble(op, ctx, h){ const u=await pickBySpec(ctx.p, op.spec, '위력을 2배로 할 유닛'); if(u){ u.tempM.push({v:might(u),dur:'turn'}); h.setIt(u); UI.log(`${unitName(u)} 위력 2배!`,'p'+ctx.p); } },
@@ -233,7 +233,7 @@ const EXTRA_OPS = {
     if(d<=0){ UI.log(`${unitName(it)} 위력 변화 없음 (증가만 가능)`,'p'+ctx.p); return; }
     it.tempM.push({v:d,dur:'turn'}); UI.log(`${unitName(it)} 위력 → ${might(t)}`,'p'+ctx.p); },
   async engarde(op, ctx, h){ const u=await pickBySpec(ctx.p,{side:'friendly',count:1},'위력을 올릴 아군 유닛'); if(!u) return;
-    const alone = u.loc!=='base' && G.bfs[u.loc].units.filter(x=>x.ctrl===ctx.p).length===1;
+    const alone = aloneAt(u);   // 기지도 '그곳'에 포함된다 (기존엔 전장만 봤다)
     u.tempM.push({v:alone?2:1,dur:'turn'}); UI.log(`${unitName(u)} +${alone?2:1}⚔ (이번 턴)`,'p'+ctx.p); },
   async buffOthersHere(op, ctx, h){ const me=ctx.unit; if(!me||me.loc==='base') return;
     for(const u of G.bfs[me.loc].units.filter(x=>x.ctrl===ctx.p&&x!==me)) await buffUnit(u, ctx.p); },
@@ -466,7 +466,7 @@ const EXTRA_OPS = {
         if(t){ dealDamage(t,2,'effect'); enemies.filter(u=>u!==t).forEach(u=>dealDamage(u,1,'effect')); } } }
     else if(dom==='Mind'){ drawCard(ctx.p); }
     else if(dom==='Order'){ const enemies=everyUnit().filter(u=>u.ctrl!==ctx.p);
-      if(enemies.length){ const t=await UI.pickUnitFrom(ctx.p,enemies,'기절할 적 유닛'); if(t&&!t.stunned){ t.stunned=true; await fireEvent('onYouStun',{p:ctx.p}); } } } },
+      if(enemies.length){ const t=await UI.pickUnitFrom(ctx.p,enemies,'기절할 적 유닛'); if(t) await stunUnits(ctx.p, t); } } },
   async avaHidden(op, ctx, h){ const P=G.players[ctx.p];
     const cands=P.hand.map((n,i)=>({n,i})).filter(x=>FX[x.n]&&FX[x.n].kw&&FX[x.n].kw.hidden);
     if(!cands.length) return;
@@ -585,11 +585,13 @@ const EXTRA_OPS = {
     const opts=[];
     everyUnit().filter(u=>u.ctrl===ctx.p&&u.ex&&u!==ctx.unit).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitName(u),card:unitCard(u)}));
     G.players[ctx.p].gear.forEach((g,i)=>{ if(g.ex) opts.push({v:{t:'g',g},label:'도구: '+card(g.n).ko,n:g.n}); });
+    G.players[ctx.p].runes.forEach(r=>{ if(r.ex) opts.push({v:{t:'r',r},label:'룬: '+card(r.n).ko,n:r.n}); });
     if(G.players[ctx.p].legendEx) opts.push({v:{t:'l'},label:'전설: '+card(G.players[ctx.p].legendN).ko,n:G.players[ctx.p].legendN});
     if(!opts.length) return;
     const sel=await UI.pickOption(ctx.p,'준비시킬 대상 (선택)',opts); if(!sel) return;
     if(sel.t==='u') await readyUnit(sel.u, ctx.p);
     else if(sel.t==='g') sel.g.ex=false;
+    else if(sel.t==='r') sel.r.ex=false;
     else G.players[ctx.p].legendEx=false;
     UI.log('준비됨','p'+ctx.p); },
   async openPlan(op, ctx, h){
@@ -610,7 +612,7 @@ const EXTRA_OPS = {
     const sel=await UI.pickOption(ctx.p,'우디르: 하나 선택',all); if(sel===null) return;
     used.push(sel);
     if(sel==='dmg'){ const u=await pickBySpec(ctx.p,{side:'any',where:'bf',count:1},'피해 2 대상'); if(u) dealDamage(u,2,'ability'); }
-    else if(sel==='stun'){ const u=await pickBySpec(ctx.p,{side:'enemy',where:'bf',count:1},'기절 대상'); if(u&&!u.stunned){ u.stunned=true; await fireEvent('onYouStun',{p:ctx.p}); } }
+    else if(sel==='stun'){ const u=await pickBySpec(ctx.p,{side:'enemy',where:'bf',count:1},'기절 대상'); if(u) await stunUnits(ctx.p, u); }
     else if(sel==='ready'){ await readyUnit(me, ctx.p); }
     else { me.grants.ganking=true; UI.log(`${unitName(me)} [개입] (이번 턴)`,'p'+ctx.p); } },
   async divineJudgment(op, ctx, h){
@@ -859,12 +861,12 @@ Object.assign(EXTRA_OPS, {
     const enCands=everyUnit().filter(u=>u.ctrl!==ctx.p&&bothBfs.includes(u.loc));
     if(!enCands.length) return;
     const en=await UI.pickUnitFrom(ctx.p,enCands,'기절시킬 적 유닛 (같은 전장의 아군도 기절)'); if(!en) return;
-    en.stunned=true; UI.log(`${unitName(en)} 기절`,'p'+ctx.p);
     const frCands=G.bfs[en.loc].units.filter(u=>u.ctrl===ctx.p);
+    let fr=null;
     if(frCands.length){
-      const fr=frCands.length===1?frCands[0]:await UI.pickUnitFrom(ctx.p,frCands,'기절할 아군 유닛 (같은 전장)');
-      if(fr){ fr.stunned=true; UI.log(`${unitName(fr)} 기절`,'p'+ctx.p); }
-    } },
+      fr=frCands.length===1?frCands[0]:await UI.pickUnitFrom(ctx.p,frCands,'기절할 아군 유닛 (같은 전장)');
+    }
+    await stunUnits(ctx.p, [en, fr].filter(Boolean)); },
   // 초강력 초토화 로켓!(252): 정복 시 1장 버리면 폐기장의 이 카드를 손패로
   async rocketRecover(op, ctx, h){
     const P=G.players[ctx.p]; const ti=P.trash.indexOf(252);

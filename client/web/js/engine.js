@@ -220,7 +220,7 @@ function burnOut(p){
   addPoints(opp(p), 1, 'effect');
 }
 function trashCard(p, n){ G.players[p].trash.push(n); }
-async function discardFromHand(p, idx){
+async function discardFromHand(p, idx, opts){
   const P=G.players[p];
   const n=P.hand.splice(idx,1)[0];
   if(n===undefined) return;
@@ -230,7 +230,8 @@ async function discardFromHand(p, idx){
   UI.log(`${pname(p)} 「${card(n).ko}」 버림`, 'p'+p);
   const fx=FX[n];
   if(fx && fx.onDiscardSelf) await execOps(fx.onDiscardSelf, {p, kind:'effect'});
-  await fireEvent('onYouDiscard', {p, n});
+  // 여러 장을 한 번에 버릴 때는 호출부가 모아서 1회만 낸다 ("one or more cards" = 사건 1회)
+  if(!(opts && opts.batch)) await fireEvent('onYouDiscard', {p, n});
 }
 
 // ---------- 득점 ----------
@@ -596,12 +597,48 @@ async function readyUnit(u, byP, opts){
 // 효과에 의한 이동 (스펠/능력) — 이동 트리거 포함
 async function effectMove(p, u, dest){
   if(u.loc===dest) return;
+  const from=u.loc;
   removeUnit(u); placeUnit(u, dest);
   u.turnMoves=(u.turnMoves||0)+1;
   UI.log(`${unitName(u)} 이동됨`, 'p'+p);
+  // 출발 전장의 '이곳에서 이동할 때' 트리거 (뒷골목 술집 277 등) — 일반 이동과 동일하게 발동
+  if(from!=='base') await fireBfTrigger(from,'onMoveFromHere',{p, it:u, bfIdx:from});
   await runTriggerList(unitFx(u).triggers?.onMoveSelf, {p:u.ctrl, unit:u, it:u, bfIdx:(dest!=='base'?dest:null), dest});
   if(dest!=='base') await fireEvent('onMoveToBf', {p:u.ctrl, bfIdx:dest});
 }
+// 기절 (룰 410). 기절을 거는 모든 경로가 이 함수를 거쳐야 전설 훅·트리거가 빠지지 않는다.
+// - 이미 기절한 유닛은 다시 기절시키지 않는다 (410.1.a.1) → 트리거도 돌지 않음
+// - 레오나(261)·일식의 전령(59)은 "적 유닛을 기절"에만 반응하므로 적 여부를 구분한다
+// - "하나 이상 기절"이므로 동시에 여러 기를 기절시켜도 발동은 1회
+// 굴절(735): 상대 유닛을 대상으로 고르면 힘을 추가 지불한다. 지불하지 않으면 고를 수 없다.
+async function payDeflect(p, u){
+  if(!u || u.ctrl===p) return true;
+  const defl=effKw(u).deflect;
+  if(!defl) return true;
+  const pips=[]; for(let i=0;i<defl;i++) pips.push('Any');
+  if(!canPay(p,0,pips)){ UI.toast(`[굴절 ${defl}] 힘이 부족해 선택할 수 없습니다`,'warn'); return false; }
+  const yes=await UI.confirmP(p,`[굴절 ${defl}] 힘 ${defl}를 추가 지불해야 합니다. 지불할까요?`);
+  if(!yes) return false;
+  payCost(p,0,pips);
+  return true;
+}
+
+async function stunUnits(byP, units){
+  const list = Array.isArray(units) ? units : [units];
+  const done = [];
+  for(const u of list){
+    if(!u || u.stunned) continue;
+    u.stunned = true; done.push(u);
+    UI.log(`${unitName(u)} 기절됨 💫`, 'p'+byP);
+  }
+  if(done.length) UI.render();
+  if(done.some(u => u.ctrl !== byP)){
+    await legendHook(byP, 'hookYouStun', {p:byP});
+    await fireEvent('onYouStun', {p:byP});
+  }
+  return done;
+}
+
 async function killGear(p, gearIdx){
   const P=G.players[p];
   const g=P.gear[gearIdx]; if(!g) return;
@@ -1711,17 +1748,7 @@ async function pickBySpec(p, spec, promptText){
   const u = await UI.pickUnitFrom(p, cands, promptText, spec.optional);
   if(!u) return null;
   noteSpellPick(p, u);
-  // 굴절 비용
-  if(u.ctrl!==p){
-    const defl=effKw(u).deflect;
-    if(defl){
-      const pips=[]; for(let i=0;i<defl;i++) pips.push('Any');
-      if(!canPay(p,0,pips)){ UI.toast(`[굴절 ${defl}] 힘가 부족해 선택할 수 없습니다`,'warn'); return null; }
-      const yes=await UI.confirmP(p,`[굴절 ${defl}] 힘 ${defl}를 추가 지불해야 합니다. 지불할까요?`);
-      if(!yes) return null;
-      payCost(p,0,pips);
-    }
-  }
+  if(!(await payDeflect(p, u))) return null;
   return u;
 }
 
@@ -1774,13 +1801,16 @@ async function execOps(ops, ctx){
         break; }
       case 'dealSplit': {
         let remain=op.n;
+        const used=[];            // 같은 유닛을 두 번 고를 수 없다 ("여러 유닛에 나눠" = 서로 다른 유닛)
         while(remain>0){
-          const cands=everyUnit().filter(u=>u.ctrl!==p && (op.spec.where!=='here'||u.loc===_ctxBf));
+          const cands=everyUnit().filter(u=>u.ctrl!==p && !used.includes(u) && (op.spec.where!=='here'||u.loc===_ctxBf));
           if(!cands.length) break;
-          const u=await UI.pickUnitFrom(p,cands,`분할 피해: 대상 선택 (남은 피해 ${remain})`);
+          const u=await UI.pickUnitFrom(p,cands,`분할 피해: 대상 선택 (남은 피해 ${remain})`, true);
           if(!u) break;
+          if(!(await payDeflect(p, u))){ used.push(u); continue; }   // 굴절 비용 미지불 시 그 유닛은 제외
+          used.push(u);
           const amt=await UI.pickNumber(p,`「${unitName(u)}」에게 줄 피해 (1~${remain})`,1,remain);
-          dealDamage(u, amt, _curKind); remain-=amt;
+          dealDamage(u, amt+effDmgBonus(u, p), _curKind); remain-=amt;
           UI.log(`${unitName(u)}에게 피해 ${amt}`, 'combat');
         }
         break; }
@@ -1848,15 +1878,12 @@ async function execOps(ops, ctx){
         break; }
       case 'stun': {
         const u=await pickBySpec(p, {...op.spec, side: op.spec.side==='any'?'enemy':op.spec.side}, '기절할 유닛 선택');
-        if(u && !u.stunned){ u.stunned=true; it=u; UI.log(`${unitName(u)} 기절됨 💫`, 'p'+p);
-          await legendHook(p,'hookYouStun',{p});
-          await fireEvent('onYouStun',{p}); }
+        if(u){ it=u; await stunUnits(p, u); }
         break; }
       case 'stunAll': {
         const us=await pickBySpec(p,{...op.spec,count:'all'});
         let any=false;
-        us.forEach(u=>{ if(!u.stunned){u.stunned=true;any=true;} });
-        if(any){ await legendHook(p,'hookYouStun',{p}); await fireEvent('onYouStun',{p}); }
+        await stunUnits(p, us);
         break; }
       case 'channel': channelRunes(p, op.n, op.exhausted); break;
       case 'addEnergy': G.players[p].energy+=op.n; UI.log(`${pname(p)} 에너지 +${op.n}`, 'p'+p); break;
@@ -1864,6 +1891,13 @@ async function execOps(ops, ctx){
       case 'token': {
         let loc='base';
         if(op.where==='here' && _ctxBf!==null) loc=_ctxBf;
+        else if(op.where==='play'){
+          // 토큰도 '플레이'하는 것이므로 기지 또는 통제 중인 전장을 고른다 (룰 406/143)
+          const locs=[{v:'base',label:'기지'}];
+          G.bfs.forEach((bf,i)=>{ if(bf.controller===p) locs.push({v:i,label:'전장: '+card(bf.n).ko}); });
+          const sel=locs.length===1?'base':await UI.pickOption(p,'토큰을 플레이할 위치',locs);
+          if(sel!==null) loc=sel;
+        }
         else if(op.where==='at a battlefield'){
           const sel=await UI.pickOption(p,'토큰을 배치할 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})).concat([{v:'base',label:'기지'}]));
           if(sel!==null) loc=sel;
@@ -1930,19 +1964,23 @@ async function execOps(ops, ctx){
         if(u){ u.ex=true; it=u; UI.log(`${unitName(u)} 탈진됨`, 'p'+p); }
         break; }
       case 'discard': {
+        let any=false;
         for(let i=0;i<op.n;i++){
           if(!G.players[p].hand.length) break;
           const idx=await UI.pickHandCard(p,'버릴 카드를 선택하세요');
-          if(idx!==null) await discardFromHand(p,idx);
+          if(idx!==null){ await discardFromHand(p,idx,{batch:true}); any=true; }
         }
+        if(any) await fireEvent('onYouDiscard', {p});
         break; }
       case 'discardOpp': {
         const o=opp(p);
+        let anyO=false;
         for(let i=0;i<op.n;i++){
           if(!G.players[o].hand.length) break;
           const idx=await UI.pickHandCard(o,'버릴 카드를 선택하세요');
-          if(idx!==null) await discardFromHand(o,idx);
+          if(idx!==null){ await discardFromHand(o,idx,{batch:true}); anyO=true; }
         }
+        if(anyO) await fireEvent('onYouDiscard', {p:o});
         break; }
       case 'scorePoint': addPoints(p,1,'effect'); break;
       case 'heal': if(op.self&&ctx.unit) ctx.unit.dmg=0; else if(it) it.dmg=0; break;
