@@ -261,13 +261,18 @@ function addPoints(p, n, method, bfIdx){
   checkWin();
 }
 function checkWin(){
-  G.players.forEach(P=>{ if(P.points>=G.victory && G.winner===null){ G.winner=P.idx; UI.showVictory(P.idx); } });
+  G.players.forEach(P=>{ if(P.points>=G.victory && G.winner===null){
+    G.winner=P.idx;
+    if(typeof STATS!=='undefined') STATS.gameEnd(P.idx, 'normal');
+    UI.showVictory(P.idx);
+  } });
 }
 // 항복 — 남은 쪽이 즉시 승리 (온라인은 액션으로 양측에 동일하게 적용된다)
 function surrender(p){
   if(!G || G.winner!==null) return;
   const w=opp(p);
   G.winner=w;
+  if(typeof STATS!=='undefined') STATS.gameEnd(w, 'surrender');
   UI.log(`🏳 ${pname(p)} 항복 — ${pname(w)} 승리!`, 'score');
   UI.render();
   UI.showVictory(w);

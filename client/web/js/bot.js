@@ -184,6 +184,7 @@ function botOppDeck(v){
 }
 
 function startBotGame(level, myDeck, oppDeck){
+  if(typeof STATS!=='undefined') STATS.gameStart('bot');
   NET.online=false; NET.seat=null;
   newGame({
     manual: false, // BOT 대전은 규칙 자동 처리 필요

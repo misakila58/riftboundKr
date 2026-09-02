@@ -843,6 +843,7 @@ function initLobby(){
   };
   NET.onErr=(msg)=>UI.toast(msg,'warn');
   NET.onOppLeft=()=>{
+    if(typeof STATS!=='undefined' && typeof NET!=='undefined') STATS.gameEnd(NET.seat, 'left');
     alert('상대가 나갔습니다. 로비로 돌아갑니다.');
     location.reload();
   };
@@ -1175,6 +1176,7 @@ function openSystemMenu(){
 
 // ---------- 게임 시작 ----------
 function startOnlineGame(m){
+  if(typeof STATS!=='undefined') STATS.gameStart((typeof P2P!=='undefined' && P2P.active) ? 'p2p' : 'online');
   NET.online=true;
   NET.seat=m.yourSeat;
   NET.lastStart=m;    // 재대결용: 모드/밴/플레이어 이름 보존
@@ -1202,6 +1204,7 @@ function startOnlineGame(m){
 }
 
 function startHotseat(){
+  if(typeof STATS!=='undefined') STATS.gameStart('hotseat');
   NET.online=false; NET.seat=null;
   const p0legend=+document.getElementById('p0-legend').value;
   const p1legend=+document.getElementById('p1-legend').value;
@@ -1299,6 +1302,18 @@ window.addEventListener('DOMContentLoaded', ()=>{
   // 화면 배율: 저장값 적용 + 첫 화면 버튼. 모바일 첫 실행이면 선택 안내를 한 번 띄운다
   applyUiScale(uiScale());
   document.getElementById('btn-uiscale').onclick=()=>showScalePicker(false);
+  // 익명 통계 — 기본 켜짐, 언제든 끌 수 있다. 버튼 자체가 수집 사실을 알리는 역할도 한다.
+  {
+    const btn=document.getElementById('btn-stats-optout');
+    const paint=()=>{ btn.textContent='📊 익명 통계: '+(STATS.enabled()?'켜짐':'꺼짐'); };
+    if(!STATS.URL){ btn.style.display='none'; }
+    else {
+      paint();
+      btn.onclick=()=>{ STATS.setEnabled(!STATS.enabled()); paint();
+        UI.toast(STATS.enabled()?'익명 통계를 보냅니다 (판수·덱 조합 승률만)':'익명 통계를 보내지 않습니다'); };
+      STATS.launch();
+    }
+  }
   const isMobileUA=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
   if(isMobileUA && !localStorage.getItem(UISCALE_KEY) && !localStorage.getItem('rb_ui_scale_seen')){
     try{ localStorage.setItem('rb_ui_scale_seen','1'); }catch(e){}
