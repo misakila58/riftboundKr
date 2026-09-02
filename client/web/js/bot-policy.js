@@ -20,7 +20,7 @@ const POLICY = {
   //   (reserve는 남긴 룬이 상대 턴 [반응]에 거의 안 쓰여 순수 템포 손실이 된다)
   ab: { unit:1, option:0, confirm:1, number:1, hand:1, reaction:1, mulligan:1,
         reserve:0, canpay:1, move:1, showdown:1, ability:1, hide:1, sdfund:1,
-        place:1, champ:1, defend:1 },
+        place:1, champ:1, defend:1, sdx:1, think:1 },
 };
 
 // 난이도별 능력 — 티어 차이는 '무엇을 할 줄 아는가'로 만든다.
@@ -32,9 +32,9 @@ const POLICY = {
 const POL_TIERS = {
   novice:  { smart:0, move:0, think:0, reserve:0, peek:0, moves:1, rep:0 },
   skilled: { smart:1, move:0, think:0, reserve:0, peek:0, moves:1, rep:1 },
-  expert:  { smart:1, move:1, think:0, reserve:0, peek:0, moves:1, rep:1 },
-  master:  { smart:1, move:1, think:0, reserve:0, peek:0, moves:3, rep:2 },
-  oracle:  { smart:1, move:1, think:0, reserve:0, peek:1, moves:3, rep:2 },
+  expert:  { smart:1, move:1, think:1, reserve:0, peek:0, moves:1, rep:1 },
+  master:  { smart:1, move:1, think:1, reserve:0, peek:0, moves:3, rep:2 },
+  oracle:  { smart:1, move:1, think:1, reserve:0, peek:1, moves:3, rep:2 },
   // 구 식별자 호환
   easy:    { smart:0, move:0, think:0, reserve:0, peek:0, moves:1, rep:0 },
   normal:  { smart:1, move:0, think:0, reserve:0, peek:0, moves:1, rep:1 },
@@ -510,13 +510,19 @@ POLICY.movePlan = function(p){
       }
       continue;
     }
-    // 부분 출격: 강한 순 프리픽스 집합을 전부 후보로
+    // 부분 출격: 강한 순 프리픽스 집합을 전부 후보로 — 턴 플랜(탐색)이 있으면 그에 따른다
+    const plan = (POLICY.turnPlan && POLICY.turnPlan.p===p && POLICY.turnPlan.tc===G.turnCount) ? POLICY.turnPlan : null;
+    if(plan && plan.noAttack) continue;
+    if(plan && plan.focusBf!==undefined && plan.focusBf!==i) continue;
     const send = [];
     for(const u of byStrong){
       send.push(u);
       const v = evalAttackValue(p, i, [...send]);
       cands.push({ units:[...send], dest:i, v, why:'공격 '+send.length+'기' });
     }
+    // 총공격 플랜: 출격 가능 전원을 이 전장에 (평가와 무관하게 최우선 후보로)
+    if(plan && plan.allin && plan.focusBf===i && byStrong.length)
+      cands.push({ units:[...byStrong], dest:i, v: evalAttackValue(p, i, [...byStrong]) + 100, why:'총공격 '+byStrong.length+'기' });
   }
   if(!cands.length) return null;
   // 상대 손패를 볼 수 있는 티어: 결전 트릭을 들고 있으면 공격 기준을 높인다
@@ -532,6 +538,10 @@ POLICY.movePlan = function(p){
   }
   cands.sort((a,b)=>b.v-a.v);
   const best = cands[0];
+  // 집중 공격 플랜: 롤아웃 비교에서 이 전장을 치는 편이 낫다고 판정됐다 — 문턱을 낮춰 실행한다
+  if(POLICY.turnPlan && POLICY.turnPlan.p===p && POLICY.turnPlan.tc===G.turnCount
+     && POLICY.turnPlan.focusBf!==undefined && best.dest===POLICY.turnPlan.focusBf)
+    need = Math.min(need, -0.3);
   if(best.v <= need) return null;                     // 이득이 없으면 움직이지 않는다
   polSay('move', best.why+' → #'+best.dest, '가치 '+best.v.toFixed(2));
   return { units: best.units, dest: best.dest, why: best.why };
@@ -685,6 +695,81 @@ function polSdTried(){
   return POLICY._sdTried;
 }
 
+// ══════════ 정밀 결전 예측 (sdx) ══════════
+// 지금 양측이 패스하면 벌어질 전투를 그대로 계산한다 — 처치는 치사량 오름차순(엔진과 동일).
+// 스냅샷: {m: 역할 위력, lethal: 처치에 필요한 피해, stun, might: 소재 가치}
+function polSdSnap(p, sd){
+  const us = unitsAt(sd.bfIdx);
+  const role = u => u.ctrl === sd.attacker ? 'attacker' : 'defender';
+  const mk = u => ({ m: might(u, role(u)), lethal: Math.max(1, might(u, role(u), {forKill:true}) - u.dmg),
+                     stun: !!u.stunned, might: might(u) });
+  return { mine: us.filter(u=>u.ctrl===p).map(mk), theirs: us.filter(u=>u.ctrl!==p).map(mk) };
+}
+// 결과 클래스 (p 관점): 공격자면 2=정복 성공 / 1=실패, 수비자면 1=정복 저지 / 0=정복당함.
+// exch = 처치 교환 손익 (상대가 잃는 위력 − 내가 잃는 위력)
+function polSdOutcome(p, sd, snap){
+  const sum = a => a.reduce((s,x)=>s+(x.stun?0:x.m),0);
+  const myM = sum(snap.mine), opM = sum(snap.theirs);
+  const deadOf = (total, arr) => {
+    let rest=total; const dead=[];
+    for(const x of [...arr].sort((a,b)=>a.lethal-b.lethal)){ if(rest>=x.lethal){ rest-=x.lethal; dead.push(x); } else break; }
+    return dead;
+  };
+  const opDead=deadOf(myM, snap.theirs), myDead=deadOf(opM, snap.mine);
+  const opLeft=snap.theirs.length-opDead.length, myLeft=snap.mine.length-myDead.length;
+  let cls;
+  if(sd.attacker===p) cls = (opLeft===0 && myLeft>0) ? 2 : 1;
+  else cls = (myLeft===0 && opLeft>0) ? 0 : 1;
+  const exch = opDead.reduce((s,x)=>s+x.might,0) - myDead.reduce((s,x)=>s+x.might,0);
+  return { cls, exch, myM, opM };
+}
+// 트릭의 컴파일된 op를 스냅샷 사본에 근사 적용. 전투와 무관한 카드(드로우 등)는 false.
+function polSdApplyOps(p, sd, snap, ops){
+  let touched=false;
+  const myBest = () => snap.mine.filter(x=>!x.stun).sort((a,b)=>b.m-a.m)[0];
+  const opBestAlive = () => snap.theirs.filter(x=>!x.stun).sort((a,b)=>b.m-a.m)[0];
+  for(const op of ops||[]){
+    if(!op) continue;
+    if(op.op==='optional' && op.inner){ if(polSdApplyOps(p,sd,snap,[op.inner])) touched=true; }
+    else if(op.op==='might' && op.n>0 && (op.self || !op.spec || op.spec.side!=='enemy')){
+      const t=myBest(); if(t){ t.m+=op.n; t.lethal+=op.n; touched=true; }
+    }
+    else if(op.op==='might' && op.n<0){
+      const t=opBestAlive(); if(t){ t.m=Math.max(op.min||0,t.m+op.n); t.lethal=Math.max(1,t.lethal+op.n); touched=true; }
+    }
+    else if((op.op==='damage'||op.op==='damageAll') && (!op.spec || op.spec.side!=='friendly')){
+      const times = op.op==='damageAll' ? snap.theirs.length : 1;
+      for(let i=0;i<times && snap.theirs.length;i++){
+        const killable = snap.theirs.filter(x=>x.lethal<=op.n).sort((a,b)=>b.might-a.might)[0];
+        if(killable) snap.theirs.splice(snap.theirs.indexOf(killable),1);
+        else { const t=[...snap.theirs].sort((a,b)=>b.lethal-a.lethal)[0]; if(t) t.lethal=Math.max(1,t.lethal-op.n); }
+        touched=true;
+      }
+    }
+    else if((op.op==='kill') && op.spec && op.spec.side!=='friendly'){
+      const el=snap.theirs.filter(x=>op.spec.mightMax===undefined||x.might<=op.spec.mightMax).sort((a,b)=>b.might-a.might)[0];
+      if(el){ snap.theirs.splice(snap.theirs.indexOf(el),1); touched=true; }
+    }
+    else if(op.op==='stun' && (!op.spec || op.spec.side!=='friendly')){
+      const t=opBestAlive(); if(t){ t.stun=true; touched=true; }
+    }
+    else if(op.op==='grantKw' && op.kws){
+      const t=myBest();
+      if(t) for(const kv of op.kws){ const kw=kv[0], v=kv[1]||1;
+        if(/^(Assault|Shield)/.test(kw)){ t.m+=v; t.lethal+=v; touched=true; } }
+    }
+  }
+  return touched;
+}
+// 손패 트릭 하나의 기대 이득 — 클래스 개선은 크게, 교환 개선은 위력 단위로
+function polSdTrickGain(p, sd, snap0, base, n){
+  const fx=FX[n]||{}; const ops=(fx.playOps||[]).filter(g=>!g.legion).flatMap(g=>g.ops||[]);
+  const snap={ mine:snap0.mine.map(x=>({...x})), theirs:snap0.theirs.map(x=>({...x})) };
+  if(!polSdApplyOps(p, sd, snap, ops)) return null;    // 전투 무관 카드 — 결전에 태우지 않는다
+  const out=polSdOutcome(p, sd, snap);
+  return { gain:(out.cls-base.cls)*10 + (out.exch-base.exch), cls:out.cls };
+}
+
 // 결전에서 취할 행동 하나. 손패 트릭 → 자금 조달(자원 능력) → 숨겨둔 트릭 순.
 POLICY.showdownAction = function(p){
   const sd = G.showdown;
@@ -695,7 +780,7 @@ POLICY.showdownAction = function(p){
   const myM = us.filter(u => u.ctrl === p).reduce((s,u) => s + might(u, role(u)), 0);
   const opM = us.filter(u => u.ctrl !== p).reduce((s,u) => s + might(u, role(u)), 0);
   if(opM <= 0 || !us.some(u => u.ctrl === p)) return null;   // 무혈 결전엔 아낀다
-  if(myM > opM + BOT_W.sdMargin) return null;                // 크게 이기고 있으면 아낀다
+  if(!POLICY.ab.sdx && myM > opM + BOT_W.sdMargin) return null;  // (구식 마진 게이트 — sdx는 정밀 예측으로 대체)
   const P = G.players[p];
   // 이 결전에서 낼 수 있는 트릭인가 (자금 문제는 따로 본다)
   const usable = n => {
@@ -706,15 +791,45 @@ POLICY.showdownAction = function(p){
     if((fx.counter || fx.steal) && !sd.chain.some(it => it.p !== p && it.kind !== 'ability')) return false;
     return true;
   };
-  const idx = P.hand.findIndex(n => usable(n) && polCanPlay(p, card(n)));
-  if(idx >= 0){
-    polSay('showdown', card(P.hand[idx]).ko, '결전 트릭', {myM, opM});
-    return { kind:'play', idx, n:P.hand[idx] };
+  let want;
+  if(POLICY.ab.sdx){
+    // ── 정밀 결전 판단: 결과(정복/저지)를 실제로 계산하고, 그걸 바꾸는 트릭만 낸다 ──
+    const snap0 = polSdSnap(p, sd);
+    const base = polSdOutcome(p, sd, snap0);
+    const bestCls = sd.attacker===p ? 2 : 1;
+    if(!(base.cls===bestCls && base.exch>=0)){        // 이미 최선+교환 무손해면 전부 아낀다
+      let best=null;
+      P.hand.forEach((n,i)=>{
+        if(!usable(n) || !polCanPlay(p, card(n))) return;
+        const r=polSdTrickGain(p, sd, snap0, base, n);
+        if(!r) return;
+        const better = !best || r.gain>best.gain+1e-9
+          || (Math.abs(r.gain-best.gain)<1e-9 && (card(n).e||0)<(card(best.n).e||0));
+        if(better) best={i, n, gain:r.gain, cls:r.cls};
+      });
+      // 클래스가 오르거나(정복 성사·정복 저지) 교환이 위력 2 이상 좋아질 때만 태운다
+      if(best && (best.cls>base.cls || best.gain>=2)){
+        polSay('showdown', card(best.n).ko, '정밀 트릭', {myM, opM, gain:+best.gain.toFixed(1)});
+        return { kind:'play', idx:best.i, n:best.n };
+      }
+    }
+    // 자금 조달 대상도 '내면 결과가 좋아지는데 돈이 모자란' 카드로 한정
+    want = P.hand.filter(n => {
+      if(!usable(n) || polCanPlay(p, card(n))) return false;
+      const r=polSdTrickGain(p, sd, snap0, base, n);
+      return !!r && (r.cls>base.cls || r.gain>=2);
+    });
+  } else {
+    const idx = P.hand.findIndex(n => usable(n) && polCanPlay(p, card(n)));
+    if(idx >= 0){
+      polSay('showdown', card(P.hand[idx]).ko, '결전 트릭', {myM, opM});
+      return { kind:'play', idx, n:P.hand[idx] };
+    }
+    want = P.hand.filter(n => usable(n));
   }
   // ── 자금 조달 ──
   // 인장 7종과 카이사·다리우스 전설은 결전 중 [추가] 자원 능력이다(즉시 해결·우선권 유지).
   // 낼 수 없는 트릭이 손에 있을 때 이걸 켜면 "돈이 모자라 못 쓰던 카드"가 살아난다.
-  const want = P.hand.filter(n => usable(n));
   if(POLICY.ab.sdfund && polTier().rep >= 2 && want.length){
     const tried = polSdTried();
     for(const c of polAbList(p)){
@@ -784,9 +899,12 @@ POLICY.runAction = async function(p, act){
 // 실패한 행동은 같은 턴에 다시 고르지 않는다 — 엔진이 토스트만 띄우고 끝나는 수가 있어
 // 재시도 차단이 없으면 봇이 그 자리에서 무한히 맴돈다.
 POLICY.step = async function(p, ctx, onPlay){
-  // 탐색 티어는 후보를 실제로 두어 보고 고른다. 실패하면 휴리스틱으로 떨어진다.
-  let act = polTier().think ? await POLICY.searchAction(p, ctx) : null;
-  if(!act) act = POLICY.nextAction(p, ctx);
+  // 탐색 티어: 턴 시작에 '턴 플랜'(기본/공격 자제/집중 공격)을 롤아웃으로 비교해 하나 고른다.
+  // 예전의 행동 단위 탐색은 롤아웃 미래 평가를 현재 정적 평가와 비교하는 결함(조기 턴 종료 남발)과
+  // 평가 노이즈에 묻히는 미시 후보 문제로 두 번 실패했다 — 플랜 단위 비교는 기준선(기본 플랜)도
+  // 같은 깊이로 롤아웃하므로 공정하고, 후보 간 평가 차이가 커서 노이즈 위에 선다.
+  if(polTier().think && POLICY.ab.think) await polPlanTurn(p, ctx);
+  let act = POLICY.nextAction(p, ctx);
   if(!act || act.kind === 'end') return true;
   const P = G.players[p];
   const hadHand = P.hand.length, hadChamp = P.champInZone;
@@ -796,7 +914,10 @@ POLICY.step = async function(p, ctx, onPlay){
   if(act.kind === 'play'  && ok === false && G.players[p].hand.length === hadHand) ctx.tried.add('h' + act.n);
   if(act.kind === 'champ' && ok === false && hadChamp && G.players[p].champInZone) ctx.tried.add('champ');
   if(act.kind === 'hide'  && G.players[p].hand.length === hadHand) ctx.tried.add('x' + act.n);
-  if(act.kind === 'move')    ctx.movesLeft--;
+  if(act.kind === 'move'){   ctx.movesLeft--;
+    // 이동은 국면을 가장 크게 바꾼다 — 탐색 티어는 이동 직후 턴 플랜을 다시 세운다 (수용 지평선)
+    if(polTier().think && POLICY.ab.think && !(typeof SIM!=='undefined' && (SIM.active||SIM.lock))) ctx.plannedTc = -1;
+  }
   if(act.kind === 'ability') ctx.tried.add('a' + act.key);
   if(act.kind === 'hidden')  ctx.tried.add('v' + act.bfIdx + ':' + act.n);
   return false;
@@ -881,7 +1002,75 @@ function polActionCandidates(p, ctx){
   return out;
 }
 
-// 탐색으로 다음 한 수를 고른다. 반환: 후보 객체 (없으면 null)
+// ══════════ 턴 플랜 탐색 (재설계 2026-08-29) ══════════
+// 턴 시작에 한 번, 거시 전략 후보를 샌드박스에서 '내 턴 전체 + 상대 턴 전체' 롤아웃해 비교한다.
+//  · 후보: 기본 휴리스틱 / 공격 자제 / 전장별 집중 공격 (최대 4개)
+//  · 모든 후보가 같은 깊이에서 평가되므로 기준선이 공정하다 (구식 탐색의 조기 종료 결함 제거)
+//  · 비열람 티어는 상대 손패를 덱과 섞어 다시 뽑는 결정화로 정보 누수를 막는다
+POLICY.turnPlan = null;   // {noAttack:true} | {focusBf:i} | null — movePlan이 존중한다
+function polDeterminize(p, salt){
+  if(polTier().peek) return;                       // 열람 티어는 실제 손패 그대로
+  const O = G.players[opp(p)];
+  if(!O.hand.length) return;
+  const pool = [...O.hand, ...O.deck];
+  // 표본(salt)마다 다른 셔플이어야 평균에 의미가 있다 — 엔진 rng는 simTry마다 복원되어
+  // 같은 수열이 나오므로, (턴, 표본) 기반의 자체 수열을 쓴다
+  let s = ((polHash('det', G.turnCount, salt||0) * 0x7fffffff) | 1) >>> 0;
+  const rnd = ()=>{ s=(Math.imul(s,1103515245)+12345)&0x7fffffff; return s/0x7fffffff; };
+  for(let i=pool.length-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); const t=pool[i]; pool[i]=pool[j]; pool[j]=t; }
+  O.hand = pool.slice(0, O.hand.length);
+  O.deck = pool.slice(O.hand.length);
+}
+async function polPlanTurn(p, ctx){
+  // 롤아웃 내부 재진입 가드가 turnPlan 초기화보다 먼저여야 한다 — 아니면 후보 플랜이 지워진다
+  if(typeof SIM !== 'undefined' && (SIM.active || SIM.lock)) return;
+  if(ctx.plannedTc === G.turnCount) return;        // 턴당 1회
+  ctx.plannedTc = G.turnCount;
+  POLICY.turnPlan = null;
+  if(typeof simTry !== 'function') return;
+  if(typeof NET !== 'undefined' && NET.online) return;
+  const o = opp(p);
+  const plans = [ {label:'기본', plan:null}, {label:'공격 자제', plan:{noAttack:true}} ];
+  const atkBfs = G.bfs.map((bf,i)=>i)
+    .filter(i => G.bfs[i].units.some(u=>u.ctrl===o) || G.bfs[i].controller===o);
+  for(const i of atkBfs.slice(0,3)) plans.push({ label:'집중 공격 #'+i, plan:{focusBf:i} });
+  for(const i of atkBfs.slice(0,2)) plans.push({ label:'총공격 #'+i, plan:{focusBf:i, allin:true} });
+  // 예산(수당 최대 5초): 후보 × 결정화 표본을 예산 안에서 소화한다.
+  // 비열람 티어는 상대 손패 결정화 표본을 여러 개 평균해 추측 노이즈를 줄인다.
+  const budget = Math.min(POLICY.budget || 400, 5000);
+  const D = polTier().peek ? 1 : 3;   // 열람 티어는 실제 손패라 표본이 전부 동일 — 1개면 충분
+  const deadline = Date.now() + budget;
+  let best = null;
+  for(const c of plans){
+    if(best && Date.now() > deadline) break;
+    let sum = 0, cnt = 0;
+    for(let d=0; d<D; d++){
+      if(best && Date.now() > deadline) break;
+      SIM.deadline = deadline + 600;               // 개별 롤아웃 상한 (기본 플랜은 반드시 평가)
+      const v = await simTry(p, async()=>{
+        polDeterminize(p, d);
+        // 플랜은 {p, tc} 스코프를 갖는다 — 상대 좌석·다음 턴으로 새지 않게 movePlan이 검증한다
+        POLICY.turnPlan = c.plan ? { p, tc:G.turnCount, ...c.plan } : null;
+        try {
+          await simPlayOutTurn(p);
+          await simSettle();
+          if(G.winner===null && G.turn===o) await simPlayOutTurn(o);
+        } finally { POLICY.turnPlan = null; }
+      });
+      SIM.deadline = 0;
+      if(v !== null){ sum += v; cnt++; }
+    }
+    if(!cnt) continue;
+    const avg = sum / cnt;
+    if(!best || avg > best.v + 1e-9) best = { ...c, v: avg };
+  }
+  POLICY.turnPlan = (best && best.plan) ? { p, tc:G.turnCount, ...best.plan } : null;
+  if(typeof process!=='undefined' && process.env && process.env.PLANDBG)
+    console.error('PLAN', p, 'tc'+G.turnCount, plans.length+'후보', best?best.label+'='+best.v.toFixed(2):'전부실패');
+  if(best && best.plan) polSay('think', best.label, '턴 플랜 (평가 '+best.v.toFixed(2)+')');
+}
+
+// (구식) 탐색으로 다음 한 수를 고른다 — 현재 미사용, 플랜 탐색으로 대체됨
 POLICY.searchAction = async function(p, ctx){
   if(!polTier().think || typeof simBest !== 'function') return null;
   const cands = polActionCandidates(p, ctx);

@@ -31,7 +31,7 @@ const WRAW = arg('--w', null);
 const WOVER = {};
 if(WRAW) WRAW.split(',').forEach(kv=>{ const [k,v]=kv.split('='); if(k) WOVER[k]=+v; });
 const KEYS = ['unit','option','confirm','number','hand','reaction','mulligan','reserve','canpay','move','showdown',
-              'ability','hide','sdfund','place','champ','defend'];
+              'ability','hide','sdfund','place','champ','defend','sdx','think'];
 // --only a,b : A는 그 기능만 켜고 나머지는 옛 동작 / --off a,b : A에서 그 기능만 끔
 //   (둘 다 B는 '정책층 이전' 상태 — 옛 봇 대비 절대 기여도를 본다)
 // --offb a,b : A는 현재 봇 그대로, B에서만 그 기능을 끈다
@@ -153,8 +153,8 @@ const _wo = ${JSON.stringify(WOVER)};
 const WOVER_A = Object.keys(_wo).length ? _wo : null;
 const LEVELS = {
   novice:{think:0,budget:0,peek:false}, skilled:{think:0,budget:0,peek:false},
-  expert:{think:0,budget:0,peek:false}, master:{think:1,budget:0,peek:false},
-  oracle:{think:1,budget:0,peek:true},
+  expert:{think:1,budget:2000,peek:false}, master:{think:1,budget:5000,peek:false},
+  oracle:{think:1,budget:5000,peek:true},
   easy:{think:0,budget:0,peek:false}, normal:{think:0,budget:0,peek:false}, hard:{think:0,budget:0,peek:false},
 };
 function mkPolicy(level, ab, wover){

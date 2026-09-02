@@ -122,15 +122,18 @@ function evalCombat(p, bfIdx, units, extraDef){
   const atkM = atk.reduce((s,u)=>s+might(u,'attacker'),0);
   const defM = def.reduce((s,u)=>s+might(u,'defender'),0);
 
-  // 처치 수: 치사량이 작은 것부터 채우면 최대가 된다
+  // 처치: 치사량이 작은 것부터 채우면 수가 최대가 된다. 어떤 유닛이 죽는지도 함께 반환해
+  // 교환 손익 계산이 실제 처치 대상과 어긋나지 않게 한다 (예전엔 정렬 전 목록의 앞 N개를 합산했다)
   const kills = (total, targets, role) => {
-    const leth = targets.map(u=>Math.max(1, might(u,role,{forKill:true})-u.dmg)).sort((a,b)=>a-b);  // 기절 유닛도 원래 위력만큼 필요 (룰 410.1.c)
-    let rest = total, k = 0;
-    for(const l of leth){ if(rest >= l){ rest -= l; k++; } else break; }
-    return k;
+    const order = targets.map(u=>({u, l:Math.max(1, might(u,role,{forKill:true})-u.dmg)}))  // 기절 유닛도 원래 위력만큼 필요 (룰 410.1.c)
+      .sort((a,b)=>a.l-b.l);
+    let rest = total; const dead=[];
+    for(const t of order){ if(rest >= t.l){ rest -= t.l; dead.push(t.u); } else break; }
+    return dead;
   };
-  const defKilled = kills(atkM, def, 'defender');
-  const atkKilled = kills(defM, atk, 'attacker');
+  const defDead = kills(atkM, def, 'defender');
+  const atkDead = kills(defM, atk, 'attacker');
+  const defKilled = defDead.length, atkKilled = atkDead.length;
   const defLeft = def.length - defKilled;
   const atkLeft = atk.length - atkKilled;
 
@@ -150,7 +153,8 @@ function evalCombat(p, bfIdx, units, extraDef){
       scoresPoint = G.bfs.every((b, i) => i === bfIdx || P.scoredBf[i]);
   }
   return { result, atkM, defM, defKilled, atkKilled, defLeft, atkLeft, scoresPoint,
-           lostMight: atk.filter((u,i)=>i<atkKilled).reduce((s,u)=>s+might(u),0) };
+           defDead, atkDead,
+           lostMight: atkDead.reduce((s,u)=>s+might(u),0) };
 }
 
 // 공격 후보의 가치 — 얻는 것(정복·통제·처치) 대비 잃는 것(내 유닛)
@@ -166,9 +170,8 @@ function evalAttackValue(p, bfIdx, units, extraDef){
   } else if(c.result === 'mutual'){
     v -= 0.05;                                                // 상호 전멸 — 득점 없음
   }
-  // 교환 손익 (내 잃은 위력 vs 상대 잃은 위력)
-  const defLost = bf.units.filter(u=>u.ctrl!==p).concat(extraDef||[])
-    .slice(0, c.defKilled).reduce((s,u)=>s+might(u),0);
+  // 교환 손익 (내 잃은 위력 vs 상대 잃은 위력) — 실제 처치 대상 기준
+  const defLost = c.defDead.reduce((s,u)=>s+might(u),0);
   v += (defLost * BOT_W.unitBf) - (c.lostMight * BOT_W.unitBf);
   return v;
 }

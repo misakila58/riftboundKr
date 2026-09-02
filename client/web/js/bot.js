@@ -19,11 +19,11 @@ const BOT_LEVELS = [
     desc:'무작위 위주로 둡니다. 규칙을 익히는 용도' },
   { id:'skilled', name:'🙂 중수',   think:0, peek:false, budget:0,
     desc:'대상·비용·손패를 따져 둡니다. 큰 실수는 하지 않습니다' },
-  { id:'expert',  name:'😎 고수',   think:1, peek:false, budget:400,
-    desc:'수를 두어 보고 결과를 비교합니다. 전투 계산과 승점 레이스를 읽습니다' },
-  { id:'master',  name:'😈 초고수', think:2, peek:false, budget:900,
-    desc:'턴 전체를 계획하고 상대 손패를 추정합니다' },
-  { id:'oracle',  name:'👹 초고수 (내 패를 고려함)', think:2, peek:true, budget:900,
+  { id:'expert',  name:'😎 고수',   think:1, peek:false, budget:2000,
+    desc:'턴 전략을 두어 보고 비교합니다. 전투 계산과 승점 레이스를 읽습니다' },
+  { id:'master',  name:'😈 초고수', think:2, peek:false, budget:5000,
+    desc:'턴 전체를 여러 전략으로 두어 보고 상대 응수까지 내다봅니다 (수당 최대 5초)' },
+  { id:'oracle',  name:'👹 초고수 (내 패를 고려함)', think:2, peek:true, budget:5000,
     desc:'초고수와 같되 당신의 손패와 덱을 봅니다 — 가장 강하지만 공정하지 않습니다' },
 ];
 function botLevelDef(){ return BOT_LEVELS.find(l=>l.id===BOT.level) || BOT_LEVELS[1]; }
@@ -34,11 +34,13 @@ function botRand(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 function botSmart(){ return BOT.level!=='novice' && BOT.level!=='easy'; }
 function botHard(){ const d=botLevelDef(); return d.think>=1; }
 // 봇 좌석의 판단을 시작하기 전에 정책층에 현재 난이도를 심는다
-function botSync(){ if(typeof POLICY!=='undefined') POLICY.level = BOT.level; }
+function botSync(){ if(typeof POLICY!=='undefined'){ POLICY.level = BOT.level;
+  const d=botLevelDef(); POLICY.budget=d.budget||0; POLICY.peek=!!d.peek; } }
 
 // ── 다른 모드가 시작되면 봇 자동 해제 ──
 const _bot_newGame = newGame;
 newGame = function(cfg){ BOT.active=false; return _bot_newGame(cfg); };
+
 
 // ── 선택 프롬프트 자동 응답 ──
 // 판단은 전부 bot-policy.js(POLICY)에 있다. 여기서는 "봇 좌석인가"만 가리고 위임한다.
