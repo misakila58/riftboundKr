@@ -58,16 +58,54 @@ NET.connect = function(){
         case 'authFail': rej(new Error('인증 실패 — 다시 로그인하세요')); break;
         case 'rooms': NET.onRooms && NET.onRooms(m.rooms); break;
         case 'roomCreated': NET.onRoomCreated && NET.onRoomCreated(m.room); break;
-        case 'start': NET.onStart && NET.onStart(m); break;
+        case 'start':
+          NET.onStart && NET.onStart(m);
+          NET._verSendCheck();               // 서버를 못 믿는 경로 대비: 채팅 채널로 클라끼리 버전 검증
+          break;
         case 'err': NET.onErr && NET.onErr(m.msg); break;
         case 'opponentLeft': NET.onOppLeft && NET.onOppLeft(); break;
-        case 'chat': NET.onChat && NET.onChat(m); break;
+        case 'chat':
+          if(NET._verIntercept(m)) break;    // 버전 확인 메시지는 채팅으로 표시하지 않고 가로챈다
+          NET.onChat && NET.onChat(m);
+          break;
         case 'act': NET._enqueueAction(m); break;
         case 'choice': NET._resolveChoice(m); break;
       }
     };
     ws.onclose = ()=>{ if(NET.online){ UI.toast('서버 연결이 끊어졌습니다','warn'); } };
   });
+};
+// ── 클라이언트 간 버전 검증 (서버 무관) ──
+// 서버는 채팅을 그대로 릴레이하므로, 게임 시작 직후 채팅 채널로 버전 확인 메시지를 보낸다.
+// 신버전 클라는 이 메시지를 가로채 비교하고(화면에 안 보임), 구버전 클라는 채팅으로 그대로
+// 표시되므로 안내문 자체가 "당신이 구버전"이라는 경고가 된다. 서버를 업데이트하지 않아도 동작.
+const VERCHK_PREFIX = '[버전 확인] v';
+NET._peerVer = null;
+NET._verSendCheck = function(){
+  NET._peerVer = null; NET._verEcho = false;
+  const my = (typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');
+  NET.send({ t:'chat', msg: VERCHK_PREFIX + my + ' — 이 메시지가 채팅에 보이면 이 앱이 구버전입니다. 최신 버전으로 업데이트해 주세요.' });
+  // 상대의 버전 확인이 일정 시간 안 오면 = 상대가 이 기능 이전 버전 → 어긋남 위험 경고.
+  // 내 에코조차 없으면 서버가 채팅 릴레이 자체를 모르는 아주 옛 서버 — 판정 불가라 침묵한다
+  setTimeout(()=>{
+    if(!NET.online || NET._peerVer !== null || !NET._verEcho) return;
+    if(typeof G==='undefined' || !G || G.winner!==null) return;
+    const msg = '⚠ 상대 클라이언트가 구버전으로 보입니다 (버전 응답 없음). 게임이 어긋날 수 있으니 두 분 모두 최신 버전(v'+my+')으로 맞춰 주세요.';
+    UI.toast(msg, 'warn'); UI.log(msg, 'sys');
+  }, 7000);
+};
+NET._verIntercept = function(m){
+  if(typeof m.msg !== 'string' || !m.msg.startsWith(VERCHK_PREFIX)) return false;
+  if(m.from === NET.userId){ NET._verEcho = true; return true; }   // 내 에코는 숨기기만
+  const peer = (m.msg.slice(VERCHK_PREFIX.length).split(' ')[0] || '?');
+  NET._peerVer = peer;
+  const my = (typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');
+  if(peer !== my){
+    const msg = `🔄 앱 버전이 다릅니다 (나 v${my} / 상대 v${peer}) — 진행하면 게임이 어긋날 수 있습니다. 두 분 모두 최신 버전으로 업데이트한 뒤 다시 시작하세요.`;
+    UI.toast(msg, 'warn'); UI.log(msg, 'sys');
+    if(UI.chatMuted !== undefined && NET.onChat) NET.onChat({ from:'시스템', msg });   // 채팅 팝업에도 남겨 눈에 띄게
+  }
+  return true;
 };
 NET.send = obj=>{
   if(typeof P2P!=='undefined' && P2P.active){ P2P.netSend(obj); return; } // P2P 직접 대전 경로
