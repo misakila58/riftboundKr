@@ -56,6 +56,7 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 - 클라 개발 실행: `cd client && npm start` / 웹 확인: `npx http-server client/web -p 8777`
 - 서버: `cd server && node server.js`
 - 빌드: 클라 `npm run dist`, 서버 `node build-dist.js --exe`
+- **서버 상시 배포 프로젝트 (진행 중, 2026-08-31)**: Oracle Cloud 무료 VM + DuckDNS + Caddy로 24시간 웹 접속 서버 구축. 절차·진행 상황은 `deploy/배포_가이드.md`(체크리스트 포함), 설치는 `deploy/setup-vm.sh`, 게임 업데이트는 `deploy/update.sh` 한 줄. 현재 오라클 계정 생성(Osaka 리전)까지 완료 — 다음은 VM 생성. 완성되면 웹 서빙이라 클라 버전 불일치 문제 원천 해소. **서버 zip은 드라이브에 올리지 않음**.
 - **패치노트**: `docs/패치노트.txt` — 릴리스마다 갱신해 드라이브에 exe/zip과 함께 업로드. **모바일(APK) 관련 항목은 배포용 패치노트에 쓰지 말고 `docs/패치노트-모바일-보류.txt`에 기록**(사용자가 나중에 추가를 요청하면 그때 합침, 2026-08-27 지시).
 - **드라이브 업로드 (사용자가 요청할 때만 — 빌드 루틴에 넣지 말 것)**: portable.exe를 zip으로도 압축해 **exe와 zip 둘 다** `gdrive:리프트바운드/`에 올린다(사용자 요청 2026-08-25, 매번). **서버 zip(riftbound-server-win.zip)은 드라이브에 올리지 말 것** — 자가 서버 구동 유저 없음(사용자 지시 2026-08-31). `Compress-Archive`로 zip 생성 → `rclone copy "client/dist/RiftboundSim-<버전>-portable.exe" "gdrive:리프트바운드/"` + zip 동일. rclone 원격 `gdrive`는 misakila58@gmail.com 계정으로 인증돼 있음(2026-08 설정). rclone이 PATH에 없으면 `C:\Users\SHIFTUP\AppData\Local\Microsoft\WinGet\Packages\Rclone.Rclone_*\rclone-*\rclone.exe` 직접 호출.
 - 모바일 APK: `cd mobile && npm i && npm run sync && cd android && gradlew assembleDebug` (JAVA_HOME=포터블 JDK17 `C:/Users/SHIFTUP/android-build/jdk-17.0.20+8`, sdk.dir은 android/local.properties — `C:/Users/SHIFTUP/android-build/sdk`). android/·www/는 생성물(gitignore), 산출물은 `release/`에 복사
