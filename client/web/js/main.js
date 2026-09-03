@@ -1159,6 +1159,12 @@ function openSystemMenu(){
     add('🔄 다시 하기 (핫시트 새 게임)', ()=>{ closeModal(); startHotseat(); }, true);
     add('🚪 처음 화면으로', ()=>location.reload());
   }
+  // 현재 행동 넘기기(패스) — 결전 중 내 응답 차례일 때 (사이드바 패스 버튼과 동일 동작)
+  if(G && G.winner===null && G.state==='showdown'
+     && !(NET.online && G.actingPlayer!==NET.seat) && canInitiate(G.actingPlayer)){
+    add('⏭ 현재 행동 넘기기 (패스)', ()=>{ closeModal();
+      NET.dispatch({k:'pass'}, ()=>showdownPass()); });
+  }
   if(G && G.winner===null) add('🏳 항복하기 (서렌)', ()=>{ closeModal(); confirmSurrender(); });
   // 채팅 무시 — 온라인 대전에서만 의미가 있다. 켜면 수신 숨김 + 입력창 숨김 (localStorage로 유지)
   if(NET.online) add(UI.chatMuted ? '🔊 채팅 무시 해제' : '🔇 채팅 무시하기', ()=>{
