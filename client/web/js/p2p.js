@@ -302,7 +302,8 @@ P2P._bindChannel = function(ch){
     P2P.active=true;
     P2P.onStatus && P2P.onStatus('connected');
     if(!P2P.isHost){
-      ch.send(JSON.stringify({t:'hello', name:P2P.myName, deck:P2P.myDeck, ban:P2P.ban===true}));
+      ch.send(JSON.stringify({t:'hello', name:P2P.myName, deck:P2P.myDeck, ban:P2P.ban===true,
+        ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')}));
     }
   };
   ch.onmessage=(ev)=>{
@@ -339,6 +340,16 @@ P2P._onMsg = function(m){
       case 'hello': {
         // 게스트 정보 수신 → 시드 생성, 양측 게임 시작 (호스트=좌석0)
         P2P.peerName = String(m.name||'상대').slice(0,16);
+        // 앱 버전이 다르면 락스텝이 어긋난다 — 시작하지 않고 양쪽에 안내
+        const myVer = (typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');
+        const peerVer = String(m.ver||'?').slice(0,20);
+        if(myVer !== peerVer){
+          const vmsg=`🔄 앱 버전이 달라 대전을 시작할 수 없습니다 (나 v${myVer} / 상대 v${peerVer}). 두 분 모두 최신 버전으로 업데이트한 뒤 다시 연결하세요.`;
+          try{ P2P.ch.send(JSON.stringify({t:'err', msg:vmsg})); }catch(e){}
+          P2P.active=false;
+          NET.onErr && NET.onErr(vmsg);
+          break;
+        }
         // 밴 규칙: 양쪽 모두 선택했을 때만 적용 — 위반 덱이 있으면 시작하지 않음
         const banRule = P2P.ban===true && m.ban===true;
         if(banRule){

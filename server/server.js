@@ -424,7 +424,7 @@ wss.on('connection', (ws, req) => {
         const nm = (typeof m.name === 'string' && m.name.trim()) ? m.name.trim().slice(0, LIMITS.MAX_ROOM_NAME) : (ws._userId + '의 방');
         const r = { id: 'r' + (roomSeq++), name: nm, players: [], started: false, seq: 0, manual: m.manual !== false, banRule: wantBan };
         rooms.set(r.id, r);
-        r.players.push({ ws, id: ws._userId, deck, seat: 0 });
+        r.players.push({ ws, id: ws._userId, deck, seat: 0, ver: String(m.ver || '?').slice(0, 20) });
         ws._room = r;
         wsSend(ws, { t: 'roomCreated', room: roomInfo(r) });
         broadcastLobby();
@@ -444,7 +444,11 @@ wss.on('connection', (ws, req) => {
           return wsSend(ws, { t: 'err', msg: '🚫 밴 적용을 선택한 경우 밴 카드가 포함된 덱은 사용할 수 없습니다' });
         if (banActive && deckBannedNs(r.players[0].deck).length)
           return wsSend(ws, { t: 'err', msg: '🚫 방장 덱에 밴 카드가 있어 입장할 수 없습니다' });
-        r.players.push({ ws, id: ws._userId, deck, seat: 1 });
+        // 앱 버전이 다르면 락스텝이 어긋난다(한쪽만 선택 프롬프트가 뜨는 등) — 시작 전에 차단
+        const joinVer = String(m.ver || '?').slice(0, 20);
+        if (r.players[0].ver !== joinVer)
+          return wsSend(ws, { t: 'err', msg: `🔄 앱 버전이 달라 입장할 수 없습니다 (방장 v${r.players[0].ver} / 나 v${joinVer}). 두 분 모두 최신 버전으로 업데이트해 주세요.` });
+        r.players.push({ ws, id: ws._userId, deck, seat: 1, ver: joinVer });
         ws._room = r;
         r.started = true;
         const seed = crypto.randomBytes(4).readUInt32LE(0);

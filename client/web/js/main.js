@@ -815,7 +815,7 @@ function renderRooms(roomsArr){
       if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
       const ban=document.getElementById('lobby-ban').checked;
       if(!banSelfCheck(ban, lobbySelectedDeck())) return;
-      NET.send({t:'joinRoom', roomId:r.id, ...pay, banRule:ban});
+      NET.send({t:'joinRoom', roomId:r.id, ...pay, banRule:ban, ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')});
     };
     btns.appendChild(bj);
     div.appendChild(btns);
@@ -834,7 +834,7 @@ function initLobby(){
     const manual = !document.getElementById('lobby-auto').checked;
     const ban=document.getElementById('lobby-ban').checked;
     if(!banSelfCheck(ban, lobbySelectedDeck())) return;
-    NET.send({t:'createRoom', ...pay, manual, banRule:ban, name:document.getElementById('lobby-room-name').value.trim()});
+    NET.send({t:'createRoom', ...pay, manual, banRule:ban, name:document.getElementById('lobby-room-name').value.trim(), ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')});
   };
   NET.onRooms=renderRooms;
   NET.onRoomCreated=(room)=>{
