@@ -12,7 +12,12 @@
 // 설정에서 언제든 끌 수 있고(STATS.enabled), 꺼져 있으면 아무것도 보내지 않는다.
 // 전송은 실패해도 게임에 영향을 주지 않는다 (fire-and-forget · 응답을 기다리지 않음).
 const STATS = {
-  URL: '',                    // 배포한 Worker 주소. 비어 있으면 통계 기능 자체가 꺼진다.
+  // 게임 서버와 같은 출처로 보낸다 (server.js의 /api/stats). 별도 배포·CORS가 필요 없다.
+  // 데스크톱 앱(file://)에서는 공식 서버로 보낸다. 비우면 통계 기능 전체가 꺼진다.
+  get URL(){
+    if(/^https?:$/.test(location.protocol)) return location.origin;
+    return (typeof OFFICIAL_SERVER!=='undefined') ? OFFICIAL_SERVER : '';
+  },
   KEY_OPTOUT: 'rb_stats_off',
   KEY_DAY: 'rb_stats_day',
 };
@@ -32,7 +37,7 @@ STATS._send = function(payload){
     payload.v = (typeof BUILDINFO!=='undefined' && BUILDINFO.version) || 'unknown';
     const body = JSON.stringify(payload);
     // keepalive: 창을 닫는 중에도 마지막 전송이 살아남게 한다
-    fetch(STATS.URL.replace(/\/+$/,'') + '/e', {
+    fetch(STATS.URL.replace(/\/+$/,'') + '/api/stats', {
       method:'POST', headers:{'content-type':'application/json'}, body, keepalive:true,
     }).catch(()=>{});          // 실패는 조용히 무시 — 게임에 영향 없음
   }catch(e){}

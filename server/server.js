@@ -17,6 +17,65 @@ const DATA_DIR = path.join(BASE, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
+// ══════════ 익명 사용 통계 ══════════
+// 세는 것: 모드별 게임 수, 평균 턴, 중도 이탈, 덱 조합별 승률, 날짜별 접속 수, 버전 분포.
+// 저장하지 않는 것: IP·설치 ID·계정·닉네임·덱 목록·개별 요청. 도착 즉시 카운터만 올리고 버린다.
+// 시각은 날짜(YYYY-MM-DD)까지만 남긴다. 남는 것은 집계 숫자뿐이라 개인을 특정할 수 없다.
+const STATS_FILE = path.join(DATA_DIR, 'stats.json');
+let STATS = {};
+try { if (fs.existsSync(STATS_FILE)) STATS = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')); } catch (e) { STATS = {}; }
+let statsTimer = null, statsDirty = false;
+function statsSave() {
+  statsDirty = true;
+  if (statsTimer) return;
+  statsTimer = setTimeout(() => {
+    statsTimer = null;
+    if (!statsDirty) return;
+    statsDirty = false;
+    const tmp = STATS_FILE + '.tmp';
+    try { fs.writeFileSync(tmp, JSON.stringify(STATS)); fs.renameSync(tmp, STATS_FILE); } catch (e) {}
+  }, 5000);   // 5초에 한 번만 디스크에 쓴다 (요청마다 쓰지 않게)
+}
+const statsBump = (k, by) => { STATS[k] = (STATS[k] || 0) + (by || 1); };
+const STAT_MODES = ['bot', 'hotseat', 'p2p', 'online'];
+const STAT_ENDS  = ['normal', 'surrender', 'left'];
+const statInt = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
+
+// 클라이언트가 보낸 이벤트 하나를 집계에 반영한다. 알 수 없는 값은 통째로 버린다.
+function statsRecord(b) {
+  if (!b || typeof b !== 'object') return;
+  const d = new Date().toISOString().slice(0, 10);
+  const ver = (typeof b.v === 'string' && /^[0-9.]{1,12}$/.test(b.v)) ? b.v : 'unknown';
+
+  if (b.ev === 'active_day') { statsBump(`day:${d}:active`); statsBump(`ver:${ver}:active`); return statsSave(); }
+
+  const mode = STAT_MODES.includes(b.mode) ? b.mode : null;
+  if (!mode) return;
+
+  if (b.ev === 'game_start') { statsBump(`day:${d}:start:${mode}`); statsBump(`total:start:${mode}`); return statsSave(); }
+
+  if (b.ev === 'game_end') {
+    const end = STAT_ENDS.includes(b.end) ? b.end : 'normal';
+    statsBump(`day:${d}:end:${mode}`);
+    statsBump(`total:end:${mode}:${end}`);
+    if (statInt(b.turns, 500)) { statsBump(`total:turnsum:${mode}`, b.turns); statsBump(`total:turncnt:${mode}`); }
+    const a = b.a, c = b.b;
+    if (a && c && statInt(a.legend, 999) && statInt(a.champ, 999) && statInt(c.legend, 999) && statInt(c.champ, 999)
+        && (b.winner === 0 || b.winner === 1)) {
+      const A = `${a.legend}-${a.champ}`, B = `${c.legend}-${c.champ}`;
+      // 두 덱을 정렬해 한 방향으로만 저장한다 (A대B와 B대A가 갈라지지 않게)
+      const [lo, hi] = A <= B ? [A, B] : [B, A];
+      const loWon = (A <= B) ? b.winner === 0 : b.winner === 1;
+      statsBump(`mu:${mode}:${lo}|${hi}:games`);
+      if (loWon) statsBump(`mu:${mode}:${lo}|${hi}:lowin`);
+      statsBump(`deck:${mode}:${A}:games`);
+      statsBump(`deck:${mode}:${B}:games`);
+      statsBump(`deck:${mode}:${b.winner === 0 ? A : B}:wins`);
+    }
+    statsSave();
+  }
+}
+
 // ---------- 모바일/브라우저용 웹앱 제공 경로 ----------
 // 배포판(dist): exe 옆 web/ · 개발: ../client/web
 const WEB_ROOT = fs.existsSync(path.join(BASE, 'web', 'index.html'))
@@ -271,6 +330,15 @@ const server = http.createServer(async (req, res) => {
   // 헬스체크 (클라이언트가 서버 주소 유효성 확인 + 접근 코드 필요 여부 확인용)
   if (p === '/api/health' && req.method === 'GET')
     return json(res, 200, { ok: true, name: 'riftbound-sim', version: 2, requiresAccess: !!ACCESS_CODE });
+
+  // 익명 통계 — 계정 없이도 보낼 수 있어야 하므로 인증 앞에 둔다.
+  // 요청 본문만 보고 카운터를 올린다 (IP·헤더는 읽지 않는다).
+  if (p === '/api/stats' && req.method === 'POST') {
+    return readBody(req).then(b => { statsRecord(b); json(res, 200, { ok: true }); })
+                        .catch(() => json(res, 200, { ok: true }));   // 실패해도 게임에 영향 없음
+  }
+  // 집계 조회 (숫자만 있어 민감하지 않다)
+  if (p === '/api/stats' && req.method === 'GET') return json(res, 200, STATS);
 
   // 정적 웹앱 제공 (모바일/브라우저용). 화이트리스트만 — data/·소스는 노출 안 함
   if (!p.startsWith('/api/')) {

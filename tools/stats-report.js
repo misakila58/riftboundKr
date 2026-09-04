@@ -1,7 +1,7 @@
 // ══════════ 익명 통계 주간 리포트 ══════════
-// 배포한 stats-worker의 집계를 읽어 사람이 볼 수 있게 정리한다.
+// 게임 서버(/api/stats)의 집계를 읽어 사람이 볼 수 있게 정리한다.
 //
-//   node tools/stats-report.js https://riftbound-stats.<계정>.workers.dev
+//   node tools/stats-report.js https://riftboundsimkr.duckdns.org
 //   node tools/stats-report.js <주소> --days 7        최근 7일만
 //   node tools/stats-report.js <주소> --mode p2p      특정 모드만
 //   node tools/stats-report.js <주소> --min 5         매치업 최소 표본 수 (기본 3)
@@ -14,7 +14,7 @@ const argv = process.argv.slice(2);
 const base = argv.find(a => /^https?:\/\//.test(a));
 const arg = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : d; };
 if (!base) {
-  console.error('사용법: node tools/stats-report.js <Worker 주소> [--days 7] [--mode p2p] [--min 3]');
+  console.error('사용법: node tools/stats-report.js <서버 주소> [--days 7] [--mode p2p] [--min 3]');
   process.exit(1);
 }
 const DAYS = +arg('--days', 0);
@@ -36,7 +36,7 @@ const pct = (w, n) => n ? (w / n * 100).toFixed(1) + '%' : '–';
 const bar = (v, max, w) => '█'.repeat(Math.max(0, Math.round(v / (max || 1) * w)));
 
 (async () => {
-  const res = await fetch(base.replace(/\/+$/, '') + '/s');
+  const res = await fetch(base.replace(/\/+$/, '') + '/api/stats');
   if (!res.ok) { console.error('조회 실패:', res.status); process.exit(1); }
   const d = await res.json();
 
