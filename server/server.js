@@ -437,13 +437,15 @@ wss.on('connection', (ws, req) => {
         if (r.players[0].id === ws._userId) return wsSend(ws, { t: 'err', msg: '자신의 방에는 입장할 수 없습니다' });
         const deck = resolveDeck(ws, m);
         if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요 (덱 형식 오류 포함)' });
-        // 밴 규칙: 방장과 입장자 모두 선택했을 때만 적용 — 위반 덱은 입장 거부
-        const wantBan = m.banRule === true;
-        const banActive = !!r.banRule && wantBan;
-        if (wantBan && deckBannedNs(deck).length)
-          return wsSend(ws, { t: 'err', msg: '🚫 밴 적용을 선택한 경우 밴 카드가 포함된 덱은 사용할 수 없습니다' });
-        if (banActive && deckBannedNs(r.players[0].deck).length)
-          return wsSend(ws, { t: 'err', msg: '🚫 방장 덱에 밴 카드가 있어 입장할 수 없습니다' });
+        // 밴 규칙은 '방장이 정한다'. 밴 적용 방이면 입장자 덱도 밴 카드가 없어야 한다.
+        const banActive = !!r.banRule;
+        if (banActive) {
+          const mine = deckBannedNs(deck);
+          if (mine.length)
+            return wsSend(ws, { t: 'err', msg: '🚫 밴 적용 방입니다 — 밴 카드가 포함된 덱으로는 입장할 수 없습니다 (' + mine.length + '종). 다른 덱을 선택하세요.' });
+          if (deckBannedNs(r.players[0].deck).length)
+            return wsSend(ws, { t: 'err', msg: '🚫 방장 덱에 밴 카드가 있어 입장할 수 없습니다' });
+        }
         // 앱 버전이 다르면 락스텝이 어긋난다(한쪽만 선택 프롬프트가 뜨는 등) — 시작 전에 차단
         const joinVer = String(m.ver || '?').slice(0, 20);
         if (r.players[0].ver !== joinVer)

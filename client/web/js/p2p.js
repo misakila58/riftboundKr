@@ -350,14 +350,14 @@ P2P._onMsg = function(m){
           NET.onErr && NET.onErr(vmsg);
           break;
         }
-        // 밴 규칙: 양쪽 모두 선택했을 때만 적용 — 위반 덱이 있으면 시작하지 않음
-        const banRule = P2P.ban===true && m.ban===true;
+        // 밴 규칙은 '방장이 정한다'. 방장이 켰으면 들어오는 사람 덱도 밴 카드가 없어야 한다.
+        const banRule = P2P.ban===true;
         if(banRule){
           const offenders=[];
           if(deckBannedCards(P2P.myDeck).length) offenders.push(P2P.myName+'(방장)');
           if(deckBannedCards(m.deck||{}).length) offenders.push(P2P.peerName);
           if(offenders.length){
-            const msg='🚫 밴 적용 대전: 밴 카드가 포함된 덱은 사용할 수 없습니다 — '+offenders.join(', ')+'. 덱을 바꾼 뒤 처음부터 다시 연결하세요.';
+            const msg='🚫 방장이 밴 적용을 선택한 대전입니다 — 밴 카드가 포함된 덱은 쓸 수 없습니다: '+offenders.join(', ')+'. 덱을 바꾼 뒤 처음부터 다시 연결하세요.';
             try{ P2P.ch.send(JSON.stringify({t:'err', msg})); }catch(e){}
             P2P.active=false;  // 미시작 종료 — 이후 연결이 끊겨도 '상대가 나갔습니다' 리로드가 뜨지 않게
             NET.onErr && NET.onErr(msg);

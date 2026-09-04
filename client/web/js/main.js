@@ -811,11 +811,12 @@ function lobbySelectedDeck(){
   return myDecks[+String(v).replace(/^s/,'')]||null;
 }
 // 밴 적용을 선택했다면 자기 덱부터 검사 (통과 시 true)
-function banSelfCheck(banChecked, deck){
-  if(!banChecked || !deck) return true;
+// banOn: 이 대전에 밴 규칙이 적용되는가 (방을 만들 때는 내 선택, 입장할 때는 방장의 선택)
+function banSelfCheck(banOn, deck){
+  if(!banOn || !deck) return true;
   const b=deckBannedCards(deck);
   if(!b.length) return true;
-  UI.toast('🚫 밴 적용을 선택했지만 덱에 밴 카드가 있습니다: '+b.map(n=>card(n).ko).join(', '),'warn');
+  UI.toast('🚫 밴 적용 대전입니다 — 이 덱에는 밴 카드가 있습니다: '+b.map(n=>card(n).ko).join(', '),'warn');
   return false;
 }
 function renderRooms(roomsArr){
@@ -827,15 +828,15 @@ function renderRooms(roomsArr){
   }
   roomsArr.forEach(r=>{
     const div=document.createElement('div'); div.className='deck-card room-card';
-    div.innerHTML=`<h3>${esc(r.name)}${r.banRule?' <span class="ban-flag" style="font-size:12px">🚫 밴 적용</span>':''}</h3><div class="dk-info">방장: ${esc(r.host)} · ${r.count}/2${r.banRule?' · 방장이 밴 적용을 선택한 방입니다 (나도 선택하면 밴 규칙 적용)':''}</div>`;
+    div.innerHTML=`<h3>${esc(r.name)}${r.banRule?' <span class="ban-flag" style="font-size:12px">🚫 밴 적용</span>':''}</h3><div class="dk-info">방장: ${esc(r.host)} · ${r.count}/2${r.banRule?' · 🚫 밴 적용 방 — 밴 카드가 없는 덱으로만 입장할 수 있습니다':''}</div>`;
     const btns=document.createElement('div'); btns.className='dk-btns';
     const bj=document.createElement('button'); bj.className='join-btn'; bj.textContent='선택한 덱으로 입장';
     bj.onclick=()=>{
       const pay=lobbyDeckPayload();
       if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
-      const ban=document.getElementById('lobby-ban').checked;
-      if(!banSelfCheck(ban, lobbySelectedDeck())) return;
-      NET.send({t:'joinRoom', roomId:r.id, ...pay, banRule:ban, ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')});
+      // 밴 적용 여부는 방장이 정한다 — 밴 방이면 내 덱에 밴 카드가 없어야 입장할 수 있다
+      if(!banSelfCheck(r.banRule, lobbySelectedDeck())) return;
+      NET.send({t:'joinRoom', roomId:r.id, ...pay, banRule:document.getElementById('lobby-ban').checked, ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')});
     };
     btns.appendChild(bj);
     div.appendChild(btns);
