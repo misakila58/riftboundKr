@@ -6,7 +6,8 @@ APP=/opt/riftbound
 REPO=https://github.com/misakila58/riftboundKr.git
 
 sudo rm -rf /tmp/rbsrc && git clone --depth 1 "$REPO" /tmp/rbsrc
-( cd /tmp/rbsrc/server && node build-dist.js )
+# esbuild가 서버 의존성(ws)을 번들에 넣으려면 먼저 설치돼 있어야 한다
+( cd /tmp/rbsrc/server && npm install --omit=dev --no-audit --no-fund && node build-dist.js )
 sudo rsync -a --delete --exclude 'data' --exclude 'access-code.txt' /tmp/rbsrc/server/dist/ "$APP"/
 sudo chown -R riftbound:riftbound "$APP"
 sudo systemctl restart riftbound

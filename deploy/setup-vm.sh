@@ -30,7 +30,8 @@ sudo netfilter-persistent save 2>/dev/null || true
 
 echo "══ [3/6] 소스 받기 + 서버 번들 빌드 ══"
 sudo rm -rf /tmp/rbsrc && git clone --depth 1 "$REPO" /tmp/rbsrc
-( cd /tmp/rbsrc/server && node build-dist.js )
+# esbuild가 서버 의존성(ws)을 번들에 넣으려면 먼저 설치돼 있어야 한다
+( cd /tmp/rbsrc/server && npm install --omit=dev --no-audit --no-fund && node build-dist.js )
 sudo mkdir -p "$APP"
 # data/(계정·덱 DB)는 보존하고 나머지만 교체
 sudo rsync -a --delete --exclude 'data' --exclude 'access-code.txt' /tmp/rbsrc/server/dist/ "$APP"/ 2>/dev/null \
