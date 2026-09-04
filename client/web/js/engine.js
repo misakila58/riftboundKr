@@ -29,11 +29,24 @@ function newGame(cfg){
     players: cfg.players.map((pc,i)=>{
       // 공식 룰: 주 덱 40장에는 선발 챔피언 1장이 포함되며, 시작 시 챔피언 구역으로 이동 → 덱 39장 시작
       const deck=shuffle([...pc.deck]);
-      const ci=deck.indexOf(pc.champN);
+      let champN=pc.champN;
+      let ci=deck.indexOf(champN);
+      // 지정된 선발이 덱에 없는데 덱에 챔피언이 있으면 → 덱의 챔피언으로 보정.
+      // (편집기에서 덱 밖 챔피언을 선발로 고를 수 있던 구멍 — 그대로 두면 덱 속 챔피언이
+      //  일반 카드로 뽑히고, 존에는 덱에 넣지도 않은 카드가 생긴다)
+      if(ci<0){
+        const inDeck=[...new Set(deck.filter(n=>{ const c=card(n); return c.type==='Unit'&&c.super==='Champion'; }))]
+          .sort((a,b)=>((card(a).e||0)-(card(b).e||0)) || (a-b));
+        if(inDeck.length){
+          champN=inDeck[0];
+          ci=deck.indexOf(champN);
+          UI.log(`${pc.name}: 선발 챔피언을 덱의 「${card(champN).ko}」(으)로 보정했습니다 (지정 카드가 덱에 없음)`, 'sys');
+        }
+      }
       if(ci>=0) deck.splice(ci,1);
       return {
       idx:i, name:pc.name, legendN:pc.legendN, legendEx:false,
-      champN:pc.champN, champInZone:true,
+      champN, champInZone:true,
       deck, hand:[], trash:[], banish:[],
       runeDeck:shuffle([...pc.runes]), runes:[],
       base:[], gear:[],

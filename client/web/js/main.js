@@ -502,8 +502,12 @@ function edSortCards(list){
 
 function edIsCustom(){ return document.getElementById('ed-legend').value==='custom'; }
 function edLegend(){ return edIsCustom() ? null : card(+document.getElementById('ed-legend').value); }
-// 전설 기준 자동 챔피언 (견본덱 방식) — 나만의 덱에서는 자동 배정 없음
+// 자동 챔피언: '덱에 든 챔피언' 중 최저 비용 우선 — 선발은 메인 40장 중 하나여야 한다.
+// 덱에 챔피언이 없을 때만 전설 기준(견본덱 방식)으로 넘어간다
 function edAutoChampN(){
+  const inDeck=[...new Set(ED.main.filter(n=>{ const c=card(n); return c.type==='Unit'&&c.super==='Champion'; }))]
+    .sort((a,b)=>((card(a).e||0)-(card(b).e||0)) || (a-b));
+  if(inDeck.length) return inDeck[0];
   const legend=edLegend();
   if(!legend) return null;
   const tag=legend.name.split(' - ')[0];
@@ -749,6 +753,15 @@ function initEditor(){
     if(deck.main.length!==40){ msg.textContent='메인 덱은 정확히 40장이어야 합니다'; return; }
     if(runes.length!==12){ msg.textContent='룬은 정확히 12개여야 합니다'; return; }
     if(deck.bfs.length!==3){ msg.textContent='전장은 정확히 3개여야 합니다'; return; }
+    // 선발 챔피언 정합: 덱에 챔피언이 있으면 선발도 그중 하나여야 한다 (덱 밖 챔피언을
+    // 선발로 지정하면 게임에서 덱 속 챔피언이 일반 카드처럼 뽑힌다)
+    {
+      const deckChamps=[...new Set(deck.main.filter(n=>{ const c=card(n); return c.type==='Unit'&&c.super==='Champion'; }))];
+      if(deckChamps.length && deck.champN && !deckChamps.includes(deck.champN)){
+        msg.textContent=`선발 챔피언(${card(deck.champN).ko})이 메인 덱에 없습니다 — 덱의 챔피언(${deckChamps.map(n=>card(n).ko).join(', ')}) 중에서 선택하거나 해당 카드를 덱에 넣어 주세요`;
+        return;
+      }
+    }
     const bannedIn=deckBannedCards(deck);
     if(bannedIn.length) UI.toast('🚫 밴 카드 포함 덱입니다 — 밴 적용 대전에서는 사용할 수 없습니다: '+bannedIn.map(n=>card(n).ko).join(', '),'warn');
     try{
