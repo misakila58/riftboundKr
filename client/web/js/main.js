@@ -125,10 +125,17 @@ function buildDeck(legendN){
 }
 
 // ---------- 서버 연결 화면 ----------
+// 공식 서버 (주소가 바뀌면 여기만 고치면 된다)
+const OFFICIAL_SERVER = 'https://riftboundsimkr.duckdns.org';
+// 서버가 직접 서빙한 웹앱이면 자기 자신이 곧 서버다. 데스크톱(file://)이면 공식 서버.
+function defaultServerUrl(){
+  return /^https?:$/.test(location.protocol) ? location.origin : OFFICIAL_SERVER;
+}
+
 function initConnect(){
   const input=document.getElementById('server-url');
   const msg=document.getElementById('connect-msg');
-  input.value = localStorage.getItem('rb_server') || 'http://localhost:8321';
+  input.value = localStorage.getItem('rb_server') || defaultServerUrl();
   document.getElementById('btn-offline').onclick=()=>showScreen('setup-screen');
   document.getElementById('btn-tutorial').onclick=()=>TUT.start();
   document.getElementById('btn-local-decks').onclick=()=>{
