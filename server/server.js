@@ -423,6 +423,33 @@ const server = http.createServer(async (req, res) => {
       saveDB();
       return json(res, 200, { decks: user.decks });
     }
+    // ── 내 전적 ──
+    // 상대 덱(전설+선발 챔피언)별 승패를 누적한다. 카드 번호는 공개 정보라 민감하지 않다.
+    // 결과는 클라이언트가 보고하므로 거짓 보고가 가능하지만, 본인 기록만 더럽혀질 뿐이다.
+    if (p === '/api/record' && req.method === 'GET')
+      return json(res, 200, { record: user.record || {}, total: user.recordTotal || { win: 0, lose: 0 } });
+    if (p === '/api/record' && req.method === 'POST') {
+      const b = await readBody(req);
+      const num = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
+      if (!b || !b.opp || !num(b.opp.legend, 999) || !num(b.opp.champ, 999) || typeof b.win !== 'boolean')
+        return json(res, 400, { error: '전적 형식 오류' });
+      const key = `${b.opp.legend}-${b.opp.champ}`;
+      user.record = user.record || {};
+      user.recordTotal = user.recordTotal || { win: 0, lose: 0 };
+      // 계정당 상대 덱 종류가 무한정 늘지 않게 (실제로는 수십 종을 넘지 않는다).
+      // 새 조합을 만들기 전에 확인해야 한도가 실제로 걸린다.
+      if (!user.record[key] && Object.keys(user.record).length >= 300) return json(res, 200, { ok: true });
+      const r = (user.record[key] = user.record[key] || { win: 0, lose: 0 });
+      if (b.win) { r.win++; user.recordTotal.win++; } else { r.lose++; user.recordTotal.lose++; }
+      if (num(b.turns, 500)) { r.turns = (r.turns || 0) + b.turns; r.games = (r.games || 0) + 1; }
+      saveDB();
+      return json(res, 200, { ok: true });
+    }
+    if (p === '/api/record' && req.method === 'DELETE') {
+      delete user.record; delete user.recordTotal; saveDB();
+      return json(res, 200, { ok: true });
+    }
+
     if (p.startsWith('/api/decks/') && req.method === 'DELETE') {
       const idx = Number(p.split('/').pop());
       if (!Number.isInteger(idx) || !user.decks[idx]) return json(res, 404, { error: '덱이 없습니다' });

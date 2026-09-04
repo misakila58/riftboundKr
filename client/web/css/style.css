@@ -1014,3 +1014,42 @@ body.replay-mode #legal-footer { display:none; }
 }
 .cz-art:hover { transform:translateY(-2px); border-color:#8fa; }
 .cz-art.on { border-color:#ffe07f; box-shadow:0 0 8px rgba(255,224,127,.5); }
+
+/* ---------- 패치 노트 ---------- */
+.patch-body {
+  flex:1; overflow:auto; margin:0; padding:16px 22px;
+  white-space:pre-wrap; word-break:break-word;
+  font-family:'Consolas','D2Coding','Malgun Gothic',monospace;
+  font-size:13px; line-height:1.75; color:#c3cbdc;
+}
+.patch-body b { color:#d8c27a; font-weight:600; }
+
+/* ---------- 아이디 저장 ---------- */
+.save-id {
+  display:flex; align-items:center; gap:6px;
+  font-size:12px; color:#8fa; cursor:pointer; user-select:none;
+}
+.save-id input { width:auto; margin:0; }
+
+/* ---------- 내 전적 ---------- */
+.record-body { flex:1; overflow:auto; padding:14px 22px 24px; }
+.record-sum {
+  background:#161b26; border:1px solid #2b3446; border-radius:8px;
+  padding:12px 16px; margin-bottom:14px; font-size:14px; color:#c3cbdc;
+}
+.record-sum b { color:#d8c27a; font-size:17px; }
+.record-list { display:flex; flex-direction:column; gap:6px; }
+.record-row {
+  display:grid; grid-template-columns:1fr 110px 62px 120px; align-items:center; gap:10px;
+  background:#131822; border:1px solid #232c3c; border-radius:6px; padding:8px 12px; font-size:13px;
+}
+.record-row .rr-name { color:#dfe6f2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.record-row .rr-wl { color:#8f9bb3; text-align:right; }
+.record-row .rr-rate { text-align:right; font-weight:600; color:#d8c27a; }
+.record-row .rr-bar { height:8px; background:#232c3c; border-radius:4px; overflow:hidden; }
+.record-row .rr-bar i { display:block; height:100%; background:linear-gradient(90deg,#5aa0e0,#7fe0b0); }
+.record-empty { color:#7c86a0; font-size:13px; padding:18px 2px; }
+@media (max-width:640px){
+  .record-row { grid-template-columns:1fr 92px 54px; }
+  .record-row .rr-bar { display:none; }
+}

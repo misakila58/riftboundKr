@@ -29,6 +29,7 @@
       <input id="server-url" type="text" placeholder="예: https://riftboundsimkr.duckdns.org">
       <div class="login-btns">
         <button id="btn-connect" class="big-btn">서버 접속</button>
+        <button id="btn-patchnotes" class="mid-btn" style="border-color:#8ac0e0;color:#c8e4f8">📋 패치 노트</button>
       </div>
       <div id="connect-msg" class="err-msg"></div>
     </div>
@@ -59,6 +60,7 @@
     <div class="login-box">
       <input id="login-id" type="text" placeholder="아이디 (2~16자)" maxlength="16">
       <input id="login-pw" type="password" placeholder="비밀번호 (8자 이상)" maxlength="128">
+      <label class="save-id"><input type="checkbox" id="login-save-id" checked> 아이디 저장</label>
       <div class="login-btns">
         <button id="btn-login" class="big-btn">로그인</button>
         <button id="btn-register" class="mid-btn">회원가입</button>
@@ -79,6 +81,7 @@
       <button class="big-btn" id="btn-goto-lobby">🌐 온라인 대전</button>
       <button class="mid-btn" id="btn-goto-decks">🗂 내 덱 관리 (<span id="deck-count">0</span>/20)</button>
       <button class="mid-btn" id="btn-goto-hotseat">💺 오프라인 핫시트 (2인)</button>
+      <button class="mid-btn" id="btn-goto-record">📊 내 전적 (상대 덱별 승률)</button>
       <button class="mid-btn" id="btn-goto-replays">🎬 리플레이 보관함</button>
       <button class="link-btn" id="btn-logout">로그아웃</button>
     </div>
@@ -280,6 +283,32 @@
   <div id="rp-list" class="deck-list"></div>
 </div>
 
+<!-- ══════════ 패치 노트 ══════════ -->
+<div id="patch-screen" class="full-screen" style="display:none">
+  <div class="screen-head">
+    <h2>📋 패치 노트</h2>
+    <div><button class="mid-btn" id="btn-patch-back">← 돌아가기</button></div>
+  </div>
+  <pre id="patch-body" class="patch-body"></pre>
+</div>
+
+<!-- ══════════ 내 전적 ══════════ -->
+<div id="record-screen" class="full-screen" style="display:none">
+  <div class="screen-head">
+    <h2>📊 내 전적</h2>
+    <div>
+      <button class="mid-btn" id="btn-record-reset">🗑 기록 지우기</button>
+      <button class="mid-btn" id="btn-record-back">← 돌아가기</button>
+    </div>
+  </div>
+  <div class="record-body">
+    <div id="record-sum" class="record-sum"></div>
+    <div id="record-list" class="record-list"></div>
+    <p class="hint">온라인 대전과 친구 대전의 결과만 이 계정에 기록됩니다 (봇전·핫시트 제외).<br>
+    상대 덱은 <b>전설 + 선발 챔피언</b>으로 묶어 보여줍니다.</p>
+  </div>
+</div>
+
 <!-- ══════════ 오프라인 핫시트 설정 ══════════ -->
 <div id="setup-screen" class="center-screen" style="display:none">
   <div class="setup-box">
@@ -432,6 +461,7 @@
 </div>
 
 <script src="js/buildinfo.js"></script>
+<script src="js/patchnotes.js"></script>
 <!-- 로컬 카드 이미지 목록 (생성물 · 없으면 CDN에서 받도록 자동 폴백) -->
 <script src="js/imgmap.js"></script>
 <script src="js/cards.js"></script>

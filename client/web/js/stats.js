@@ -71,10 +71,27 @@ STATS.gameStart = function(mode){
 };
 
 // end: 'normal'(득점 승리) · 'surrender'(항복) · 'left'(상대 이탈)
+// 개인 전적 — 익명 통계와 달리 내 계정에 쌓이고 본인만 본다.
+// 로그인한 상태의 온라인/친구 대전만 기록한다 (봇전·핫시트는 상대가 없다).
+// 양쪽이 각자 자기 것을 남기므로 좌석 제한이 없다.
+STATS._myRecord = function(winner, mode){
+  if(mode!=='online' && mode!=='p2p') return;
+  if(typeof NET==='undefined' || !NET.token || NET.seat==null) return;
+  if(typeof G==='undefined' || !G || !G.players) return;
+  const opp = G.players[1-NET.seat];
+  if(!opp) return;
+  NET.putRecord({
+    opp: { legend: opp.legendN|0, champ: opp.champN|0 },
+    win: winner === NET.seat,
+    turns: Math.ceil((G.turnCount||0)/2),
+  }).catch(()=>{});   // 실패해도 게임에 영향 없음
+};
+
 STATS.gameEnd = function(winner, end){
   const mode = STATS.mode;
   if(!mode || STATS._ended) return;
   STATS._ended = true;
+  try{ STATS._myRecord(winner, mode); }catch(e){}
   if(!STATS._isReporter(mode)) return;
   if(typeof G==='undefined' || !G || !G.players) return;
   const side = P => ({ legend: P.legendN|0, champ: P.champN|0 });

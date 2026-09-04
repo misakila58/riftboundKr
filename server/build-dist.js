@@ -34,6 +34,9 @@ fs.copyFileSync(path.join(SRV, 'cards.json'), path.join(DIST, 'cards.json'));
 copyDir(path.join(SRV, 'dist-assets'), DIST);
 
 // 3.5) 모바일/브라우저용 웹앱 (exe 옆 web/ 에 넣어 서버가 제공)
+// 패치 노트는 docs/ 원본에서 매번 새로 심는다 (복사 전에 갱신해야 최신본이 들어간다)
+const pnGen = path.join(SRV, '..', 'tools', 'build-patchnotes.js');
+if (fs.existsSync(pnGen)) require('child_process').spawnSync(process.execPath, [pnGen], { stdio: 'inherit' });
 const webSrc = path.join(SRV, '..', 'client', 'web');
 if (fs.existsSync(path.join(webSrc, 'index.html'))) {
   copyDir(webSrc, path.join(DIST, 'web'));

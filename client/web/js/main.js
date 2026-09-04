@@ -1,6 +1,10 @@
 // ══════════ 화면 흐름: 로그인 → 메뉴 → (덱 관리 | 로비 | 핫시트) → 게임 ══════════
 
-const SCREENS = ['connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','p2p-screen','replay-screen','setup-screen','game-screen'];
+const SCREENS = ['connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','p2p-screen','replay-screen','patch-screen','record-screen','setup-screen','game-screen'];
+// 지금 보이는 화면 (패치 노트처럼 '왔던 곳으로' 돌아가야 하는 화면에 쓴다)
+function currentScreen(){
+  return SCREENS.find(id=>{ const e=document.getElementById(id); return e && e.style.display!=='none'; }) || 'connect-screen';
+}
 function showScreen(id){
   SCREENS.forEach(s=>{ document.getElementById(s).style.display = s===id ? 'flex' : 'none'; });
   // 법적 고지 푸터: 게임 화면에서는 보드를 가리지 않게 숨김, 그 외 입장 화면에서는 상시 노출
@@ -172,11 +176,33 @@ function initConnect(){
   }
 }
 
+// ---------- 패치 노트 ----------
+// 본문은 js/patchnotes.js에 문자열로 들어있다 (docs/패치노트.txt에서 생성).
+// file:// 로 여는 데스크톱 앱에서도 fetch 없이 읽히도록 스크립트로 넣었다.
+let PATCH_BACK = 'connect-screen';
+function showPatchNotes(){
+  PATCH_BACK = currentScreen();
+  const el = document.getElementById('patch-body');
+  const txt = (typeof PATCHNOTES === 'string') ? PATCHNOTES : '';
+  if(!txt) el.textContent = '패치 노트를 불러오지 못했습니다.';
+  else el.innerHTML = esc(txt).split('\n')
+    .map(l => /^\s*■/.test(l) ? '<b>'+l+'</b>' : l).join('\n');
+  showScreen('patch-screen');
+  el.scrollTop = 0;
+}
+function initPatchNotes(){
+  document.getElementById('btn-patchnotes').onclick = showPatchNotes;
+  document.getElementById('btn-patch-back').onclick = ()=>showScreen(PATCH_BACK);
+}
+
 function enterLogin(){
   const secure = /^https:/i.test(NET.base) || /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(NET.base);
   document.getElementById('login-server-label').textContent =
     '서버: '+NET.base + (secure?' 🔒':' ⚠️ 암호화 안 됨');
   showScreen('login-screen');
+  // 아이디가 이미 채워져 있으면 비밀번호부터 입력하게 한다
+  const idEl=document.getElementById('login-id');
+  (idEl.value ? document.getElementById('login-pw') : idEl).focus();
 }
 
 // ---------- 로그인 ----------
@@ -194,10 +220,23 @@ function initLogin(){
       doAuth._warned=true;
       if(!confirm('⚠️ 이 서버는 암호화되지 않은(HTTP) 연결입니다.\n비밀번호가 노출될 수 있으니 다른 곳과 다른 비밀번호를 사용하세요.\n계속할까요?')) { doAuth._warned=false; return; }
     }
-    try{ await fn(id,pw); await enterMenu(); }
+    try{ await fn(id,pw); rememberId(id); await enterMenu(); }
     catch(e){ msg.textContent=e.message; }
   };
+  // 아이디 저장 — 비밀번호는 저장하지 않는다 (아이디만 채워두고 커서를 비밀번호로 옮긴다).
+  // rb_saved_id: 없음=아직 정한 적 없음(기본 켜짐) · ''=저장 안 함 · 그 외=저장된 아이디
+  const idEl=document.getElementById('login-id'), saveEl=document.getElementById('login-save-id');
+  let savedId=null;
+  try{ savedId=localStorage.getItem('rb_saved_id'); }catch(e){}
+  saveEl.checked = savedId !== '';
+  if(savedId) idEl.value=savedId;
+  saveEl.onchange=()=>{ if(!saveEl.checked) try{ localStorage.setItem('rb_saved_id',''); }catch(e){} };
+  function rememberId(id){
+    try{ localStorage.setItem('rb_saved_id', saveEl.checked ? id : ''); }catch(e){}
+  }
+
   document.getElementById('btn-login').onclick=()=>doAuth(NET.login);
+  idEl.addEventListener('keydown',e=>{ if(e.key==='Enter') document.getElementById('login-pw').focus(); });
   document.getElementById('btn-register').onclick=()=>{
     // 서버가 접근 코드를 요구하면 회원가입 시 코드 입력받아 전달
     if(NET.requiresAccess){
@@ -210,6 +249,45 @@ function initLogin(){
   document.getElementById('btn-change-server').onclick=()=>{
     NET.token=null; localStorage.removeItem('rb_token');
     showScreen('connect-screen');
+  };
+}
+
+// ---------- 내 전적 (상대 덱별 승률) ----------
+// 서버가 계정에 '상대 전설-챔피언'별 승패를 세어 둔 것을 그대로 보여준다.
+async function renderRecord(){
+  const sum=document.getElementById('record-sum'), list=document.getElementById('record-list');
+  sum.textContent='불러오는 중...'; list.innerHTML='';
+  let d;
+  try{ d=await NET.getRecord(); }
+  catch(e){ sum.textContent='전적을 불러오지 못했습니다 — '+e.message; return; }
+
+  const tot=d.total||{win:0,lose:0}, win=tot.win|0, lose=tot.lose|0, all=win+lose;
+  sum.innerHTML = all
+    ? `전체 <b>${all}전 ${win}승 ${lose}패</b> · 승률 <b>${Math.round(win*100/all)}%</b>`
+    : '아직 기록된 대전이 없습니다. 온라인 대전을 한 판 해보세요!';
+
+  const name=n=>{ const c=card(n); return c ? c.ko : '?'; };
+  const rows=Object.entries(d.record||{}).map(([k,v])=>{
+    const [lg,ch]=k.split('-');
+    const w=v.win|0, l=v.lose|0, g=w+l;
+    return { label:`${name(+lg)} · ${+ch ? name(+ch) : '챔피언 없음'}`, w, l, g, rate: g?w*100/g:0 };
+  }).sort((a,b)=>b.g-a.g || b.rate-a.rate);
+
+  if(!rows.length){ list.innerHTML='<div class="record-empty">상대한 덱이 아직 없습니다.</div>'; return; }
+  list.innerHTML = rows.map(r=>`<div class="record-row">
+    <span class="rr-name">${esc(r.label)}</span>
+    <span class="rr-wl">${r.w}승 ${r.l}패</span>
+    <span class="rr-rate">${Math.round(r.rate)}%</span>
+    <div class="rr-bar"><i style="width:${Math.round(r.rate)}%"></i></div>
+  </div>`).join('');
+}
+function initRecord(){
+  document.getElementById('btn-goto-record').onclick=()=>{ showScreen('record-screen'); renderRecord(); };
+  document.getElementById('btn-record-back').onclick=()=>showScreen('menu-screen');
+  document.getElementById('btn-record-reset').onclick=async ()=>{
+    if(!confirm('이 계정의 전적 기록을 모두 지울까요? 되돌릴 수 없습니다.')) return;
+    try{ await NET.clearRecord(); UI.toast('전적을 지웠습니다'); renderRecord(); }
+    catch(e){ alert('지우지 못했습니다 — '+e.message); }
   };
 }
 
@@ -1306,6 +1384,8 @@ window.addEventListener('DOMContentLoaded', ()=>{
   initConnect();
   initLogin();
   initMenu();
+  initPatchNotes();
+  initRecord();
   initDecks();
   initEditor();
   initLobby();

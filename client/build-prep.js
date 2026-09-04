@@ -20,6 +20,10 @@ fs.writeFileSync(path.join(__dirname, 'web', 'js', 'buildinfo.js'),
 
 console.log(`build-prep: v${pkg.version} (${built})`);
 
+// 패치 노트: docs/패치노트.txt를 web/js/patchnotes.js로 심는다 (앱 안에서 바로 열람)
+const pn = path.join(__dirname, '..', 'tools', 'build-patchnotes.js');
+if (fs.existsSync(pn)) spawnSync(process.execPath, [pn], { stdio: 'inherit' });
+
 // 카드 이미지: 앱에 포함해 오프라인·즉시 로딩이 되게 한다. 네트워크가 없으면 건너뛰고 CDN을 쓴다.
 const fetcher = path.join(__dirname, '..', 'tools', 'fetch-card-images.js');
 if (fs.existsSync(fetcher)) {

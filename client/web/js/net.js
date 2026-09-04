@@ -44,6 +44,10 @@ NET.login    = (id,pw)=>NET.api('/api/login','POST',{id,pw}).then(d=>{NET.token=
 NET.getDecks = ()=>NET.api('/api/decks').then(d=>d.decks);
 NET.saveDeck = (deck,index)=>NET.api('/api/decks','POST',{deck,index}).then(d=>d.decks);
 NET.delDeck  = (idx)=>NET.api('/api/decks/'+idx,'DELETE').then(d=>d.decks);
+// 개인 전적 (익명 통계와 별개 — 내 계정에만 쌓이고 나만 본다)
+NET.getRecord   = ()=>NET.api('/api/record');
+NET.putRecord   = (body)=>NET.api('/api/record','POST',body);
+NET.clearRecord = ()=>NET.api('/api/record','DELETE');
 
 // ---------- WebSocket ----------
 NET.connect = function(){
