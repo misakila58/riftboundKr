@@ -578,7 +578,9 @@ function polAbLegal(p, c){
   if(G.state === 'showdown'){
     if(!(ab.reaction || ab.action)) return false;
     if(G.showdown && G.showdown.chain.length && !ab.reaction) return false;
-  } else if(G.turn !== p || G.phase !== 'action') return false;
+  } else if(G.turn !== p || G.phase !== 'action'){
+    if(!ab.reaction) return false;   // [반응] 능력은 중립 닫힌 상태(상대 턴 응수 창)에서도 가능 (룰 309.2)
+  }
   if(ab.legion && !(P.playedCards >= 1)) return false;
   if(ab.onlyAtBf && c.src.kind === 'unit' && c.src.u.loc === 'base') return false;
   if(cost.exhaustSelf){

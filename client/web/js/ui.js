@@ -1168,11 +1168,31 @@ function updateButtons(){
 // 이동 실행
 async function executeMove(dest){
   hideMenu();
-  const units=everyUnit().filter(u=>_moveSel.has(u.uid));
-  const uids=units.map(u=>u.uid);
+  let units=everyUnit().filter(u=>_moveSel.has(u.uid));
   const p=G.actingPlayer;
   _moveArmed=false; _moveSel.clear();
   updateButtons();
+  // 이동 불가 유닛이 섞여 있으면 전체를 막는 대신, 사유를 알려주고 가능한 유닛만 보낼지 묻는다
+  // (예: 탈진된 유닛 + 기지 유닛을 함께 골랐을 때 "동시에 이동이 안 된다"로 보이던 문제)
+  if(units.length){
+    const bad=[], good=[];
+    for(const u of units){
+      let why=null;
+      if(u.ex) why='탈진';
+      else if(u.loc===dest) why='이미 그 위치';
+      else if(u.loc!=='base' && dest!=='base' && !effKw(u).ganking) why='[개입] 없음';
+      else if(u.loc!=='base' && dest==='base' && G.bfs[u.loc].n===BF_STATIC.NO_RETREAT) why='이 전장에선 후퇴 불가';
+      (why?bad:good).push({u,why});
+    }
+    if(bad.length){
+      const badTxt=bad.map(b=>`${unitName(b.u)}(${b.why})`).join(', ');
+      if(!good.length){ UI.toast('이동 불가: '+badTxt,'warn'); UI.render(); return; }
+      const ok=await UI.confirmP(p, `이동 불가: ${badTxt}\n나머지 ${good.length}기만 이동할까요?`);
+      if(!ok){ UI.render(); return; }
+      units=good.map(g=>g.u);
+    }
+  }
+  const uids=units.map(u=>u.uid);
   if(units.length){
     NET.dispatch({k:'move',p,uids,dest}, ()=>moveUnits(p,units,dest).then(()=>UI.render()));
   }

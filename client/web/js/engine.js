@@ -860,7 +860,8 @@ async function playCardFromHand(p, handIdx, opts={}){
         legionOK, addPaid, addCount, bfIdx:opts.bfIdx, steal:!!fx.steal, countered:false };
       if(item.kind==='counter'){
         // 카운터/탈취: 체인 위의 미해결 상대 주문을 대상으로 지정 (플레이 시점 대상 지정 — 규칙 355)
-        const targets=sd.chain.filter(x=>x.kind==='spell' && !x.countered && x.p!==p)
+        // 카운터도 주문이므로 '카운터의 카운터'가 가능하다 (kind:'counter'도 대상에 포함)
+        const targets=sd.chain.filter(x=>(x.kind==='spell'||x.kind==='counter') && !x.countered && x.p!==p)
           .filter(x=>{ const tc=card(x.n); const lim=fx.counter;
             if(lim && lim.maxE!==undefined && (tc.e||0)>lim.maxE) return false;
             if(lim && lim.maxPips!==undefined && powerPips(tc).length>lim.maxPips) return false;
@@ -1007,16 +1008,41 @@ async function reactionWindow(caster, c){
         }
       }
       // card를 실어 보내면 응수 모달에서 마우스 오버로 그 카드의 효과를 볼 수 있다 (ui.js optionCard)
-      opts.push({v:i, label:`⚡ ${cc.ko} (비용 ${cost}${pips.length?' + 힘'+pips.length:''})`, isCounter:!!(fx.counter||fx.steal), card:cc});
+      opts.push({v:{hand:i}, label:`⚡ ${cc.ko} (비용 ${cost}${pips.length?' + 힘'+pips.length:''})`, isCounter:!!(fx.counter||fx.steal), card:cc});
     });
+    // [반응] 활성화 능력도 닫힌 상태 응수로 발동할 수 있다 (규칙 309.2)
+    if(typeof polAbList==='function' && typeof polAbLegal==='function'){
+      try{
+        for(const cand of polAbList(o)){
+          if(!cand.ab || !cand.ab.reaction) continue;
+          if(!polAbLegal(o, cand)) continue;
+          opts.push({v:{ab:cand}, label:`⚡ [능력] ${cand.name} — ${cand.ab.label}`, isCounter:false});
+        }
+      }catch(e){}
+    }
     if(!opts.length) return result;
     const sel=await UI.pickReaction(o, `${pname(caster)}이(가) 「${c.ko}」 플레이 — [반응]으로 응수할까요?`, opts);
     if(sel===null||sel===undefined) return result;
-    const hn=O.hand[sel]; if(hn===undefined) return result;
+    // [반응] 능력 발동 (즉시 해결)
+    if(typeof sel==='object' && sel.ab){
+      await activateAbility(o, sel.ab.src, sel.ab.ab);
+      if(G.winner!==null) return result;
+      continue;
+    }
+    const idx = (typeof sel==='object') ? sel.hand : sel;   // 구형 응답(인덱스) 호환
+    const hn=O.hand[idx]; if(hn===undefined) return result;
     const rfx=FX[hn]; const cc=card(hn);
     if(rfx.counter||rfx.steal){
       payCost(o, cc.e||0, powerPips(cc));
-      O.hand.splice(sel,1); trashCard(o, hn);
+      O.hand.splice(idx,1);
+      // 카운터도 주문 — 원 시전자가 '카운터의 카운터'로 재응수할 수 있다 (재귀 창)
+      const sub=await reactionWindow(o, cc);
+      trashCard(o, hn);
+      if(sub && (sub.countered || sub.steal!==undefined)){
+        UI.log(`⚡「${cc.ko}」 — 무효화되어 효과 없음`, 'sys');
+        UI.render();
+        continue;
+      }
       if(rfx.steal){ UI.log(`⚡「${cc.ko}」: 「${c.ko}」의 통제권 탈취!`, 'p'+o); result={steal:o}; }
       else { UI.log(`⚡「${cc.ko}」: 「${c.ko}」 무효화!`, 'p'+o); result={countered:true}; }
       UI.render();
@@ -1024,7 +1050,7 @@ async function reactionWindow(caster, c){
     }
     // 일반 반응: 정식 플레이 경로로 — 먼저 해결되고(LIFO), 그 안에서 caster의 재응수 창이 열린다
     const prevRw=G._rwFor; G._rwFor=o;
-    try{ await playCardFromHand(o, sel, {}); }
+    try{ await playCardFromHand(o, idx, {}); }
     finally{ G._rwFor=prevRw; }
     if(G.winner!==null) return result;
   }
@@ -1116,7 +1142,7 @@ playCardFromHand = async function(p, handIdx, opts={}){
 async function moveUnits(p, units, dest){
   // dest: 'base' | bfIdx
   for(const u of units){
-    if(u.ex){ UI.toast('탈진된 유닛은 이동할 수 없습니다','warn'); return false; }
+    if(u.ex){ UI.toast(`${unitName(u)}: 탈진된 유닛은 이동할 수 없습니다`,'warn'); return false; }
     if(u.loc===dest){ UI.toast('이미 그 위치에 있습니다','warn'); return false; }
     if(u.loc!=='base' && dest!=='base' && !effKw(u).ganking){
       UI.toast(`${unitName(u)}: 전장 간 이동은 [개입]이 필요합니다`,'warn'); return false;
@@ -1629,7 +1655,8 @@ async function activateAbility(p, source, ab){
   if(G.state==='showdown' && !(ab.reaction||ab.action)){ UI.toast('결전 중에는 [행동]/[반응] 능력만 발동할 수 있습니다','warn'); return; }
   if(G.state==='showdown' && G.showdown && G.showdown.chain.length && !ab.reaction){
     UI.toast('체인 진행 중에는 [반응] 능력만 발동할 수 있습니다','warn'); return; }
-  if(G.state==='neutral' && G.turn!==p){ UI.toast('자신의 턴에만 발동할 수 있습니다','warn'); return; }
+  // [반응] 능력은 중립 닫힌 상태(상대 주문 응수 창)에서도 발동할 수 있다 (룰 309.2)
+  if(G.state==='neutral' && G.turn!==p && !ab.reaction){ UI.toast('자신의 턴에만 발동할 수 있습니다','warn'); return; }
   if(ab.legion && !(P.playedCards>=1)){ UI.toast('[군단] 조건: 이번 턴에 카드를 플레이해야 합니다','warn'); return; }
   if(ab.onlyAtBf && source.kind==='unit' && source.u.loc==='base'){ UI.toast('전장에 있을 때만 사용할 수 있습니다','warn'); return; }
 
