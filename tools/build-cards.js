@@ -19,6 +19,10 @@ for (let i = 1; i <= 6; i++) {
   const f = path.join(DATA, `tr_out_batch${i}.json`);
   if (fs.existsSync(f)) JSON.parse(fs.readFileSync(f, 'utf8')).forEach(e => ko[e.n] = e);
 }
+// 대체 일러스트 (같은 카드의 다른 그림) — tools/fetch-alts.js 가 생성
+const altsFile = path.join(DATA, 'alts.json');
+const ALTS = fs.existsSync(altsFile) ? JSON.parse(fs.readFileSync(altsFile, 'utf8')) : {};
+
 const koOgs = path.join(DATA, 'tr_out_ogs.json');
 if (fs.existsSync(koOgs)) JSON.parse(fs.readFileSync(koOgs, 'utf8')).forEach(e => ko[e.n] = e);
 
@@ -35,6 +39,8 @@ const db = base.concat(ogs).map(c => ({
   tko: (ko[c.collector_number] && ko[c.collector_number].text_ko) || '',
   tags: c.tags || [],
   img: c.media.image_url,
+  // 같은 효과의 다른 일러스트 (없으면 필드를 넣지 않아 파일이 커지지 않게)
+  ...(ALTS[c.collector_number] ? { alts: ALTS[c.collector_number] } : {}),
 })).sort((a, b) => a.n - b.n);
 
 fs.writeFileSync(path.join(ROOT, 'client', 'web', 'js', 'cards.js'),
@@ -49,4 +55,5 @@ fs.writeFileSync(path.join(ROOT, 'server', 'cards.json'),
     return e;
   })));
 
-console.log(`생성 완료: client/web/js/cards.js (${db.length}장), server/cards.json`);
+const altCount = db.reduce((s, c) => s + (c.alts ? c.alts.length : 0), 0);
+console.log(`생성 완료: client/web/js/cards.js (${db.length}장, 대체 일러스트 ${altCount}장), server/cards.json`);

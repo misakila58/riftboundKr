@@ -230,13 +230,33 @@ function validDeck(d) {
       if (!st.some(t => lt.includes(t))) return '시그니처 카드는 같은 챔피언의 전설 덱에만 넣을 수 있습니다';
     }
   }
+  // 일러스트 선택(표시용) — 없어도 되고, 있으면 { 카드번호: 인덱스 } 형태여야 한다
+  if (d.arts !== undefined) {
+    if (typeof d.arts !== 'object' || d.arts === null || Array.isArray(d.arts)) return '일러스트 설정 형식 오류';
+    const keys = Object.keys(d.arts);
+    if (keys.length > 400) return '일러스트 설정이 너무 많습니다';
+    for (const k of keys) {
+      const v = d.arts[k];
+      if (!/^\d{1,4}$/.test(k) || !Number.isInteger(v) || v < 0 || v > 20) return '일러스트 설정 값 오류';
+    }
+  }
   for (const n of d.runes) if (!Number.isInteger(n) || (VALID.rune.size && !VALID.rune.has(n))) return '유효하지 않은 룬이 포함됨';
   for (const n of d.bfs) if (!Number.isInteger(n) || (VALID.bf.size && !VALID.bf.has(n))) return '유효하지 않은 전장이 포함됨';
   return null;
 }
 function sanitizeDeck(d) {
-  return { name: d.name.trim().slice(0, LIMITS.MAX_DECK_NAME), legendN: d.legendN, champN: d.champN,
-           main: d.main.map(Number), runes: d.runes.map(Number), bfs: d.bfs.map(Number) };
+  const out = { name: d.name.trim().slice(0, LIMITS.MAX_DECK_NAME), legendN: d.legendN, champN: d.champN,
+                main: d.main.map(Number), runes: d.runes.map(Number), bfs: d.bfs.map(Number) };
+  // 일러스트 선택은 표시용이라 규칙에 영향이 없지만, 상대 화면에도 보여야 하므로 함께 실어 보낸다
+  if (d.arts && typeof d.arts === 'object' && !Array.isArray(d.arts)) {
+    const a = {};
+    for (const k of Object.keys(d.arts)) {
+      const v = Number(d.arts[k]);
+      if (/^\d{1,4}$/.test(k) && Number.isInteger(v) && v > 0 && v <= 20) a[k] = v;
+    }
+    if (Object.keys(a).length) out.arts = a;
+  }
+  return out;
 }
 
 // ---------- HTTP (API 전용) ----------

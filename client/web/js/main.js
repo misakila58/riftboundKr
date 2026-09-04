@@ -444,7 +444,8 @@ function initDecks(){
 
 // ---------- 덱 편집기 ----------
 // champOverride: 유저가 직접 고른 챔피언 (null이면 전설 기준 자동 = 견본덱 방식)
-const ED = { index:null, main:[], runes:{}, bfs:[], legendN:null, champOverride:null, selN:null };
+const ED = { index:null, main:[], runes:{}, bfs:[], legendN:null, champOverride:null, selN:null,
+             arts:{} };   // 카드번호 → 일러스트 인덱스 (0/없음 = 기본 그림)
 
 function openEditor(index){
   ED.index=index;
@@ -455,12 +456,15 @@ function openEditor(index){
     ED.bfs=[...d.bfs];
     ED.runes={};
     d.runes.forEach(n=>{ ED.runes[n]=(ED.runes[n]||0)+1; });
+    ED.arts={...(d.arts||{})};
     document.getElementById('ed-name').value=d.name;
   } else {
     ED.legendN=legendList()[0].n;
-    ED.main=[]; ED.bfs=[]; ED.runes={};
+    ED.main=[]; ED.bfs=[]; ED.runes={}; ED.arts={};
     document.getElementById('ed-name').value='새 덱 '+(myDecks.length+1);
   }
+  // 편집 중에는 이 덱에서 고른 일러스트로 보여준다 (ui.js의 artImg가 참조)
+  ART_PREVIEW = ED.arts;
   document.getElementById('ed-legend').value=ED.legendN;
   // 저장된 챔피언이 자동 배정과 다르면 "나만의 덱" (직접 선택)으로 간주
   ED.champOverride = (index!==null && myDecks[index].champN && myDecks[index].champN!==edAutoChampN())
@@ -481,6 +485,15 @@ function openEditor(index){
 
 // ---------- 덱 편집기 정렬 ----------
 // 고른 기준은 localStorage에 남긴다 — 덱을 여러 개 만들 때 매번 다시 고르게 하면 성가시다.
+// 덱 편집기에서 확대해 볼 때 일러스트를 고를 수 있게 연결한다
+function edArtPicker(c){
+  UI.zoomArtPicker = (c && c.alts && c.alts.length) ? {
+    n: c.n,
+    get: ()=> ED.arts[c.n]|0,
+    set: i=>{ if(i>0) ED.arts[c.n]=i; else delete ED.arts[c.n]; ART_PREVIEW=ED.arts; renderEditor(); },
+  } : null;
+}
+
 const ED_SORT_KEY='rb_ed_sort';
 function edSortMode(){
   const el=document.getElementById('ed-sort');
@@ -643,8 +656,9 @@ function renderEditor(){
     row.title='클릭: 1장 제거 · 우클릭/Alt+클릭: 카드 상세';
     row.onmouseenter=()=>UI.inspect(c);
     // Alt+클릭·우클릭: 제거하지 않고 카드 상세(확대)만 보여준다
-    row.onclick=e=>{ if(e.altKey){ UI.showZoom(c); return; } ED.main.splice(ED.main.indexOf(+n),1); renderEditor(); };
-    row.oncontextmenu=e=>{ e.preventDefault(); UI.showZoom(c); };
+    const openArt=()=>{ edArtPicker(c); UI.showZoom(c); };
+    row.onclick=e=>{ if(e.altKey){ openArt(); return; } ED.main.splice(ED.main.indexOf(+n),1); renderEditor(); };
+    row.oncontextmenu=e=>{ e.preventDefault(); openArt(); };
     mainEl.appendChild(row);
   });
   document.getElementById('ed-main-count').textContent=ED.main.length;
@@ -757,6 +771,16 @@ function initEditor(){
       champN,
       main:[...ED.main], runes, bfs:[...ED.bfs],
     };
+    // 일러스트 선택 — 덱에 실제로 든 카드 중 기본이 아닌 것만 담는다
+    {
+      const inDeck=new Set([...deck.main, ...runes, ...deck.bfs, deck.legendN, deck.champN]);
+      const a={};
+      for(const k of Object.keys(ED.arts)){
+        const v=ED.arts[k]|0;
+        if(v>0 && inDeck.has(+k)) a[k]=v;
+      }
+      if(Object.keys(a).length) deck.arts=a;
+    }
     if(deck.main.length!==40){ msg.textContent='메인 덱은 정확히 40장이어야 합니다'; return; }
     if(runes.length!==12){ msg.textContent='룬은 정확히 12개여야 합니다'; return; }
     if(deck.bfs.length!==3){ msg.textContent='전장은 정확히 3개여야 합니다'; return; }
@@ -1217,7 +1241,7 @@ function startOnlineGame(m){
     manual: m.manual,
     players: m.players.map(pl=>({
       name: pl.id, legendN: pl.deck.legendN, champN: pl.deck.champN,
-      deck: pl.deck.main, runes: pl.deck.runes,
+      deck: pl.deck.main, runes: pl.deck.runes, arts: pl.deck.arts,
     })),
     bfs,
   });
@@ -1242,8 +1266,8 @@ function startHotseat(){
   newGame({
     manual: !autoHs,
     players:[
-      { name:document.getElementById('p0-name').value||'플레이어 1', legendN:p0legend, champN:d0.champN, deck:d0.deck, runes:d0.runes },
-      { name:document.getElementById('p1-name').value||'플레이어 2', legendN:p1legend, champN:d1.champN, deck:d1.deck, runes:d1.runes },
+      { name:document.getElementById('p0-name').value||'플레이어 1', legendN:p0legend, champN:d0.champN, deck:d0.deck, runes:d0.runes, arts:d0.arts },
+      { name:document.getElementById('p1-name').value||'플레이어 2', legendN:p1legend, champN:d1.champN, deck:d1.deck, runes:d1.runes, arts:d1.arts },
     ],
     bfs:[bf0,bf1],
   });

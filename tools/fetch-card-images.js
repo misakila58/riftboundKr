@@ -52,10 +52,13 @@ async function download(url, dest) {
   const jobs = new Map();
   let noKey = 0;
   for (const c of cards) {
-    if (!c.img) continue;
-    const key = imgKey(c.img);
-    if (!key) { noKey++; continue; }
-    if (!jobs.has(key)) jobs.set(key, c.img);
+    // 기본 일러스트 + 같은 카드의 대체 일러스트(alts)를 모두 받는다
+    for (const url of [c.img, ...(c.alts || [])]) {
+      if (!url) continue;
+      const key = imgKey(url);
+      if (!key) { noKey++; continue; }
+      if (!jobs.has(key)) jobs.set(key, url);
+    }
   }
   console.log(`카드 ${cards.length}장 · 내려받을 이미지 ${jobs.size}종 (w=${WIDTH})${noKey ? ` · URL 형식 불일치 ${noKey}건` : ''}`);
 

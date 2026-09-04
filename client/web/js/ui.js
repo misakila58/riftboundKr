@@ -341,11 +341,30 @@ function cardImgUrl(url, w){
   return url + (url.includes('?')?'&':'?') + 'fm=webp&q=80' + (w?'&w='+w:'');
 }
 
+// ---------- 대체 일러스트 ----------
+// 같은 카드의 다른 그림. 규칙(3장 제한·밴·검증)은 전부 카드 번호 기준이라 여기는 표시용이다.
+// owner를 알면 그 사람이 자기 덱에서 고른 그림을, 모르면 미리보기 문맥(덱 편집기)을 따른다.
+let ART_PREVIEW = null;              // 덱 편집기에서 편집 중인 덱의 arts
+function artIndex(n, owner){
+  if(owner!==undefined && owner!==null && typeof G!=='undefined' && G && G.players
+     && G.players[owner] && G.players[owner].arts) return G.players[owner].arts[n] | 0;
+  return ART_PREVIEW ? (ART_PREVIEW[n] | 0) : 0;
+}
+// 카드의 표시용 이미지 URL (고른 대체 일러스트가 없으면 기본 그림)
+function artImg(c, owner){
+  if(!c) return undefined;
+  const i = artIndex(c.n, owner);
+  return (i > 0 && c.alts && c.alts[i-1]) ? c.alts[i-1] : c.img;
+}
+// 카드가 고를 수 있는 그림 전부 (0번이 기본)
+function artList(c){ return c ? [c.img, ...(c.alts || [])].filter(Boolean) : []; }
+
 // ---------- 카드 미니 요소 ----------
 function cardMiniEl(c, opts={}){
   const el=document.createElement('div');
   el.className='card-mini';
-  if(c.img) el.style.backgroundImage=`url("${cardImgUrl(c.img,280)}")`;
+  const _mi=artImg(c, opts.owner);
+  if(_mi) el.style.backgroundImage=`url("${cardImgUrl(_mi,280)}")`;
   const name=document.createElement('div'); name.className='cm-name'; name.textContent=c.ko;
   el.appendChild(name);
   if(c.e!==null && c.e!==undefined && c.type!=='Rune' && c.type!=='Battlefield'){
@@ -370,7 +389,10 @@ function unitEl(u){
   if(_moveSel.has(u.uid)) el.classList.add('selected');
   if(u.isToken){
     el.style.background='linear-gradient(135deg,#2a3a2a,#1a2a1a)';
-  } else if(c.img) el.style.backgroundImage=`url("${cardImgUrl(c.img,280)}")`;
+  } else {
+    const _ui=artImg(c, u.owner!==undefined?u.owner:u.ctrl);
+    if(_ui) el.style.backgroundImage=`url("${cardImgUrl(_ui,280)}")`;
+  }
   const name=document.createElement('div'); name.className='cm-name'; name.textContent=unitName(u);
   el.appendChild(name);
   const m=document.createElement('div');
@@ -440,14 +462,14 @@ function combatRoleOf(u){
 
 // ---------- 인스펙터 ----------
 // 카드 상세 HTML (사이드바 인스펙터·덱 편집기 상세 영역 공용)
-UI.cardInfoHTML = function(c){
+UI.cardInfoHTML = function(c, owner){
   const kwNote = ((c.text||'').match(/\[([A-Za-z-]+ ?\d*)\]/g)||[])
     .map(k=>k.replace(/[\[\]]/g,'').replace(/ \d+$/,''))
     .filter((v,i,a)=>a.indexOf(v)===i)
     .map(k=>KEYWORDS_KO[k]?`<div style="font-size:11px;color:#9aa4bd">· <b>[${KEYWORDS_KO[k].ko}]</b> ${KEYWORDS_KO[k].desc}</div>`:'')
     .join('');
   return `
-    ${c.img?`<img src="${cardImgUrl(c.img,280)}" alt="">`:''}
+    ${artImg(c,owner)?`<img src="${cardImgUrl(artImg(c,owner),280)}" alt="">`:''}
     <div class="insp-name">${esc(c.ko)}</div>
     <div class="insp-name-en">${esc(c.name)} · #${c.n}</div>
     ${isBanned(c.n)?`<div class="ban-flag" style="font-size:12px">🚫 밴 카드 (${esc(BANLIST.region)})</div>`:''}
@@ -457,8 +479,8 @@ UI.cardInfoHTML = function(c){
     ${c.tags&&c.tags.length?`<div class="insp-tags">태그: ${c.tags.map(esc).join(', ')}</div>`:''}
   `;
 };
-UI.inspect = function(c){
-  document.getElementById('inspector').innerHTML = UI.cardInfoHTML(c);
+UI.inspect = function(c, owner){
+  document.getElementById('inspector').innerHTML = UI.cardInfoHTML(c, owner);
 };
 UI.inspectUnit = function(u){
   if(u.isToken){
@@ -631,7 +653,7 @@ NET.onChat = function(m){
 };
 
 // ---------- 카드 확대 (롱프레스 / Alt+클릭) ----------
-UI.showZoom = function(c){
+UI.showZoom = function(c, owner){
   if(!c) return;
   hideMenu(); // 열려 있던 컨텍스트 메뉴는 닫는다
   let ov = document.getElementById('card-zoom');
@@ -651,7 +673,7 @@ UI.showZoom = function(c){
   if(c.e!==null && c.e!==undefined) statBits.push(`비용 ${c.e}${c.p?'+힘'+c.p:''}`);
   ov.innerHTML = `
     <div class="cz-box">
-      ${c.img?`<img class="cz-img" src="${cardImgUrl(c.img)}" alt="">`:'<div class="cz-noimg">🃏</div>'}
+      ${artImg(c,owner)?`<img class="cz-img" src="${cardImgUrl(artImg(c,owner))}" alt="">`:'<div class="cz-noimg">🃏</div>'}
       <div class="cz-info">
         <div class="cz-name">${esc(c.ko||'')}</div>
         <div class="cz-en">${esc(c.name||'')}${c.n?` · #${c.n}`:''}</div>
@@ -660,12 +682,37 @@ UI.showZoom = function(c){
         <div class="cz-text">${renderIcons(esc(c.tko||c.text||'(효과 없음)'))}</div>
         ${kwNote}
         ${c.tags&&c.tags.length?`<div class="cz-tags">태그: ${c.tags.map(esc).join(', ')}</div>`:''}
+        <div id="cz-arts" class="cz-arts"></div>
         <div class="cz-hint">바깥을 클릭하거나 Esc로 닫기</div>
       </div>
     </div>`;
+  UI.renderZoomArts(c);   // 편집기에서 열었으면 일러스트 선택 버튼이 붙는다
   ov.querySelector('.cz-box').addEventListener('click', e=>e.stopPropagation()); // CSP가 인라인 onclick 차단 → 리스너로 연결
   ov.style.display = 'flex';
 };
+// 편집기에서 확대해 보는 동안 이 카드의 일러스트를 바꾼다.
+// onPick(인덱스)을 주면 그 카드에 대해 선택 UI가 나타난다.
+UI.zoomArtPicker = null;      // { n, get(), set(i) } — 덱 편집기가 채운다
+UI.renderZoomArts = function(c){
+  const box=document.getElementById('cz-arts');
+  if(!box) return;
+  const picker=UI.zoomArtPicker;
+  const list=artList(c);
+  if(!picker || picker.n!==c.n || list.length<2){ box.innerHTML=''; return; }
+  const cur=picker.get()|0;
+  box.innerHTML='<div class="cz-arts-title">일러스트 선택 ('+list.length+'종)</div>';
+  const row=document.createElement('div'); row.className='cz-arts-row';
+  list.forEach((url,i)=>{
+    const b=document.createElement('button');
+    b.className='cz-art'+(i===cur?' on':'');
+    b.style.backgroundImage='url("'+cardImgUrl(url,280)+'")';
+    b.title=(i===0?'기본 일러스트':'대체 일러스트 '+i);
+    b.onclick=()=>{ picker.set(i); UI.showZoom(c); };
+    row.appendChild(b);
+  });
+  box.appendChild(row);
+};
+
 UI.hideZoom = function(){
   const ov = document.getElementById('card-zoom');
   if(ov) ov.style.display = 'none';
@@ -1004,7 +1051,8 @@ UI.render = function(){
       rel.className='rune-mini'+(r.ex?' exhausted':'');
       const dom=runeDomain(r.n);
       // 실제 룬 카드 이미지 + 영역 색 테두리, 작은 화면에서도 알아보게 영역 아이콘 배지를 겹친다
-      if(rc.img) rel.style.backgroundImage=`url("${cardImgUrl(rc.img,120)}")`;
+      const _ri=artImg(rc, p);
+      if(_ri) rel.style.backgroundImage=`url("${cardImgUrl(_ri,120)}")`;
       rel.style.borderColor=DOMAIN_COLOR[dom]||'#556';
       const badge=document.createElement('span');
       badge.className='rm-dom'; badge.textContent=DOMAIN_ICON[dom]||'◆';

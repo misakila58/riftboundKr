@@ -46,6 +46,7 @@ function newGame(cfg){
       if(ci>=0) deck.splice(ci,1);
       return {
       idx:i, name:pc.name, legendN:pc.legendN, legendEx:false,
+      arts: pc.arts || null,   // 이 사람이 고른 대체 일러스트 (표시용 · 규칙에 영향 없음)
       champN, champInZone:true,
       deck, hand:[], trash:[], banish:[],
       runeDeck:shuffle([...pc.runes]), runes:[],
