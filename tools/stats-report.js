@@ -40,7 +40,6 @@ const deckName = key => {
 // 승률을 나눠 볼 단위. 봇 상대 성적과 사람 상대 성적은 성격이 달라 따로 본다.
 // 핫시트는 한 사람이 양쪽을 다 잡는 경우가 많아 어느 쪽에도 넣지 않고 따로 둔다.
 const GROUPS = [
-  { key:'bot',    label:'🤖 봇전',      modes:['bot'] },
   { key:'human',  label:'👥 사람 대전', modes:['online', 'p2p'] },
   { key:'hot',    label:'💺 핫시트',    modes:['hotseat'] },
 ];
@@ -68,7 +67,7 @@ const bar = (v, max, w) => '█'.repeat(Math.max(0, Math.round(v / (max || 1) * 
   console.log('════════════════════════════════════════\n');
 
   // ── 총 게임 수 ──
-  const modes = ['bot', 'hotseat', 'p2p', 'online'];
+  const modes = ['hotseat', 'p2p', 'online'];   // 봇전은 집계하지 않는다
   console.log('■ 게임 수');
   let grand = 0;
   for (const m of modes) {
@@ -81,7 +80,7 @@ const bar = (v, max, w) => '█'.repeat(Math.max(0, Math.round(v / (max || 1) * 
     const sur  = (d[`total:end:${m}:surrender`] || 0) + (d[`total:end:${m}:left`] || 0);
     const cnt  = d[`total:turncnt:${m}`] || 0, sum = d[`total:turnsum:${m}`] || 0;
     grand += start;
-    const label = { bot:'봇전', hotseat:'핫시트', p2p:'친구 대전', online:'서버 대전' }[m];
+    const label = { hotseat:'핫시트', p2p:'친구 대전', online:'서버 대전' }[m];
     console.log(`  ${label.padEnd(6)} 시작 ${String(start).padStart(5)}판 · 종료 ${String(done).padStart(5)}판`
       + ` · 중도이탈 ${pct(sur, done).padStart(6)} · 평균 ${cnt ? (sum / cnt).toFixed(1) : '–'}턴`);
   }
@@ -162,7 +161,7 @@ const bar = (v, max, w) => '█'.repeat(Math.max(0, Math.round(v / (max || 1) * 
   if (OUT) {
     fs.mkdirSync(OUT, { recursive: true });
     const stamp = new Date().toISOString().slice(0, 10);
-    const modeKo = { bot:'봇전', hotseat:'핫시트', p2p:'친구 대전', online:'서버 대전' };
+    const modeKo = { hotseat:'핫시트', p2p:'친구 대전', online:'서버 대전' };
     // 엑셀이 한글을 깨뜨리지 않도록 BOM을 붙인다
     const csv = rows => '\uFEFF' + rows.map(r => r.map(c => {
       const v = String(c ?? '');

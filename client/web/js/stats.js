@@ -1,5 +1,6 @@
 // ══════════ 익명 사용 통계 (STATS) ══════════
 // 목적: "게임이 얼마나 플레이되는가"와 "어떤 덱 조합이 어떤 덱을 이기는가"를 파악한다.
+// 봇전은 보내지 않는다 — 봇 상대 승률은 사람 대전 판단에 쓸 수 없다.
 //
 // 설계 원칙 — 애초에 개인정보를 만들지 않는다.
 //   · 설치 ID·기기 ID를 만들지도, 보내지도 않는다
@@ -57,7 +58,7 @@ STATS.launch = function(){
 
 // 온라인·P2P는 양쪽이 같은 판을 보고하면 두 번 세어진다 → 좌석 0(방장)만 보고한다.
 STATS._isReporter = function(mode){
-  if(mode==='bot' || mode==='hotseat') return true;
+  if(mode==='hotseat') return true;
   return (typeof NET!=='undefined') && NET.seat === 0;
 };
 
@@ -65,6 +66,8 @@ STATS.mode = null;    // 현재 판의 모드 (종료 보고에 쓴다)
 STATS._ended = false; // 한 판의 종료를 두 번 보고하지 않도록
 
 STATS.gameStart = function(mode){
+  // 봇전은 집계 대상이 아니다 — mode를 비워 두면 종료 보고도 함께 멈춘다
+  if(mode==='bot'){ STATS.mode = null; STATS._ended = true; return; }
   STATS.mode = mode; STATS._ended = false;
   if(!STATS._isReporter(mode)) return;
   STATS._send({ ev:'game_start', mode });

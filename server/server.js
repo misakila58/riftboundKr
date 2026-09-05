@@ -31,6 +31,12 @@ try {
 const STATS_FILE = path.join(DATA_DIR, 'stats.json');
 let STATS = {};
 try { if (fs.existsSync(STATS_FILE)) STATS = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')); } catch (e) { STATS = {}; }
+// 봇전을 빼기 전에 쌓인 집계가 있으면 지운다. 모드는 항상 키의 한 조각이라
+// ':bot'으로 끝나거나 ':bot:'을 포함하는 키만 골라내면 된다.
+{
+  const drop = Object.keys(STATS).filter(k => k.endsWith(':bot') || k.includes(':bot:'));
+  if (drop.length) { for (const k of drop) delete STATS[k]; console.log(`봇전 집계 ${drop.length}건 제거`); }
+}
 let statsTimer = null, statsDirty = false;
 function statsSave() {
   statsDirty = true;
@@ -66,7 +72,9 @@ function stats24h(now) {
   }
   return out;
 }
-const STAT_MODES = ['bot', 'hotseat', 'p2p', 'online'];
+// 봇전은 집계하지 않는다 — 봇 상대 승률은 사람 대전 판단에 쓸 수 없어 표를 흐리기만 한다.
+// 목록에 없는 모드는 statsRecord가 통째로 버리므로, 옛 클라이언트가 보내와도 쌓이지 않는다.
+const STAT_MODES = ['hotseat', 'p2p', 'online'];
 const STAT_ENDS  = ['normal', 'surrender', 'left'];
 const statInt = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
 
@@ -430,7 +438,7 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/status' && req.method === 'GET') {
     const now = new Date();
     const s = stats24h(now);
-    const label = { bot:'봇', hotseat:'핫시트', p2p:'친구', online:'온라인' };
+    const label = { hotseat:'핫시트', p2p:'친구', online:'온라인' };
     const parts = STAT_MODES.filter(m => s[m] > 0).map(m => `${label[m]} ${s[m]}`);
     // KEY|값 한 줄씩 — 배치 파일이 delims=| 로 그대로 나눠 읽는다
     const lines = [
