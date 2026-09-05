@@ -85,6 +85,63 @@ const DeckStore = {
   },
 };
 
+// ---------- 덱 코드 (텍스트로 주고받기) ----------
+// 온라인 계정과 이 컴퓨터 사이, 또는 친구와 덱을 옮길 때 쓴다.
+// 형식:  RB1|전설|선발|메인|룬|전장|사이드|이름
+//   · 목록은 '.'으로 잇고, 같은 카드가 여러 장이면 n*장수 로 줄인다
+//   · 이름은 encodeURIComponent — 구분자 '|'가 이름에 섞여도 안전하다
+// 예:  RB1|247|27|1*3.5*2.9|301*12|281.286.291||%EB%82%B4%20%EB%8D%B1
+const DECK_CODE_TAG = 'RB1';
+function deckCodeList(arr){
+  const out=[];
+  for(const n of (arr||[])){
+    const last=out[out.length-1];
+    if(last && last.n===n) last.c++;
+    else out.push({n, c:1});
+  }
+  return out.map(g=>g.c>1 ? g.n+'*'+g.c : String(g.n)).join('.');
+}
+function deckCodeParseList(str){
+  if(!str) return [];
+  const out=[];
+  for(const part of str.split('.')){
+    if(!part) continue;
+    const m=part.match(/^(\d+)(?:\*(\d+))?$/);
+    if(!m) throw new Error('덱 코드 형식이 올바르지 않습니다');
+    const n=+m[1], c=m[2]?+m[2]:1;
+    if(c<1 || c>60) throw new Error('덱 코드 형식이 올바르지 않습니다');
+    for(let i=0;i<c;i++) out.push(n);
+  }
+  return out;
+}
+function deckToCode(d){
+  // 같은 카드끼리 붙여 두면 코드가 짧아진다 (규칙상 순서는 의미가 없다)
+  const sorted=a=>[...(a||[])].sort((x,y)=>x-y);
+  return [DECK_CODE_TAG, d.legendN, d.champN,
+    deckCodeList(sorted(d.main)), deckCodeList(sorted(d.runes)), deckCodeList(d.bfs),
+    deckCodeList(sorted(d.side)), encodeURIComponent(d.name||'')].join('|');
+}
+function deckFromCode(code){
+  const raw=String(code||'').trim().replace(/\s+/g,'');
+  const p=raw.split('|');
+  if(p[0]!==DECK_CODE_TAG || p.length<8) throw new Error('덱 코드가 아닙니다 (RB1| 로 시작해야 합니다)');
+  const legendN=+p[1], champN=+p[2];
+  if(!Number.isInteger(legendN) || !Number.isInteger(champN)) throw new Error('덱 코드 형식이 올바르지 않습니다');
+  const d={ name: decodeURIComponent(p[7]||'')||'가져온 덱',
+            legendN, champN,
+            main: deckCodeParseList(p[3]), runes: deckCodeParseList(p[4]), bfs: deckCodeParseList(p[5]) };
+  const side=deckCodeParseList(p[6]);
+  if(side.length) d.side=side;
+  // 이 시뮬레이터가 아는 카드인지 확인 — 다른 세트/버전 코드를 조용히 받아들이지 않는다
+  for(const n of [d.legendN, d.champN, ...d.main, ...d.runes, ...d.bfs, ...(d.side||[])])
+    if(!card(n)) throw new Error('모르는 카드가 들어 있습니다 (카드 번호 '+n+') — 버전이 다른 덱 코드일 수 있습니다');
+  if(d.main.length!==40) throw new Error(`메인 덱이 40장이 아닙니다 (${d.main.length}장)`);
+  if(d.runes.length!==12) throw new Error(`룬이 12개가 아닙니다 (${d.runes.length}개)`);
+  if(d.bfs.length!==3) throw new Error(`전장이 3개가 아닙니다 (${d.bfs.length}개)`);
+  if(d.side && d.side.length!==8) throw new Error('사이드덱은 0장 또는 8장이어야 합니다');
+  return d;
+}
+
 // ---------- 서버에 못 올린 덱 임시 보관 ----------
 // 서버 저장이 실패하는 가장 흔한 이유는 서버 재시작으로 로그인 세션이 끊긴 경우다.
 // 그때 편집 내용을 버리면 40장을 다시 짜야 하므로, 이 기기에 담아 두었다가 나중에 올린다.
@@ -549,13 +606,72 @@ function renderDeckList(){
       document.getElementById('deck-count').textContent=myDecks.length;
       renderDeckList();
     };
-    btns.appendChild(be); btns.appendChild(bd);
+    // 덱 코드 복사 — 다른 기기·다른 저장소·친구에게 그대로 붙여넣을 수 있다
+    const bc=document.createElement('button'); bc.textContent='📋 코드 복사';
+    bc.title='덱 코드를 클립보드로 복사합니다';
+    bc.onclick=async ()=>{
+      const code=deckToCode(d);
+      try{ await navigator.clipboard.writeText(code); UI.toast(`「${d.name}」 덱 코드를 복사했습니다 (${code.length}자)`); }
+      catch(e){ prompt('덱 코드 (복사해서 쓰세요)', code); }
+    };
+    // 반대편 저장소로 바로 복사 (서버 계정 ↔ 이 컴퓨터)
+    const other = DeckStore.local ? '서버 계정' : '이 컴퓨터';
+    const bx=document.createElement('button');
+    bx.textContent = DeckStore.local ? '⬆ 서버로 복사' : '⬇ 이 컴퓨터로 복사';
+    bx.title = `이 덱을 ${other}에도 저장합니다 (원본은 그대로)`;
+    bx.onclick=()=>copyDeckToOtherStore(d);
+    btns.appendChild(be); btns.appendChild(bc); btns.appendChild(bx); btns.appendChild(bd);
     div.appendChild(btns);
     el.appendChild(div);
   });
   document.getElementById('deck-count').textContent=myDecks.length;
 }
+// 지금 보고 있는 저장소의 반대편에 같은 덱을 하나 더 만든다 (원본은 건드리지 않는다)
+async function copyDeckToOtherStore(d){
+  const toLocal = !DeckStore.local;          // 지금 서버를 보고 있으면 → 이 컴퓨터로
+  const where = toLocal ? '이 컴퓨터' : '서버 계정';
+  if(!toLocal && !NET.token){
+    UI.toast('서버에 복사하려면 먼저 로그인하세요','warn'); return;
+  }
+  // 같은 이름이 이미 있으면 물어본다 — 눌렀는지 잊고 또 눌러 쌓이는 일을 막는다
+  const existing = toLocal ? DeckStore._read() : (myDecks||[]);
+  if(existing.some(x=>x.name===d.name) && !confirm(`${where}에 이미 「${d.name}」이(가) 있습니다. 하나 더 만들까요?`)) return;
+  const copy={...d, name:d.name};
+  try{
+    if(toLocal){
+      const a=DeckStore._read();
+      if(a.length>=20){ UI.toast('이 컴퓨터에는 덱을 20개까지 저장할 수 있습니다','warn'); return; }
+      a.push(copy); DeckStore._write(a);
+    } else {
+      await NET.saveDeck(copy);
+    }
+    UI.toast(`「${d.name}」을(를) ${where}에 복사했습니다`);
+  }catch(e){ UI.toast(`${where}에 복사하지 못했습니다 — ${e.message}`,'warn'); }
+}
+
+// 덱 코드를 붙여넣어 지금 보고 있는 저장소에 저장한다
+async function importDeckCode(){
+  const raw=prompt('덱 코드를 붙여넣으세요 (RB1| 로 시작합니다)');
+  if(raw===null) return;
+  let d;
+  try{ d=deckFromCode(raw); }
+  catch(e){ alert('가져오지 못했습니다 — '+e.message); return; }
+  const name=prompt('덱 이름', d.name);
+  if(name===null) return;
+  d.name=(name.trim()||d.name).slice(0,30);
+  try{
+    myDecks=await DeckStore.save(d, null);
+    document.getElementById('deck-count').textContent=myDecks.length;
+    if(!DeckStore.local) syncSrvBackup(myDecks);
+    renderDeckList();
+    UI.toast(`「${d.name}」을(를) 가져왔습니다`);
+    const banned=deckBannedCards(d);
+    if(banned.length) UI.toast('🚫 밴 카드가 포함된 덱입니다: '+banned.map(n=>card(n).ko).join(', '),'warn');
+  }catch(e){ alert('저장하지 못했습니다 — '+e.message); }
+}
+
 function initDecks(){
+  document.getElementById('btn-deck-import').onclick=importDeckCode;
   document.getElementById('btn-decks-back').onclick=()=>showScreen(DeckStore.returnTo);
   document.getElementById('btn-new-deck').onclick=()=>{
     if(myDecks.length>=20){ alert('덱은 최대 20개까지 저장할 수 있습니다'); return; }
