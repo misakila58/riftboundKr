@@ -3,7 +3,7 @@
 //
 //   node tools/stats-report.js https://riftboundsimkr.duckdns.org
 //   node tools/stats-report.js <주소> --days 7        최근 7일만
-//   node tools/stats-report.js <주소> --mode p2p      특정 모드만
+//   node tools/stats-report.js <주소> --mode p2p      특정 모드만 (bot·hotseat·p2p·online)
 //   node tools/stats-report.js <주소> --min 5         매치업 최소 표본 수 (기본 3)
 //   node tools/stats-report.js <주소> --out <폴더>    리포트·원본·CSV를 파일로 저장
 //
@@ -36,6 +36,15 @@ const deckName = key => {
   const [l, c] = key.split('-').map(Number);
   return `${CARD[l] || ('전설' + l)} / ${CARD[c] || ('챔프' + c)}`;
 };
+
+// 승률을 나눠 볼 단위. 봇 상대 성적과 사람 상대 성적은 성격이 달라 따로 본다.
+// 핫시트는 한 사람이 양쪽을 다 잡는 경우가 많아 어느 쪽에도 넣지 않고 따로 둔다.
+const GROUPS = [
+  { key:'bot',    label:'🤖 봇전',      modes:['bot'] },
+  { key:'human',  label:'👥 사람 대전', modes:['online', 'p2p'] },
+  { key:'hot',    label:'💺 핫시트',    modes:['hotseat'] },
+];
+const groupOf = mode => (GROUPS.find(g => g.modes.includes(mode)) || {}).key;
 
 const pct = (w, n) => n ? (w / n * 100).toFixed(1) + '%' : '–';
 const bar = (v, max, w) => '█'.repeat(Math.max(0, Math.round(v / (max || 1) * w)));
@@ -89,40 +98,57 @@ const bar = (v, max, w) => '█'.repeat(Math.max(0, Math.round(v / (max || 1) * 
     console.log();
   }
 
-  // ── 덱별 승률 ──
-  const deck = {};
+  // ── 덱별 승률 (봇전 / 사람 대전 따로) ──
+  const deck = {};   // { 그룹키: { 덱키: {games, wins} } }
+  for (const g of GROUPS) deck[g.key] = {};
   for (const [k, v] of Object.entries(d)) {
     const m = k.match(/^deck:([a-z0-9]+):([\d-]+):(games|wins)$/);
     if (!m) continue;
     if (ONLY && m[1] !== ONLY) continue;
-    (deck[m[2]] = deck[m[2]] || { games: 0, wins: 0 })[m[3]] += v;
+    const g = groupOf(m[1]);
+    if (!g) continue;
+    (deck[g][m[2]] = deck[g][m[2]] || { games: 0, wins: 0 })[m[3]] += v;
   }
-  const decks = Object.entries(deck).filter(([, s]) => s.games >= MIN).sort((a, b) => b[1].games - a[1].games);
-  if (decks.length) {
-    console.log(`■ 덱별 승률 (${MIN}판 이상)`);
-    for (const [key, s] of decks)
-      console.log(`  ${pct(s.wins, s.games).padStart(6)}  ${String(s.games).padStart(4)}판   ${deckName(key)}`);
+  for (const g of GROUPS) {
+    const rows = Object.entries(deck[g.key]).filter(([, s]) => s.games >= MIN)
+      .sort((a, b) => b[1].games - a[1].games);
+    if (!rows.length) continue;
+    const tot = Object.values(deck[g.key]).reduce((s2, x) => s2 + x.games, 0);
+    console.log(`■ 덱별 승률 — ${g.label} (${MIN}판 이상 · 집계 ${tot}판)`);
+    for (const [key, st] of rows)
+      console.log(`  ${pct(st.wins, st.games).padStart(6)}  ${String(st.games).padStart(4)}판   ${deckName(key)}`);
     console.log();
   }
 
-  // ── 매치업 승률 ──
+  // ── 매치업 승률 (봇전 / 사람 대전 따로) ──
   const mu = {};
+  for (const g of GROUPS) mu[g.key] = {};
   for (const [k, v] of Object.entries(d)) {
     const m = k.match(/^mu:([a-z0-9]+):([\d-]+)\|([\d-]+):(games|lowin)$/);
     if (!m) continue;
     if (ONLY && m[1] !== ONLY) continue;
+    const g = groupOf(m[1]);
+    if (!g) continue;
     const id = m[2] + '|' + m[3];
-    (mu[id] = mu[id] || { games: 0, lowin: 0, lo: m[2], hi: m[3] })[m[4]] += v;
+    (mu[g][id] = mu[g][id] || { games: 0, lowin: 0, lo: m[2], hi: m[3] })[m[4]] += v;
   }
-  const rows = Object.values(mu).filter(x => x.games >= MIN).sort((a, b) => b.games - a.games);
-  if (rows.length) {
-    console.log(`■ 매치업 승률 (${MIN}판 이상 · 앞쪽 덱 기준)`);
-    for (const r of rows)
-      console.log(`  ${pct(r.lowin, r.games).padStart(6)}  ${String(r.games).padStart(4)}판   ${deckName(r.lo)}  vs  ${deckName(r.hi)}`);
+  let anyMu = false;
+  for (const g of GROUPS) {
+    const rows = Object.values(mu[g.key]).filter(x => x.games >= MIN).sort((a, b) => b.games - a.games);
+    const all = Object.values(mu[g.key]);
+    if (!all.length) continue;
+    anyMu = true;
+    const tot = all.reduce((s2, x) => s2 + x.games, 0);
+    console.log(`■ 매치업 승률 — ${g.label} (${MIN}판 이상 · 앞쪽 덱 기준 · 집계 ${tot}판)`);
+    if (!rows.length) {
+      console.log(`  표본 ${MIN}판 이상인 조합이 아직 없습니다 (조합 ${all.length}종)`);
+    } else {
+      for (const r of rows)
+        console.log(`  ${pct(r.lowin, r.games).padStart(6)}  ${String(r.games).padStart(4)}판   ${deckName(r.lo)}  vs  ${deckName(r.hi)}`);
+    }
     console.log();
-  } else {
-    console.log(`■ 매치업 승률 — 표본 ${MIN}판 이상인 조합이 아직 없습니다.\n`);
   }
+  if (!anyMu) console.log('■ 매치업 승률 — 아직 기록이 없습니다.\n');
 
   // ── 버전 분포 ──
   const vers = Object.entries(d).filter(([k]) => /^ver:.+:active$/.test(k))
@@ -164,23 +190,24 @@ const bar = (v, max, w) => '█'.repeat(Math.max(0, Math.round(v / (max || 1) * 
       }),
     ]));
 
-    // 덱별 승률 (표본 수 제한 없이 전부)
+    // 덱별 승률 (표본 수 제한 없이 전부 · 구분 열 포함)
     write(`통계-덱별-${stamp}.csv`, csv([
-      ['전설', '선발챔피언', '판수', '승', '승률%'],
-      ...Object.entries(deck).sort((a, b) => b[1].games - a[1].games).map(([key, st]) => {
-        const [l, c] = key.split('-').map(Number);
-        return [CARD[l] || l, CARD[c] || c, st.games, st.wins,
-          st.games ? (st.wins / st.games * 100).toFixed(1) : ''];
-      }),
+      ['구분', '전설', '선발챔피언', '판수', '승', '승률%'],
+      ...GROUPS.flatMap(g => Object.entries(deck[g.key])
+        .sort((a, b) => b[1].games - a[1].games).map(([key, st]) => {
+          const [l, c] = key.split('-').map(Number);
+          return [g.label.replace(/^\S+\s*/, ''), CARD[l] || l, CARD[c] || c, st.games, st.wins,
+            st.games ? (st.wins / st.games * 100).toFixed(1) : ''];
+        })),
     ]));
 
-    // 매치업 승률 (앞쪽 덱 기준)
+    // 매치업 승률 (앞쪽 덱 기준 · 구분 열 포함)
     write(`통계-매치업-${stamp}.csv`, csv([
-      ['덱A', '덱B', '판수', 'A승', 'A승률%'],
-      ...Object.values(mu).sort((a, b) => b.games - a.games).map(r => [
-        deckName(r.lo), deckName(r.hi), r.games, r.lowin,
+      ['구분', '덱A', '덱B', '판수', 'A승', 'A승률%'],
+      ...GROUPS.flatMap(g => Object.values(mu[g.key]).sort((a, b) => b.games - a.games).map(r => [
+        g.label.replace(/^\S+\s*/, ''), deckName(r.lo), deckName(r.hi), r.games, r.lowin,
         r.games ? (r.lowin / r.games * 100).toFixed(1) : '',
-      ]),
+      ])),
     ]));
 
     // 일별 (접속 수 + 모드별 시작 판수)
