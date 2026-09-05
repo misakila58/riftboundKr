@@ -22,6 +22,7 @@ const BANLIST = {
 function isBanned(n){ return BANLIST.cards.includes(n); }
 // 덱에 포함된 밴 카드 번호들 (중복 제거)
 function deckBannedCards(d){
-  const all = [d.legendN, d.champN, ...(d.main||[]), ...(d.bfs||[])];
+  // 사이드덱 카드도 경기 중 메인으로 들어올 수 있으므로 함께 본다
+  const all = [d.legendN, d.champN, ...(d.main||[]), ...(d.side||[]), ...(d.bfs||[])];
   return [...new Set(all)].filter(n => n != null && isBanned(n));
 }

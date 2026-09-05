@@ -1053,3 +1053,29 @@ body.replay-mode #legal-footer { display:none; }
   .record-row { grid-template-columns:1fr 92px 54px; }
   .record-row .rr-bar { display:none; }
 }
+
+/* ---------- 사이드덱 교체 (게임 사이) ---------- */
+.sb-note { font-size:12px; color:#8f9bb3; margin-bottom:8px; }
+.sb-cols { display:flex; gap:10px; }
+.sb-col { flex:1; min-width:0; }
+.sb-head { font-size:12px; color:#9aa4bd; margin-bottom:4px; }
+.sb-head b { color:#7fe0b0; font-size:14px; }
+.sb-head b.bad { color:#ff9c6e; }
+.sb-head small { color:#5f6a83; }
+.sb-list {
+  height:260px; overflow:auto; background:#0e1626;
+  border:1px solid #2b3446; border-radius:6px; padding:4px;
+}
+.sb-row {
+  padding:3px 6px; border-radius:4px; font-size:12px; color:#dfe6f2;
+  cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.sb-row:hover { background:#1b2740; }
+.sb-row .cnt { color:#8f9bb3; margin-right:4px; }
+.sb-empty { color:#5f6a83; font-size:12px; padding:8px; }
+.sb-champ { margin-top:10px; font-size:13px; color:#9aa4bd; }
+.sb-champ select {
+  margin-left:6px; padding:5px 8px; border-radius:6px;
+  border:1px solid #3a4a70; background:#0e1626; color:#e8e6e0; font-size:13px;
+}
+@media (max-width:560px){ .sb-cols { flex-direction:column; } .sb-list { height:170px; } }

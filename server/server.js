@@ -325,6 +325,24 @@ function validDeck(d) {
       if (!st.some(t => lt.includes(t))) return '시그니처 카드는 같은 챔피언의 전설 덱에만 넣을 수 있습니다';
     }
   }
+  // 사이드덱 — 없어도 되고, 있으면 0장 또는 정확히 8장 (공식 규칙).
+  // 메인 덱에 넣을 수 있는 카드 종류만 들어가고(룬·전설·전장 불가),
+  // 같은 카드 3장 제한은 메인과 합쳐서 센다 → 위에서 만든 counts를 이어 쓴다.
+  if (d.side !== undefined) {
+    if (!Array.isArray(d.side)) return '사이드덱 형식 오류';
+    if (d.side.length !== 0 && d.side.length !== 8) return '사이드덱은 0장 또는 8장이어야 합니다';
+    for (const n of d.side) {
+      if (!Number.isInteger(n)) return '사이드덱 카드 오류';
+      if (VALID.main.size && !VALID.main.has(n)) return '사이드덱에 넣을 수 없는 카드가 있습니다';
+      counts[n] = (counts[n] || 0) + 1;
+      if (counts[n] > 3) return '같은 카드는 메인·사이드를 합쳐 3장까지입니다';
+      if (VALID.sig.has(n)) {
+        const st = VALID.tags[n] || [], lt = VALID.tags[d.legendN] || [];
+        if (!st.some(t => lt.includes(t))) return '시그니처 카드는 같은 챔피언의 전설 덱에만 넣을 수 있습니다';
+      }
+    }
+  }
+
   // 일러스트 선택(표시용) — 없어도 되고, 있으면 { 카드번호: 인덱스 } 형태여야 한다
   if (d.arts !== undefined) {
     if (typeof d.arts !== 'object' || d.arts === null || Array.isArray(d.arts)) return '일러스트 설정 형식 오류';
@@ -339,9 +357,18 @@ function validDeck(d) {
   for (const n of d.bfs) if (!Number.isInteger(n) || (VALID.bf.size && !VALID.bf.has(n))) return '유효하지 않은 전장이 포함됨';
   return null;
 }
+// 대전에 실어 보낼 덱 (사이드덱 제외). 저장용 덱은 그대로 둔다.
+function deckWithoutSide(d) {
+  if (!d || d.side === undefined) return d;
+  const { side, ...rest } = d;
+  return rest;
+}
+
 function sanitizeDeck(d) {
   const out = { name: d.name.trim().slice(0, LIMITS.MAX_DECK_NAME), legendN: d.legendN, champN: d.champN,
                 main: d.main.map(Number), runes: d.runes.map(Number), bfs: d.bfs.map(Number) };
+  // 사이드덱은 경기 사이 교체에 쓰이므로 저장·전달 모두 그대로 유지한다
+  if (Array.isArray(d.side) && d.side.length) out.side = d.side.map(Number);
   // 일러스트 선택은 표시용이라 규칙에 영향이 없지만, 상대 화면에도 보여야 하므로 함께 실어 보낸다
   if (d.arts && typeof d.arts === 'object' && !Array.isArray(d.arts)) {
     const a = {};
@@ -625,7 +652,8 @@ wss.on('connection', (ws, req) => {
         const seed = crypto.randomBytes(4).readUInt32LE(0);
         r.players.forEach(pl => wsSend(pl.ws, {
           t: 'start', seed, yourSeat: pl.seat, manual: r.manual !== false, banRule: banActive,
-          players: r.players.map(q => ({ id: q.id, deck: q.deck })),
+          // 사이드덱은 본인만 쓰는 비공개 정보 — 상대 클라이언트로 보내지 않는다
+          players: r.players.map(q => ({ id: q.id, deck: deckWithoutSide(q.deck) })),
         }));
         broadcastLobby();
         break;

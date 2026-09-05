@@ -135,12 +135,16 @@
         </select>
         <input id="ed-search" type="text" placeholder="카드 검색...">
         <label><input type="checkbox" id="ed-dom-only" checked> 전설 영역만</label>
+        <label title="켜면 카드를 고를 때 메인 대신 사이드덱에 들어갑니다 (Shift+클릭으로도 됩니다)"><input type="checkbox" id="ed-to-side"> 사이드덱에 넣기</label>
       </div>
       <div id="ed-pool" class="ed-pool"></div>
     </div>
     <div id="ed-deck-panel">
       <div class="ed-section"><b>메인 덱 <span id="ed-main-count">0</span>/40</b> (같은 카드 3장까지 · 클릭=제거)
         <div id="ed-main" class="ed-cardlist"></div>
+      </div>
+      <div class="ed-section"><b>사이드덱 <span id="ed-side-count">0</span>/8</b> (0장 또는 8장 · 메인과 합쳐 3장까지 · 클릭=제거)
+        <div id="ed-side" class="ed-cardlist"></div>
       </div>
       <div class="ed-section"><b>룬 <span id="ed-rune-count">0</span>/12</b>
         <div id="ed-runes" class="ed-runes"></div>
