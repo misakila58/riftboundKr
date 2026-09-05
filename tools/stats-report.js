@@ -5,6 +5,7 @@
 //   node tools/stats-report.js <주소> --days 7        최근 7일만
 //   node tools/stats-report.js <주소> --mode p2p      특정 모드만
 //   node tools/stats-report.js <주소> --min 5         매치업 최소 표본 수 (기본 3)
+//   node tools/stats-report.js <주소> --out <폴더>    리포트·원본·CSV를 파일로 저장
 //
 // 서버에는 집계 숫자만 있으므로 개인을 특정할 수 있는 정보는 나오지 않는다.
 const fs = require('fs');
@@ -17,6 +18,10 @@ if (!base) {
   console.error('사용법: node tools/stats-report.js <서버 주소> [--days 7] [--mode p2p] [--min 3]');
   process.exit(1);
 }
+const OUT  = arg('--out', null);
+// --out이면 화면에 찍는 내용을 그대로 파일에도 남긴다
+const REPORT = [];
+if (OUT) { const _log = console.log; console.log = (...a) => { REPORT.push(a.join(' ')); _log(...a); }; }
 const DAYS = +arg('--days', 0);
 const ONLY = arg('--mode', null);
 const MIN  = +arg('--min', 3);
@@ -125,5 +130,67 @@ const bar = (v, max, w) => '█'.repeat(Math.max(0, Math.round(v / (max || 1) * 
   if (vers.length) {
     console.log('■ 버전 분포 (앱을 켠 횟수 기준)');
     for (const [v, n] of vers) console.log(`  ${v.padEnd(8)} ${n}`);
+  }
+
+  // ── 파일로 내보내기 ──
+  if (OUT) {
+    fs.mkdirSync(OUT, { recursive: true });
+    const stamp = new Date().toISOString().slice(0, 10);
+    const modeKo = { bot:'봇전', hotseat:'핫시트', p2p:'친구 대전', online:'서버 대전' };
+    // 엑셀이 한글을 깨뜨리지 않도록 BOM을 붙인다
+    const csv = rows => '\uFEFF' + rows.map(r => r.map(c => {
+      const v = String(c ?? '');
+      return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    }).join(',')).join('\r\n') + '\r\n';
+    const made = [];
+    const write = (name, body) => {
+      const f = path.join(OUT, name);
+      fs.writeFileSync(f, body);
+      made.push(`  ${name}  (${(fs.statSync(f).size / 1024).toFixed(1)}KB)`);
+    };
+
+    write(`통계-리포트-${stamp}.txt`, '\uFEFF' + REPORT.join('\r\n') + '\r\n');
+    write(`통계-원본-${stamp}.json`, JSON.stringify(d, null, 1));
+
+    // 게임 수 (모드별 누적)
+    write(`통계-게임수-${stamp}.csv`, csv([
+      ['모드', '시작', '종료', '항복', '상대이탈', '평균턴'],
+      ...modes.map(m => {
+        const done = Object.entries(d).filter(([k]) => k.startsWith(`total:end:${m}:`)).reduce((s2, [, v]) => s2 + v, 0);
+        const cnt = d[`total:turncnt:${m}`] || 0, sum = d[`total:turnsum:${m}`] || 0;
+        return [modeKo[m] || m, d[`total:start:${m}`] || 0, done,
+          d[`total:end:${m}:surrender`] || 0, d[`total:end:${m}:left`] || 0,
+          cnt ? (sum / cnt).toFixed(1) : ''];
+      }),
+    ]));
+
+    // 덱별 승률 (표본 수 제한 없이 전부)
+    write(`통계-덱별-${stamp}.csv`, csv([
+      ['전설', '선발챔피언', '판수', '승', '승률%'],
+      ...Object.entries(deck).sort((a, b) => b[1].games - a[1].games).map(([key, st]) => {
+        const [l, c] = key.split('-').map(Number);
+        return [CARD[l] || l, CARD[c] || c, st.games, st.wins,
+          st.games ? (st.wins / st.games * 100).toFixed(1) : ''];
+      }),
+    ]));
+
+    // 매치업 승률 (앞쪽 덱 기준)
+    write(`통계-매치업-${stamp}.csv`, csv([
+      ['덱A', '덱B', '판수', 'A승', 'A승률%'],
+      ...Object.values(mu).sort((a, b) => b.games - a.games).map(r => [
+        deckName(r.lo), deckName(r.hi), r.games, r.lowin,
+        r.games ? (r.lowin / r.games * 100).toFixed(1) : '',
+      ]),
+    ]));
+
+    // 일별 (접속 수 + 모드별 시작 판수)
+    const allDays = [...new Set(Object.keys(d).map(k => (k.match(/^day:(\d{4}-\d{2}-\d{2}):/) || [])[1]).filter(Boolean))].sort();
+    write(`통계-일별-${stamp}.csv`, csv([
+      ['날짜', '앱실행', ...modes.map(m => (modeKo[m] || m) + ' 시작')],
+      ...allDays.map(dd => [dd, d[`day:${dd}:active`] || 0, ...modes.map(m => d[`day:${dd}:start:${m}`] || 0)]),
+    ]));
+
+    console.log('\n■ 저장됨 → ' + OUT);
+    made.forEach(l => process.stdout.write(l + '\n'));
   }
 })().catch(e => { console.error('오류:', e.message); process.exit(1); });
