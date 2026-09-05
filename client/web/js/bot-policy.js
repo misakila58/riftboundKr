@@ -68,6 +68,220 @@ function polCanPlay(p, c){
 }
 function polCost(c){ return (c.e||0) + powerPips(c).length; }
 
+// 미스 포츈 오로라 컨트롤의 핵심 엔진.
+// 일반 카드 가치만으로 판단하면 9비용 오로라는 멀리건하고, 값싼 유닛/도구를 먼저 내느라
+// 동원 → 영겁의 촉매 → 눈부신 오로라의 3턴 가속선을 놓친다. 상대 패를 보지 않는
+// master에서만 이 공개된 덱 플랜을 사용한다(다른 난이도와 덱의 기존 성향은 유지).
+const POL_MF = { legend:267, mobilize:134, catalyst:138, aurora:160, stacked:183, invert:201, bulletTime:268 };
+// 상대 손패를 본 뒤 제거할 카드의 미스 포츈 전용 위협도.
+// 오로라 제거는 실제 성공 가능성이 높은 순서(전부/직접 처치 → 지연·대칭 → 조건부)다.
+const POL_MF_HAND_ATTACK = new Map([
+  [156,220],  // 파괴 공작: 2비용이라 오로라를 가장 먼저 끊을 수 있음
+  [192,200],  // 정신을 가르는 자: 7비용 유닛이라 대응까지 시간이 더 있음
+]);
+const POL_MF_AURORA_HATE = new Map([
+  [22,600],   // 열 광선: 모든 도구 폐기
+  [224,560],  // 인양: 도구 하나 직접 폐기
+  [180,520],  // 희미해지는 기억: 도구에 [일시적]
+  [179,480],  // 감수할 만한 손실: 각자 도구 하나 폐기
+  [56,400],   // 어댑타트론: 정복해야 도구 폐기
+  [244,250],  // 신성한 심판: 도구가 2개를 넘을 때 재활용
+]);
+function polMfAuroraDeck(p){
+  return POLICY.level === 'master' && G.players[p].legendN === POL_MF.legend;
+}
+function polMfAuroraOnline(p){
+  return G.players[p].gear.some(g => g.n === POL_MF.aurora);
+}
+
+// 현재 힘 풀로 못 내는 힘 비용은 전개된 룬을 재활용하게 된다. 오로라 전에는
+// 이 수를 보존하되, 시간선 역전은 실제 손패를 늘리며 오로라를 찾는 경우만 예외로 둔다.
+function polRuneRecycleNeed(p, pips){
+  const pool={...G.players[p].power}; let need=0;
+  for(const pip of pips){
+    if(pip==='Any'){
+      const d=Object.keys(pool).find(k=>pool[k]>0);
+      if(d){pool[d]--;continue;}
+    }else{
+      if(pool[pip]>0){pool[pip]--;continue;}
+      if(pool.Any>0){pool.Any--;continue;}
+    }
+    need++;
+  }
+  return need;
+}
+function polMfTimelineBlocked(p, n){
+  const P=G.players[p];
+  return polMfAuroraDeck(p) && !polMfAuroraOnline(p) && n===POL_MF.invert
+    && (P.hand.length>=5 || P.hand.includes(POL_MF.aurora));
+}
+function polMfNeutralCardBlocked(p, n){
+  if(!polMfAuroraDeck(p) || polMfAuroraOnline(p) || n===POL_MF.aurora) return false;
+  if(n===POL_MF.invert) return polMfTimelineBlocked(p,n); // 적은 손으로 오로라를 찾는 사용은 허용
+  return polRuneRecycleNeed(p,powerPips(card(n)))>0;
+}
+
+// 조작된 덱 선택용 짧은 자원 시뮬레이션. 현재 행동 단계에서 손패의 동원/촉매를
+// 가능한 순서로 사용하고, 이후 내 턴마다 룬 2개를 자연 전개했을 때 오로라를
+// 처음 낼 수 있는 턴(0=이번 턴)을 구한다. 실제 G는 변경하지 않는다.
+function polMfAuroraTurns(p, extraN, assumeAurora){
+  const P=G.players[p], aurora=card(POL_MF.aurora);
+  const available=P.hand.includes(POL_MF.aurora) || extraN===POL_MF.aurora || !!assumeAurora;
+  if(!available) return Infinity;
+  const ramps={
+    [POL_MF.mobilize]:P.hand.filter(n=>n===POL_MF.mobilize).length+(extraN===POL_MF.mobilize?1:0),
+    [POL_MF.catalyst]:P.hand.filter(n=>n===POL_MF.catalyst).length+(extraN===POL_MF.catalyst?1:0),
+  };
+  const zeroPower=()=>Object.fromEntries(Object.keys(P.power).map(k=>[k,0]));
+  const clone=s=>({runes:s.runes.map(r=>({...r})),deck:[...s.deck],energy:s.energy,
+    energySpell:s.energySpell,power:{...s.power},ramps:{...s.ramps}});
+  const ready=s=>s.runes.filter(r=>!r.ex).length;
+  const spendSpellEnergy=(s,cost)=>{
+    let need=cost, use=Math.min(s.energySpell,need); s.energySpell-=use; need-=use;
+    use=Math.min(s.energy,need); s.energy-=use; need-=use;
+    for(const r of s.runes){ if(need<=0) break; if(!r.ex){r.ex=true;need--;} }
+    return need===0;
+  };
+  const canAurora=s=>{
+    const energy=applyCostMods(p,aurora,aurora.e||0);
+    if(s.energy+ready(s)<energy) return false; // 오로라는 도구라 주문 전용 에너지를 못 쓴다
+    const pool={...s.power}, used=new Set();
+    for(const pip of powerPips(aurora)){
+      if(pip==='Any'){
+        const d=Object.keys(pool).find(k=>pool[k]>0);
+        if(d){pool[d]--;continue;}
+        const i=s.runes.findIndex((r,j)=>!used.has(j)); if(i<0)return false; used.add(i);
+      }else{
+        if(pool[pip]>0){pool[pip]--;continue;}
+        if(pool.Any>0){pool.Any--;continue;}
+        const i=s.runes.findIndex((r,j)=>!used.has(j)&&runeDomain(r.n)===pip); if(i<0)return false; used.add(i);
+      }
+    }
+    return true;
+  };
+  let frontier=[{runes:P.runes.map(r=>({...r})),deck:[...P.runeDeck],energy:P.energy||0,
+    energySpell:P.energySpell||0,power:{...P.power},ramps}];
+  for(let turn=0;turn<=4;turn++){
+    const ends=[]; let found=false;
+    const visit=s=>{
+      if(canAurora(s)){found=true;return;}
+      ends.push(s);
+      for(const n of [POL_MF.catalyst,POL_MF.mobilize]){
+        if(!s.ramps[n]||!s.deck.length) continue;
+        const ns=clone(s), cost=applyCostMods(p,card(n),card(n).e||0);
+        if(ns.energy+ns.energySpell+ready(ns)<cost || !spendSpellEnergy(ns,cost)) continue;
+        ns.ramps[n]--;
+        const add=Math.min(n===POL_MF.catalyst?2:1,ns.deck.length);
+        for(let i=0;i<add;i++) ns.runes.push({n:ns.deck.shift(),ex:true});
+        visit(ns);
+      }
+    };
+    frontier.forEach(visit);
+    if(found) return turn;
+    const next=[], seen=new Set();
+    for(const end of ends){
+      const ns=clone(end); ns.runes.forEach(r=>r.ex=false);
+      for(let i=0;i<2&&ns.deck.length;i++) ns.runes.push({n:ns.deck.shift(),ex:false});
+      ns.energy=0;ns.energySpell=0;ns.power=zeroPower();
+      const key=ns.runes.map(r=>r.n).sort((a,b)=>a-b).join(',')+'|'+ns.deck.join(',')+'|'+ns.ramps[POL_MF.mobilize]+','+ns.ramps[POL_MF.catalyst];
+      if(!seen.has(key)){seen.add(key);next.push(ns);}
+    }
+    frontier=next;
+  }
+  return Infinity;
+}
+
+// 쌍권총 난사로 실제 지불할 수 있는 힘. 에너지 비용으로 탈진한 룬도 이어서
+// 힘으로 재활용할 수 있으므로 준비 상태가 아니라 현재 전개된 룬 전체를 센다.
+function polMfBulletPower(p){
+  const P=G.players[p];
+  return Math.min(10,Object.values(P.power).reduce((a,b)=>a+b,0)+P.runes.length);
+}
+function polMfBulletPlan(p, showdown){
+  if(!polMfAuroraDeck(p)) return null;
+  try{ if(TF().preventSpellDmg) return null; }catch(e){}
+  const maxP=polMfBulletPower(p);
+  if(maxP<1) return null;
+
+  if(showdown){
+    const sd=G.showdown;
+    if(!sd || !unitsAt(sd.bfIdx).some(u=>u.ctrl===p)) return null;
+    const snap0=polSdSnap(p,sd), base=polSdOutcome(p,sd,snap0);
+    const succeeds=out=>sd.attacker===p
+      ? out.opLeft===0 && out.myLeft>0       // 공격: 적 전멸 + 생존 병력이 있어야 정복
+      : out.myLeft>0;                       // 방어: 수비 병력이 살아야 유지
+    if(succeeds(base)) return null;          // 이미 유지/정복하는 결전에는 쓰지 않는다
+    for(let n=1;n<=maxP;n++){
+      const snap={mine:snap0.mine.map(x=>({...x})),theirs:snap0.theirs.map(x=>({...x}))};
+      snap.theirs=snap.theirs.filter(x=>{
+        if(n>=x.lethal) return false;
+        x.lethal-=n; return true;
+      });
+      const out=polSdOutcome(p,sd,snap);
+      if(succeeds(out)) return {bfIdx:sd.bfIdx,damage:n,score:(out.cls-base.cls)*10+(out.exch-base.exch)};
+    }
+    return null;
+  }
+
+  // 일반 행동 단계: 선택한 전장의 모든 적을 한 번에 제거할 수 있을 때만 사용한다.
+  let best=null;
+  G.bfs.forEach((bf,bfIdx)=>{
+    const enemies=bf.units.filter(u=>u.ctrl!==p);
+    if(!enemies.length) return;
+    if(enemies.some(u=>unitFx(u).noDmgIfMoved2 && (u.turnMoves||0)>=2)) return;
+    const damage=Math.max(...enemies.map(u=>Math.max(1,might(u,undefined,{forKill:true})-u.dmg)));
+    if(damage>maxP) return;
+    const score=enemies.reduce((s,u)=>s+might(u),0)+enemies.length*.5+(bf.controller===opp(p)?1:0);
+    if(!best || score>best.score || (score===best.score&&damage<best.damage)) best={bfIdx,damage,score};
+  });
+  return best;
+}
+
+// 전장 병력이 [개입]으로 떠날 때 잃는 기존 통제 가치. 이 비용을 빼지 않으면
+// 새 전장 하나를 얻으려고 유지 중인 전장 하나를 비우는 무의미한 횡이동을 한다.
+function polMoveSourceLoss(p, units){
+  const moving=new Set(units);
+  const origins=[...new Set(units.map(u=>u.loc).filter(loc=>loc!=='base'))];
+  let loss=0;
+  for(const loc of origins){
+    const bf=G.bfs[loc];
+    if(!bf || bf.controller!==p) continue;
+    if(bf.units.some(u=>u.ctrl===p && !moving.has(u))) continue;
+    loss += BOT_W.control * Math.min(evalTau(p),3) / 2;
+    loss += bf.hiddenCards.filter(h=>h.by===p).length * BOT_W.hidden;
+  }
+  return loss;
+}
+
+// 미스 포츈 전설의 [개입]을 부여하면 실제 정복/무혈 점거가 가능해지는 유닛을 찾는다.
+// 기지 병력과 합류하는 경우도 함께 계산한다. 반환값이 없으면 전설을 헛되이 탈진하지 않는다.
+function polMfGankTarget(p){
+  if(!polMfAuroraDeck(p)) return null;
+  const base=G.players[p].base.filter(u=>!u.ex&&!u.stunned).sort((a,b)=>might(b)-might(a));
+  const cands=everyUnit().filter(u=>u.ctrl===p && u.loc!=='base' && !u.ex && !u.stunned && !effKw(u).ganking);
+  let best=null;
+  for(const u of cands){
+    for(let dest=0;dest<G.bfs.length;dest++){
+      if(dest===u.loc) continue;
+      const bf=G.bfs[dest], def=bf.units.filter(x=>x.ctrl!==p);
+      if(!def.length && bf.controller===p) continue;
+      const send=[u];
+      for(let k=0;k<=base.length;k++){
+        if(k>0) send.push(base[k-1]);
+        let v;
+        if(!def.length){
+          v=BOT_W.control*Math.min(evalTau(p),3)/2;
+          if(!bf.scored[p]) v+=BOT_W.point;
+          v-=send.filter(x=>x.loc==='base').reduce((s,x)=>s+might(x),0)*(BOT_W.unitBase-BOT_W.unitBf);
+        } else v=evalAttackValue(p,dest,[...send]);
+        v-=polMoveSourceLoss(p,send);
+        if(!best || v>best.v) best={u,dest,v};
+      }
+    }
+  }
+  return best && best.v>BOT_W.moveNeed ? best.u : null;
+}
+
 // ══════════ 대상 선택 ══════════
 // 카드 텍스트에 "friendly"가 없으면 파서가 spec.side='any'로 두므로(effects.js parseTargetSpec)
 // 이로운 효과에도 적 유닛이 후보로 들어온다. 그대로 두면 적을 버프·준비시켜 준다.
@@ -89,6 +303,14 @@ function polLegacyUnit(p, c, txt, optional){
 POLICY.unit = function(p, candidates, promptText, optional){
   if(!candidates || !candidates.length) return null;
   const txt = String(promptText||'');
+  // abilityPlan이 정복 가치까지 계산해 예약한 미스 포츈 전설의 [개입] 대상.
+  // 같은 문구를 쓰는 다른 카드 효과와 섞이지 않도록 uid·턴·좌석을 모두 확인한다.
+  const gp=POLICY._mfGankTarget;
+  if(gp && gp.p===p && gp.tc===G.turnCount && /키워드를 부여할 유닛/.test(txt)){
+    const u=candidates.find(x=>x.ctrl===p && x.uid===gp.uid);
+    POLICY._mfGankTarget=null;
+    if(u){ polSay('unit', unitName(u), '미스 포츈 — 전장 간 정복 경로'); return u; }
+  }
   if(!POLICY.ab.unit) return polLegacyUnit(p, candidates, txt, optional);
   if(!polSmart()){
     const i = Math.floor(polHash('u', G.turnCount, txt, candidates.length) * candidates.length);
@@ -129,6 +351,15 @@ POLICY.confirm = function(p, text, previewCard){
   const txt = String(text||'');
   if(!POLICY.ab.confirm) return true;
   if(!polSmart()) return polHash('c', G.turnCount, txt) < 0.5;
+
+  // 오로라 설치 전 유닛의 [가속]·추가 힘 비용은 룬 수를 줄인다. 이미 만들어 둔
+  // 힘 풀로 지불할 수 있는 경우가 아니라면 선택 비용을 거절한다.
+  if(polMfAuroraDeck(p) && !polMfAuroraOnline(p)
+    && (/\[가속\].*힘 1/.test(txt) || /추가 비용:.*힘/.test(txt))
+    && polRuneRecycleNeed(p,['Any'])>0){
+    polSay('confirm',false,'미스 포츈 — 오로라 전 룬 재활용 보존');
+    return false;
+  }
 
   // [통찰] 덱 맨 위를 아래로 보낼까 — 손패 평균보다 나쁠 때만
   if(/덱 맨 위/.test(txt)){
@@ -171,6 +402,13 @@ POLICY.number = function(p, text, min, max){
   const clamp = v => Math.max(lo, Math.min(hi, v));
   if(!polSmart()) return clamp(lo + Math.floor(polHash('n', G.turnCount, text) * (hi-lo+1)));
   const txt = String(text||'');
+  if(polMfAuroraDeck(p) && /지불할 힘\(✳\) 수/.test(txt)){
+    const plan=polMfBulletPlan(p,!!G.showdown);
+    POLICY._mfBulletPlan=plan?{p,tc:G.turnCount,sd:G.showdown||null,...plan}:null;
+    const n=plan?clamp(plan.damage):clamp(0);
+    polSay('number',n,plan?'미스 포츈 — 쌍권총 난사 최소 승리 피해':'미스 포츈 — 유효한 난사 경로 없음');
+    return n;
+  }
   // 버프 소모 개수 — 필요한 만큼만
   if(/버프/.test(txt)){
     const owned = everyUnit().filter(u=>u.ctrl===p).reduce((s,u)=>s+u.buff,0);
@@ -181,11 +419,152 @@ POLICY.number = function(p, text, min, max){
   return clamp(hi);
 };
 
+// 이동으로 생긴 전투·득점·이동 트리거까지 실제 엔진으로 비교한다.
+// 카드 탐색 중에도 별도 사본을 쓸 수 있지만, 그 안에서 연쇄 이동이 발생하면
+// 추가 탐색을 멈춰 비용을 제한한다. 선택 결과는 현재 프롬프트의 번호뿐이다.
+async function polMovementOption(p,options){
+  const skip=options.find(o=>o.v===null);
+  if(typeof SIM==='undefined' || SIM.movementDepth || typeof NET!=='undefined' && NET.online){
+    if(options.some(o=>o.returnHand)){
+      // 연쇄 효과 안에서는 추가 탐색을 하지 않는다. 소유자·통제자와 토큰을 구분한다.
+      const score=o=>{
+        if(!o.returnHand) return 0;
+        const u=everyUnit().find(x=>x.uid===o.returnHand.uid);
+        if(!u) return -1;
+        const sign=u.ctrl===p?-1:1, owner=u.owner??u.ctrl;
+        return sign*(might(u)*BOT_W.unitBf + (u.loc!=='base' && G.bfs[u.loc].controller===u.ctrl?BOT_W.control:0))
+          + (u.isToken?0:owner===p?BOT_W.card:-BOT_W.card);
+      };
+      return [...options].sort((a,b)=>score(b)-score(a))[0].v;
+    }
+    if(skip) return skip.v;
+    const score=o=>{
+      const m=o.movement, u=everyUnit().find(x=>x.uid===m.uid);
+      if(!u) return -Infinity;
+      const sign=u.ctrl===p?1:-1;
+      return sign*((m.dest==='base'?0:evalAttackValue(u.ctrl,m.dest,[u]))-polMoveSourceLoss(u.ctrl,[u]));
+    };
+    return [...options].sort((a,b)=>score(b)-score(a))[0].v;
+  }
+  let best=null;
+  for(const o of options){
+    const value=await simTry(p,async()=>{
+      if(o.movement) await resolveEffectMove(p,o.movement);
+      if(o.returnHand) await resolveReturnToHand(p,o.returnHand);
+      if(options.some(x=>x.returnHand) && G._returnPending && !G.showdown) await polResolveReturnPending();
+      await cleanup(p);
+    },POLICY,true);
+    if(value!==null && (!best || value>best.value+1e-6 || Math.abs(value-best.value)<=1e-6 && o.v===null))
+      best={v:o.v,value};
+  }
+  return best?best.v:skip?skip.v:options[0].v;
+}
+
 // ══════════ 옵션 선택 ══════════
 // 무작위였다. 배치 위치가 특히 치명적 — 유닛 1기를 적 전장에 떨구면 즉시 결전으로 죽는다.
 POLICY.option = function(p, title, options){
   if(!options || !options.length) return null;
+  if(options.some(o=>o.movement || o.returnHand)) return polMovementOption(p,options);
   const txt = String(title||'');
+  if(polMfAuroraDeck(p)){
+    if(/피해를 줄 전장/.test(txt)){
+      const bp=POLICY._mfBulletPlan;
+      POLICY._mfBulletPlan=null;
+      if(bp && bp.p===p && bp.tc===G.turnCount && bp.sd===(G.showdown||null)){
+        const pick=options.find(o=>o.v===bp.bfIdx);
+        if(pick){ polSay('option',pick.label,'미스 포츈 — 쌍권총 난사 목표 전장'); return pick.v; }
+      }
+    }
+    // 오로라가 무료 플레이한 죽음꽃 포식자 같은 유닛은 자체 허용 효과에 따라
+    // 유지된 적 전장에 직접 배치할 수 있다. 정복 가치가 양수인 적 전장이면 기지보다 우선한다.
+    if(/유닛을 배치할 위치/.test(txt)){
+      const unitN=options.find(o=>o.unitN!==undefined)?.unitN;
+      const fx=unitN!==undefined?(FX[unitN]||{}):{};
+      if(unitN!==undefined && fx.playToEnemyBf){
+        const vu={n:unitN,uid:-1,ctrl:p,loc:'base',isToken:false,ex:false,stunned:false,
+          dmg:0,buff:0,tempM:[],gear:[],grants:{},turnMoves:0};
+        const enemy=options.filter(o=>/^적 전장:/.test(o.label) && typeof o.v==='number')
+          .map((o,i)=>{ let v=-Infinity; try{ v=evalAttackValue(p,o.v,[vu]); }catch(e){} return {o,i,v}; })
+          .sort((a,b)=>b.v-a.v || a.i-b.i)[0];
+        if(enemy && enemy.v>BOT_W.moveNeed){
+          polSay('option',enemy.o.label,'미스 포츈 — 오로라 무료 유닛으로 적 전장 정복',{value:enemy.v});
+          return enemy.o.v;
+        }
+      }
+    }
+    // 파괴 공작/정신을 가르는 자가 공개한 상대 손패.
+    // 오로라 전에는 엔진 조각을 손에서 끊을 카드를 먼저 없애고, 설치 후에는
+    // 오로라 자체를 보드에서 지울 수 있는 카드를 최우선으로 없앤다.
+    if(/버리게 할 카드|재활용시킬 카드/.test(txt)){
+      const online=polMfAuroraOnline(p);
+      const ranked=options.map((o,i)=>{
+        const primary=(online?POL_MF_AURORA_HATE:POL_MF_HAND_ATTACK).get(o.n)||0;
+        const secondary=(online?POL_MF_HAND_ATTACK:POL_MF_AURORA_HATE).get(o.n)||0;
+        return {o,i,score:primary*1000+secondary};
+      }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score || a.i-b.i);
+      if(ranked.length){
+        const pick=ranked[0].o;
+        polSay('option', pick.label, online
+          ? '미스 포츈 — 눈부신 오로라 제거 위협 차단'
+          : '미스 포츈 — 손패 파괴 위협 차단');
+        return pick.v;
+      }
+    }
+    // 조작된 덱: 엔진 조각을 찾되, 선택지가 전부 유닛이면 오로라가 공짜로 뽑을
+    // 고비용 유닛을 덱에 남기고 가장 작은 유닛을 손으로 가져온다.
+    if(/손패에 넣을 카드/.test(txt)){
+      const P=G.players[p], online=polMfAuroraOnline(p);
+      const auroraOpt=options.find(o=>o.n===POL_MF.aurora);
+      const rampOpts=options.filter(o=>o.n===POL_MF.catalyst||o.n===POL_MF.mobilize);
+      const hasAurora=P.hand.includes(POL_MF.aurora);
+      const auroraTurns=auroraOpt&&!hasAurora&&!online ? polMfAuroraTurns(p,POL_MF.aurora,false) : Infinity;
+
+      // 다음 1~2번의 내 턴 안에 낼 수 있으면 먼저 확보한다. 특히 현재 손패 가속과
+      // 다음 턴 자연 전개 2개로 1턴 뒤 가능한 경우가 최우선이다.
+      if(auroraOpt && !hasAurora && !online && auroraTurns<=2){
+        polSay('option',auroraOpt.label,'미스 포츈 — '+auroraTurns+'턴 내 오로라 확보');
+        return auroraOpt.v;
+      }
+      // 이미 오로라가 손에 있거나, 지금 집어도 3턴 이상 걸리면 자원 병목부터 푼다.
+      if(!online && rampOpts.length && (hasAurora || auroraTurns>=3)){
+        const ranked=rampOpts.map((o,i)=>({o,i,turns:polMfAuroraTurns(p,o.n,true),
+          channel:o.n===POL_MF.catalyst?2:1,
+          now:polCanPlay(p,card(o.n))?1:0})).sort((a,b)=>
+            a.turns-b.turns || b.now-a.now || b.channel-a.channel || a.i-b.i);
+        const pick=ranked[0];
+        polSay('option',pick.o.label,'미스 포츈 — 오로라 자원 가속 선택',{turns:pick.turns});
+        return pick.o.v;
+      }
+      // 가속 선택지가 없으면 오로라를 놓치지는 않는다.
+      if(auroraOpt && !hasAurora && !online){
+        polSay('option',auroraOpt.label,'미스 포츈 — 오로라 확보 (가속 선택지 없음)',{turns:auroraTurns});
+        return auroraOpt.v;
+      }
+
+      const score=o=>{
+        const n=o.n, c=n!==undefined?card(n):null;
+        if(n===POL_MF.stacked && !polMfAuroraOnline(p)) return 7000;
+        if(!c) return -10000;
+        if(c.type!=='Unit') return 1000-polCost(c);
+        return -(c.e||0)*10-(c.m||0); // 가장 작은 오로라 표적부터 손으로
+      };
+      const pick=[...options].sort((a,b)=>score(b)-score(a))[0];
+      polSay('option', pick.label, '미스 포츈 — 엔진 탐색·고비용 유닛 보존');
+      return pick.v;
+    }
+    // 상대 효과 등으로 도구를 잃어야 할 때 오로라를 가능한 한 보존한다.
+    if(/폐기할 도구 선택/.test(txt)){
+      const pick=options.find(o=>o.n!==POL_MF.aurora) || options[0];
+      polSay('option', pick.label, '미스 포츈 — 눈부신 오로라 보존');
+      return pick.v;
+    }
+    // 경이의 꾸러미가 이미 가동 중인 오로라를 손으로 되돌리는 것을 막는다.
+    if(/손패로 되돌릴 대상/.test(txt)){
+      const pick=options.find(o=>o.n!==POL_MF.aurora) || options[0];
+      polSay('option', pick.label, '미스 포츈 — 눈부신 오로라 유지');
+      return pick.v;
+    }
+  }
   // 숨길 전장은 반드시 안전한 곳으로. 아래 일반 '전장' 분기는 적이 많은 곳을 고르는데,
   // 숨기기에 한해서는 그게 정확히 최악의 선택이다 (통제를 잃으면 폐기된다).
   if(/숨길 전장/.test(txt)){
@@ -264,6 +643,10 @@ POLICY.hand = function(p, title){
     if(!polCanPlay(p, c)) s += 20;
     s += polCost(c);           // 비싼 쪽이 약간 더 버리기 쉬움
     if(c.super==='Champion') s -= 60;   // 챔피언은 지킨다
+    if(polMfAuroraDeck(p) && !polMfAuroraOnline(p)){
+      if(n===POL_MF.aurora || n===POL_MF.catalyst || n===POL_MF.mobilize) s -= 200;
+      else if(n===POL_MF.stacked && !h.includes(POL_MF.aurora)) s -= 100;
+    }
     return s;
   };
   let best = 0;
@@ -273,7 +656,7 @@ POLICY.hand = function(p, title){
 };
 
 // ══════════ 응수(반응) ══════════
-POLICY.reaction = function(p, title, options){
+POLICY.reaction = async function(p, title, options){
   if(!options || !options.length) return null;
   if(!polSmart()) return null;
   if(!POLICY.ab.reaction){ const c=options.find(o=>o.isCounter); return c?c.v:null; }
@@ -285,26 +668,73 @@ POLICY.reaction = function(p, title, options){
     polSay('reaction', counter.label, '카운터 사용');
     return counter.v;
   }
+  const pending=options[0].pendingSpell;
+  const returns=options.filter(o=>o.card && polIsReturnSpell(o.card.n));
+  if(pending && returns.length && !SIM.lock && !NET.online){
+    const finish=async()=>{ G._returnPending=pending;await polResolveReturnPending();await cleanup(pending.p); };
+    const before=await simTry(p,finish,POLICY);
+    let best=null;
+    for(const o of returns){
+      const after=await simTry(p,async()=>{
+        G._rwFor=p;G._returnPending=pending;
+        await playCardFromHand(p,o.v);
+        await finish();
+      },POLICY);
+      if(before!==null && after!==null && after>before+BOT_W.moveNeed && (!best || after>best.value)) best={v:o.v,value:after};
+    }
+    if(best) return best.v;
+  }
   return null;   // 일반 [반응]은 결전용으로 아낀다
 };
 
 // ══════════ 멀리건 ══════════
 POLICY.mulligan = function(p){
   const h = G.players[p].hand;
-  if(!POLICY.ab.mulligan){ const cost=i=>(card(h[i]).e||0); const idxs=h.map((n,i)=>i);
-    const cheap=idxs.filter(i=>cost(i)<=2&&['Unit','Gear'].includes(card(h[i]).type));
+  // 선공의 첫 전개는 룬 2개, 후공의 첫 전개는 룬 3개다. G.turn은 멀리건 동안
+  // 첫 턴 플레이어를 유지하므로, 봇 좌석과 비교해 어느 쪽인지 판단할 수 있다.
+  const openingRunes = G.turn===p ? 2 : 3;
+  const cost=i=>(card(h[i]).e||0);
+  const openingPlay=i=>{
+    const c=card(h[i]);
+    // 룬 하나는 에너지와 힘을 함께 낼 수 있으므로 둘 중 큰 요구량만큼의 룬이 필요하다.
+    return ['Unit','Gear'].includes(c.type) && Math.max(cost(i), powerPips(c).length)<=openingRunes;
+  };
+  if(polMfAuroraDeck(p)){
+    // 엔진 조각은 비용과 무관하게 한 장씩 보존한다. 중복 조각과 오로라가 공짜로
+    // 소환해야 할 고비용 유닛을 우선 되돌리고, 조각이 빠졌을 때만 일반 카드를 교체한다.
+    const core=new Set([POL_MF.mobilize,POL_MF.catalyst,POL_MF.aurora]);
+    const missing=[...core].some(n=>!h.includes(n));
+    const seen=new Set();
+    const ranked=[];
+    h.forEach((n,i)=>{
+      const c=card(n); let score=-Infinity;
+      if(core.has(n)){
+        if(seen.has(n)) score=300+polCost(c); else seen.add(n);
+      } else if(c.type==='Unit' && (c.e||0)>=7) score=250+(c.e||0);
+      else if(missing && n!==POL_MF.stacked) score=100+polCost(c);
+      if(score>-Infinity) ranked.push({i,score});
+    });
+    const swap=ranked.sort((a,b)=>b.score-a.score).slice(0,2).map(x=>x.i);
+    polSay('mulligan', swap.length+'장 교체', '미스 포츈 — 동원·촉매·오로라 조립');
+    return swap;
+  }
+  if(!POLICY.ab.mulligan){ const idxs=h.map((n,i)=>i);
+    const cheap=idxs.filter(openingPlay);
     const bw=[...idxs].sort((a,b)=>cost(b)-cost(a));
     return cheap.length?bw.filter(i=>cost(i)>=5).slice(0,2):bw.slice(0,2); }
-  if(!polSmart()) return h.map((n,i)=>i).filter(i=>(card(h[i]).e||0)>=5).slice(0,2);
-  const myDoms = new Set(G.players[p].runes.map(r=>runeDomain(r.n)));
-  const cost = i => (card(h[i]).e||0);
-  const offDom = i => { const c=card(h[i]); return c.dom&&c.dom.length&&!c.dom.some(d=>myDoms.has(d)||d==='Colorless'); };
+  if(!polSmart()){
+    const idxs=h.map((n,i)=>i);
+    const worst=[...idxs].sort((a,b)=>cost(b)-cost(a));
+    const cheap=idxs.filter(openingPlay);
+    return cheap.length ? worst.filter(i=>cost(i)>=5).slice(0,2) : worst.slice(0,2);
+  }
   const idxs = h.map((n,i)=>i);
-  // 1턴에 낼 수 있는 저비용 플레이를 확보하고, 영역 불일치·고비용부터 교체
-  const cheap = idxs.filter(i=>cost(i)<=2 && ['Unit','Gear'].includes(card(h[i]).type));
-  const worst = [...idxs].sort((a,b)=>(offDom(b)?10:0)+cost(b) - ((offDom(a)?10:0)+cost(a)));
-  const swap = cheap.length ? worst.filter(i=>offDom(i)||cost(i)>=5).slice(0,2) : worst.slice(0,2);
-  polSay('mulligan', swap.length+'장 교체', '영역 불일치·고비용 우선');
+  // 첫 턴 룬 수에 맞는 유닛·기어를 확보하고, 고비용부터 교체한다.
+  // 영역(색) 불일치는 멀리건 판단에 고려하지 않는다.
+  const cheap = idxs.filter(openingPlay);
+  const worst = [...idxs].sort((a,b)=>cost(b)-cost(a));
+  const swap = cheap.length ? worst.filter(i=>cost(i)>=5).slice(0,2) : worst.slice(0,2);
+  polSay('mulligan', swap.length+'장 교체', `${G.turn===p?'선공':'후공'} ${openingRunes}룬 플레이 확보 · 고비용 우선`);
   return swap;
 };
 
@@ -338,24 +768,123 @@ POLICY.reserve = function(p){
   return Math.min(3, cheapest);
 };
 
+// 보드의 유닛 위치를 바꾸는 주문은 일반 주문 점수만으로 내면 안 된다. 카드명 대신
+// 컴파일된 효과 op를 보므로 같은 효과를 쓰는 새 카드도 자동으로 이 경로를 탄다.
+// 규칙상 '이동'이 아닌 귀환/손패 복귀도 전장 통제를 비우는 판단은 같아서 함께 본다.
+const POL_RELOCATE_OPS = new Set([
+  'moveUnit','moveSpec','moveItToBf','moveFriendlyToItsBf','tideTurner','buffAndMove','yasuoMove',
+  'stormbringer','dragonRage','bounce','bounceSpec','whirlwind','wonderBundle',
+  'recall','recallAll','recallIt','recallSelf','retreatOp','portalRescue',
+]);
+function polHasRelocateOp(value, seen, ops=POL_RELOCATE_OPS){
+  if(!value || typeof value!=='object') return false;
+  if(!seen) seen=new Set();
+  if(seen.has(value)) return false;
+  seen.add(value);
+  if(Array.isArray(value)) return value.some(v=>polHasRelocateOp(v,seen,ops));
+  if(ops.has(value.op)) return true;
+  // chooseOne/optional/조건부 op 안쪽까지 훑는다. 숫자·spec 같은 일반 필드는 즉시 끝난다.
+  return ['ops','elseOps','inner','branches'].some(k=>polHasRelocateOp(value[k],seen,ops));
+}
+const POL_RETURN_OPS=new Set(['bounce','bounceSpec','retreatOp','whirlwind','wonderBundle']);
+function polIsReturnSpell(n){
+  return card(n).type==='Spell' && polHasRelocateOp(FX[n]?.playOps,null,POL_RETURN_OPS);
+}
+async function polResolveReturnPending(){
+  const pending=G._returnPending;
+  if(!pending) return;
+  G._returnPending=null;
+  await resolveSpellEffects(pending.p,pending.n,FX[pending.n],pending);
+}
+// 결전의 패스 결과(체인과 전투 포함)와 카드 사용 결과를 비용까지 포함해 비교한다.
+async function polReturnShowdownAction(p){
+  if(!POLICY.ab.showdown || SIM.lock || NET.online) return null;
+  const candidates=[];
+  G.players[p].hand.forEach((n,idx)=>{
+    if(polIsReturnSpell(n) && polCanPlay(p,card(n))) candidates.push({kind:'play',idx,n});
+  });
+  G.bfs.forEach((bf,bfIdx)=>{
+    const h=bf.hiddenCards.find(x=>x.by===p && !(x.turn===G.turnCount && G.turn===p));
+    if(h && polIsReturnSpell(h.n)) candidates.push({kind:'hidden',bfIdx,n:h.n});
+  });
+  if(!candidates.length) return null;
+  const before=await simTry(p,async()=>{},POLICY);
+  if(before===null) return null;
+  let best=null;
+  for(const act of candidates){
+    const after=await simTry(p,()=>POLICY.runAction(p,act),POLICY);
+    if(after!==null && after>before+BOT_W.moveNeed && (!best || after>best.value)) best={act,value:after};
+  }
+  if(best) polSay('showdown',card(best.act.n).ko,'손패 복귀로 결전 결과 개선',{delta:best.value-before});
+  return best?.act||null;
+}
+function polIsRelocationSpell(n){
+  const c=card(n), fx=FX[n]||{};
+  return c.type==='Spell' && polHasRelocateOp(fx.playOps||[]);
+}
+
+// 실제 엔진으로 카드를 한 번 사용한 결과와 현재 상태(=사용 안 함)를 비교한다.
+// simTry가 결전까지 해결하고 원본 G를 복원하므로, 대상 없음·헛이동·통제 약화가 모두
+// 같은 evalState 잣대로 걸러진다. 샌드박스 안에서는 재진입하지 않는다.
+async function polGateRelocationSpells(p, cands){
+  if(!cands.some(c=>polIsRelocationSpell(c.n))) return cands;
+  if(typeof simTry!=='function' || typeof evalState!=='function') return cands;
+  if(typeof NET!=='undefined' && NET.online) return cands;
+  if(typeof SIM!=='undefined' && (SIM.active||SIM.lock)) return cands;
+  const base=evalState(G,p), need=Math.max(0,BOT_W.moveNeed||0), kept=[];
+  for(const c of cands){
+    if(!polIsRelocationSpell(c.n)){ kept.push(c); continue; }
+    const v=await simTry(p,async()=>{
+      const i=G.players[p].hand.indexOf(c.n);
+      if(i>=0) await playCardFromHand(p,i);
+    },POLICY);
+    if(v!==null && v>base+need){
+      c.stateDelta=v-base;
+      if(polIsReturnSpell(c.n)) c.score=Math.max(c.score,30-polCost(card(c.n)));
+      kept.push(c);
+      polSay('play-check',card(c.n).ko,'이동 주문 사용 이득',{before:base,after:v,delta:v-base});
+    }else{
+      polSay('play-check',card(c.n).ko,v===null?'이동 주문 시뮬레이션 실패':'이동 주문 사용 안 함 우세',
+        {before:base,after:v,delta:v===null?null:v-base});
+    }
+  }
+  return kept;
+}
+
 // ══════════ 플레이할 카드 고르기 ══════════
-POLICY.pickPlay = function(p, blocked){
+POLICY.pickPlay = async function(p, blocked){
   const P = G.players[p];
   const budget = readyRunes(p).length - POLICY.reserve(p);
-  const cands = [];
+  let cands = [];
   P.hand.forEach((n,i)=>{
     if(blocked && blocked.has('h'+n)) return;
     const c = card(n);
     if(POLICY.ab.canpay ? !polCanPlay(p, c) : polCost(c) > readyRunes(p).length) return;
     if(POLICY.ab.reserve && polCost(c) > Math.max(0, budget)) return;  // 상대 턴 응수분은 남긴다
+    if(polMfNeutralCardBlocked(p,n)) return;
+    // 일반 행동 단계의 난사는 오로라를 설치한 뒤, 한 전장을 완전히 쓸어버릴 때만 후보가 된다.
+    if(polMfAuroraDeck(p) && n===POL_MF.bulletTime
+      && (!polMfAuroraOnline(p) || !polMfBulletPlan(p,false))) return;
     const fx = FX[n]||{kw:{}};
     let score;
-    if(c.type==='Unit') score = 100 + (c.m||0)*2 - polCost(c)*BOT_W.playCost;
+    // 준비 룬이 생기는 다음 내 턴을 앞당기는 순서. 오로라를 지금 낼 수 있으면
+    // 추가 가속보다 먼저 설치해 이번 종료 단계부터 무료 소환을 받는다.
+    if(polMfAuroraDeck(p) && !polMfAuroraOnline(p) && n===POL_MF.invert) score=6500;
+    else if(polMfAuroraDeck(p) && n===POL_MF.bulletTime) score=500;
+    else if(polMfAuroraDeck(p) && !polMfAuroraOnline(p) && n===POL_MF.aurora) score=10000;
+    else if(polMfAuroraDeck(p) && !polMfAuroraOnline(p)
+      && n===POL_MF.catalyst && P.runeDeck.length>=2) score=9000;
+    else if(polMfAuroraDeck(p) && !polMfAuroraOnline(p)
+      && n===POL_MF.mobilize && P.runeDeck.length>=1) score=8500;
+    else if(polMfAuroraDeck(p) && !polMfAuroraOnline(p)
+      && n===POL_MF.stacked && !P.hand.includes(POL_MF.aurora)) score=7000;
+    else if(c.type==='Unit') score = 100 + (c.m||0)*2 - polCost(c)*BOT_W.playCost;
     else if(c.type==='Gear') score = 50 - polCost(c);
     else if(polHard() && (fx.kw.action||fx.kw.reaction)) score = -1;   // 결전용으로 아낌
     else score = 30 - polCost(c);
     cands.push({ i, n, score });
   });
+  cands = await polGateRelocationSpells(p,cands);
   POLICY._playScore = -Infinity;
   if(!cands.length) return -1;
   cands.sort((a,b)=>b.score-a.score);
@@ -369,11 +898,12 @@ POLICY.pickPlay = function(p, blocked){
 // ══════════ 손패 플레이 vs 챔피언 ══════════
 // 예전엔 손패를 다 소진한 뒤에야 챔피언을 냈다. 챔피언은 대개 덱에서 가장 강한 유닛이라
 // 순서를 뒤로 미루는 것 자체가 손해다 — 같은 잣대로 견줘 더 좋은 쪽을 먼저 낸다.
-POLICY.playPlan = function(p, ctx){
+POLICY.playPlan = async function(p, ctx){
   const P = G.players[p];
-  const idx = POLICY.pickPlay(p, ctx.tried);
+  const idx = await POLICY.pickPlay(p, ctx.tried);
   const handAct = idx >= 0 ? { kind:'play', idx, n:P.hand[idx] } : null;
-  const champOk = P.champInZone && !ctx.tried.has('champ') && polCanPlay(p, card(P.champN));
+  const champOk = P.champInZone && !ctx.tried.has('champ') && polCanPlay(p, card(P.champN))
+    && !polMfNeutralCardBlocked(p,P.champN);
   if(!champOk) return handAct;
   if(!POLICY.ab.champ || !polSmart()) return handAct || { kind:'champ' };
   const cs = card(P.champN);
@@ -445,7 +975,11 @@ function polThreatAt(p, i, extra){
 // ══════════ 이동 계획 ══════════
 POLICY.movePlan = function(p){
   const o = opp(p);
-  const movable = G.players[p].base.filter(u=>!u.ex && !u.stunned);
+  const baseMovable = G.players[p].base.filter(u=>!u.ex && !u.stunned);
+  // master 미스 포츈은 전설로 얻은 [개입]과 원래 가진 [개입]을 실제 이동 후보로 쓴다.
+  const gankMovable = polMfAuroraDeck(p) ? everyUnit().filter(u=>u.ctrl===p && u.loc!=='base'
+    && !u.ex && !u.stunned && effKw(u).ganking) : [];
+  const movable = baseMovable.concat(gankMovable);
   if(!movable.length) return null;
   if(!polSmart()){
     if(polHash('m', G.turnCount) < 0.4) return null;
@@ -475,17 +1009,23 @@ POLICY.movePlan = function(p){
   // 전군 올인만 보던 것을 부분 출격까지 넓힌다. 빈 전장 점거는 이번 턴 득점 여부와 무관하게
   // 통제 자체가 다음 턴 유지 수입이므로 후보에 넣는다.
   const cands = [];
-  const byStrong = [...movable].sort((a,b)=>might(b)-might(a));
   for(let i=0;i<G.bfs.length;i++){
     const bf = G.bfs[i];
     const def = bf.units.filter(u=>u.ctrl===o);
+    // 기지 유닛은 모든 전장으로, [개입] 유닛은 현재 위치가 아닌 전장으로 갈 수 있다.
+    const legal=movable.filter(u=>u.loc==='base' || u.loc!==i);
+    if(!legal.length) continue;
+    const byStrong=[...legal].sort((a,b)=>might(b)-might(a));
     if(!def.length){
       // 무혈 점거 — 최소 병력만 보낸다 (기지를 비우면 반격에 취약)
       if(bf.controller !== p){
-        const send = weakestFirst.slice(0,1);
+        // 이미 통제 중인 전장을 비우기보다 기지의 가장 약한 병력을 먼저 쓴다.
+        const send = [...legal].sort((a,b)=>
+          (a.loc==='base'?0:1)-(b.loc==='base'?0:1) || might(a)-might(b)).slice(0,1);
         let v = BOT_W.control * Math.min(evalTau(p),3)/2;
         if(!bf.scored[p]) v += BOT_W.point;          // 정복 1점
-        v -= send.reduce((s,u)=>s+might(u),0) * (BOT_W.unitBase - BOT_W.unitBf);
+        v -= send.filter(u=>u.loc==='base').reduce((s,u)=>s+might(u),0) * (BOT_W.unitBase - BOT_W.unitBf);
+        v -= polMoveSourceLoss(p,send);
         cands.push({ units:send, dest:i, v, why:'무혈 점거' });
         continue;
       }
@@ -504,7 +1044,7 @@ POLICY.movePlan = function(p){
         const t1 = polThreatAt(p, i, send);
         if(t1 < 0){                                   // 보강 후엔 상대가 쳐도 손해
           cands.push({ units:[...send], dest:i, why:'수비 보강 '+send.length+'기',
-            v: t0 * 0.6 });                           // 막아낸 위협의 60% (상대가 실제로 칠지는 모른다)
+            v: t0 * 0.6 - polMoveSourceLoss(p,send) }); // 막아낸 위협의 60% (상대가 실제로 칠지는 모른다)
           break;
         }
       }
@@ -517,12 +1057,14 @@ POLICY.movePlan = function(p){
     const send = [];
     for(const u of byStrong){
       send.push(u);
-      const v = evalAttackValue(p, i, [...send]);
+      const v = evalAttackValue(p, i, [...send]) - polMoveSourceLoss(p,send);
       cands.push({ units:[...send], dest:i, v, why:'공격 '+send.length+'기' });
     }
     // 총공격 플랜: 출격 가능 전원을 이 전장에 (평가와 무관하게 최우선 후보로)
     if(plan && plan.allin && plan.focusBf===i && byStrong.length)
-      cands.push({ units:[...byStrong], dest:i, v: evalAttackValue(p, i, [...byStrong]) + 100, why:'총공격 '+byStrong.length+'기' });
+      cands.push({ units:[...byStrong], dest:i,
+        v: evalAttackValue(p, i, [...byStrong]) - polMoveSourceLoss(p,byStrong) + 100,
+        why:'총공격 '+byStrong.length+'기' });
   }
   if(!cands.length) return null;
   // 상대 손패를 볼 수 있는 티어: 결전 트릭을 들고 있으면 공격 기준을 높인다
@@ -619,16 +1161,38 @@ function polWouldFund(p, c, n){
 
 // 중립 턴에 쓸 능력 하나. onlyUnits로 유닛 능력만/유닛 아닌 것만 구분한다 —
 // 유닛 탈진 능력은 이동을 막으므로 반드시 이동 계획이 끝난 뒤에 쓴다.
-POLICY.abilityPlan = function(p, ctx, onlyUnits){
+POLICY.abilityPlan = async function(p, ctx, onlyUnits){
   if(!POLICY.ab.ability || polTier().rep < 1) return null;
   for(const c of polAbList(p)){
     if((c.src.kind === 'unit') !== !!onlyUnits) continue;
     if(ctx && ctx.tried.has('a' + c.key)) continue;
     if(!polAbLegal(p, c)) continue;
+    if(polMfAuroraDeck(p) && c.src.kind==='legend' && G.players[p].legendN===POL_MF.legend){
+      const target=polMfGankTarget(p);
+      if(!target) continue;
+      POLICY._mfGankTarget={p,tc:G.turnCount,uid:target.uid};
+    }
+    // 오로라 설치 뒤 경이의 꾸러미로 무료 소환 유닛이나 오로라 자체를 회수하면
+    // 엔진의 누적 이득을 스스로 되돌린다.
+    if(polMfAuroraDeck(p) && polMfAuroraOnline(p)
+      && c.src.kind==='gear' && c.src.g.n===181) continue;
     const cost = c.ab.cost || {};
+    const costPips=[...(cost.pips||[])];
+    for(let i=0;i<(cost.power||0);i++) costPips.push('Any');
+    if(polMfAuroraDeck(p) && !polMfAuroraOnline(p) && polRuneRecycleNeed(p,costPips)>0) continue;
     if(POL_AB_HARDCOST.some(k => cost[k])) continue;
     if(polAbOps(c).some(o => POL_AB_BADOPS.has(o))) continue;
     if(polAbIsResource(c)) continue;
+    if(polHasRelocateOp(c.ab.ops) && typeof simTry==='function' && !SIM.lock && !NET.online){
+      const before=evalState(G,p), uid=c.src.u?.uid, gi=c.src.g?G.players[p].gear.indexOf(c.src.g):-1;
+      const after=await simTry(p,async()=>{
+        const src={kind:c.src.kind};
+        if(uid!==undefined) src.u=everyUnit().find(u=>u.uid===uid);
+        if(gi>=0) src.g=G.players[p].gear[gi];
+        await activateAbility(p,src,c.ab);
+      },POLICY);
+      if(after===null || after<=before+BOT_W.moveNeed) continue;
+    }
     polSay('ability', c.name + ' — ' + c.ab.label, onlyUnits ? '유닛 능력(이동 뒤)' : '전설·도구 능력');
     return { kind:'ability', src:c.src, ab:c.ab, key:c.key, label:c.name + ' ' + c.ab.label };
   }
@@ -645,6 +1209,8 @@ POLICY.hidePlan = function(p, ctx){
   if(!POLICY.ab.hide || polTier().rep < 1) return null;
   if(G.turn !== p || G.state !== 'neutral') return null;
   const P = G.players[p];
+  if(polMfAuroraDeck(p) && !polMfAuroraOnline(p) && !TF().freeHide[p]
+    && polRuneRecycleNeed(p,['Any'])>0) return null;
   // 통제를 잃으면 숨긴 카드는 그대로 폐기된다(engine 1263행). 적이 있는 전장에는 깔지 않는다.
   if(!G.bfs.some(bf => bf.controller === p && bf.hiddenCards.length < polHideCap(bf)
                     && !bf.units.some(u => u.ctrl !== p))) return null;
@@ -675,7 +1241,9 @@ POLICY.hiddenPlan = function(p, ctx, wantTrick){
       if(h.turn === G.turnCount && G.turn === p) continue;                    // 숨긴 턴에는 못 낸다
       if(ctx && ctx.tried.has('v' + i + ':' + h.n)) continue;
       const c = card(h.n), fx = FX[h.n] || {kw:{}};
+      if(polMfTimelineBlocked(p,h.n)) continue;
       const trick = !!(fx.kw.action || fx.kw.reaction);
+      if(wantTrick && polIsReturnSpell(h.n)) continue; // 전용 결전 평가가 사용/보류를 결정한다
       if(wantTrick){
         if(!trick) continue;
         if(G.showdown && G.showdown.chain.length && !fx.kw.reaction) continue;
@@ -723,7 +1291,7 @@ function polSdOutcome(p, sd, snap){
   if(sd.attacker===p) cls = (opLeft===0 && myLeft>0) ? 2 : 1;
   else cls = (myLeft===0 && opLeft>0) ? 0 : 1;
   const exch = opDead.reduce((s,x)=>s+x.might,0) - myDead.reduce((s,x)=>s+x.might,0);
-  return { cls, exch, myM, opM };
+  return { cls, exch, myM, opM, myLeft, opLeft };
 }
 // 트릭의 컴파일된 op를 스냅샷 사본에 근사 적용. 전투와 무관한 카드(드로우 등)는 false.
 function polSdApplyOps(p, sd, snap, ops){
@@ -773,9 +1341,14 @@ function polSdTrickGain(p, sd, snap0, base, n){
 }
 
 // 결전에서 취할 행동 하나. 손패 트릭 → 자금 조달(자원 능력) → 숨겨둔 트릭 순.
-POLICY.showdownAction = function(p){
+POLICY.showdownAction = async function(p){
   const sd = G.showdown;
-  if(!sd || !polHard()) return null;
+  if(!sd) return null;
+  if(polSmart()){
+    const bounce=await polReturnShowdownAction(p);
+    if(bounce) return bounce;
+  }
+  if(!polHard()) return null;
   if(!POLICY.ab.showdown){ if(POLICY._sdSeen === sd) return null; POLICY._sdSeen = sd; }
   const us = unitsAt(sd.bfIdx);
   const role = u => u.ctrl === sd.attacker ? 'attacker' : 'defender';
@@ -786,13 +1359,25 @@ POLICY.showdownAction = function(p){
   const P = G.players[p];
   // 이 결전에서 낼 수 있는 트릭인가 (자금 문제는 따로 본다)
   const usable = n => {
+    if(polIsReturnSpell(n)) return false; // 위의 실제 엔진 평가에서 이미 검사했다
     const fx = FX[n] || {kw:{}};
     if(!(fx.kw.action || fx.kw.reaction)) return false;
     if(sd.chain.length && !fx.kw.reaction) return false;     // 체인 진행 중엔 [반응]만
     // 카운터는 체인에 상대 주문이 있을 때만 (없으면 효과 없이 폐기된다)
     if((fx.counter || fx.steal) && !sd.chain.some(it => it.p !== p && it.kind !== 'ability')) return false;
+    if(polMfTimelineBlocked(p,n)) return false;
     return true;
   };
+  // 가변 광역 피해는 정적 op 근사로 계산할 수 없으므로 별도 전투 시뮬레이션을 쓴다.
+  // 오로라 설치 여부와 무관하게, 현재 패배할 결전을 최소 힘으로 유지/정복할 때만 낸다.
+  if(polMfAuroraDeck(p)){
+    const bi=P.hand.findIndex(n=>n===POL_MF.bulletTime && usable(n) && polCanPlay(p,card(n)));
+    const bp=bi>=0?polMfBulletPlan(p,true):null;
+    if(bp){
+      polSay('showdown',card(POL_MF.bulletTime).ko,'최소 피해로 전장 유지·정복',{damage:bp.damage,bfIdx:bp.bfIdx});
+      return {kind:'play',idx:bi,n:POL_MF.bulletTime};
+    }
+  }
   let want;
   if(POLICY.ab.sdx){
     // ── 정밀 결전 판단: 결과(정복/저지)를 실제로 계산하고, 그걸 바꾸는 트릭만 낸다 ──
@@ -865,19 +1450,19 @@ POLICY.showdownAction = function(p){
 //  ④ 이동 (탈진되므로 유닛 능력보다 먼저)
 //  ⑤ 유닛 능력 (이동을 끝낸 유닛으로)
 //  ⑥ [숨겨짐] 깔기 (남은 힘 처리)
-POLICY.nextAction = function(p, ctx){
+POLICY.nextAction = async function(p, ctx){
   let a = POLICY.hiddenPlan(p, ctx, false);
   if(a) return a;
-  a = POLICY.playPlan(p, ctx);
+  a = await POLICY.playPlan(p, ctx);
   if(a) return a;
-  a = POLICY.abilityPlan(p, ctx, false);
+  a = await POLICY.abilityPlan(p, ctx, false);
   if(a) return a;
   if(ctx.movesLeft > 0){
     const mv = POLICY.movePlan(p);
     if(mv) return { kind:'move', units:mv.units, dest:mv.dest };
     ctx.movesLeft = 0;
   }
-  a = POLICY.abilityPlan(p, ctx, true);
+  a = await POLICY.abilityPlan(p, ctx, true);
   if(a) return a;
   a = POLICY.hidePlan(p, ctx);
   if(a) return a;
@@ -906,7 +1491,7 @@ POLICY.step = async function(p, ctx, onPlay){
   // 평가 노이즈에 묻히는 미시 후보 문제로 두 번 실패했다 — 플랜 단위 비교는 기준선(기본 플랜)도
   // 같은 깊이로 롤아웃하므로 공정하고, 후보 간 평가 차이가 커서 노이즈 위에 선다.
   if(polTier().think && POLICY.ab.think) await polPlanTurn(p, ctx);
-  let act = POLICY.nextAction(p, ctx);
+  let act = await POLICY.nextAction(p, ctx);
   if(!act || act.kind === 'end') return true;
   const P = G.players[p];
   const hadHand = P.hand.length, hadChamp = P.champInZone;
@@ -957,11 +1542,13 @@ function polActionCandidates(p, ctx){
     if(blocked && blocked.has('h'+n)) return;
     if(seen.has(n)) return; seen.add(n);
     if(!polCanPlay(p, card(n))) return;
+    if(polMfNeutralCardBlocked(p,n)) return;
     out.push({ kind:'play', n, label:'플레이 '+card(n).ko,
       run: async()=>{ const j = G.players[p].hand.indexOf(n); if(j>=0) await playCardFromHand(p, j); } });
   });
   // 챔피언
-  if(P.champInZone && !(blocked && blocked.has('champ')) && polCanPlay(p, card(P.champN))){
+  if(P.champInZone && !(blocked && blocked.has('champ')) && polCanPlay(p, card(P.champN))
+    && !polMfNeutralCardBlocked(p,P.champN)){
     out.push({ kind:'champ', label:'챔피언 '+card(P.champN).ko,
       run: async()=>{ await playCardFromHand(p, -1, {champZone:true}); } });
   }
@@ -971,6 +1558,9 @@ function polActionCandidates(p, ctx){
     if(blocked && blocked.has('a'+c.key)) continue;
     if(!polAbLegal(p, c)) continue;
     const cost = c.ab.cost || {};
+    const costPips=[...(cost.pips||[])];
+    for(let i=0;i<(cost.power||0);i++) costPips.push('Any');
+    if(polMfAuroraDeck(p) && !polMfAuroraOnline(p) && polRuneRecycleNeed(p,costPips)>0) continue;
     if(POL_AB_HARDCOST.some(k => cost[k])) continue;
     if(polAbOps(c).some(o => POL_AB_BADOPS.has(o))) continue;
     if(polAbIsResource(c)) continue;
@@ -1005,10 +1595,11 @@ function polActionCandidates(p, ctx){
 }
 
 // ══════════ 턴 플랜 탐색 (재설계 2026-08-29) ══════════
-// 턴 시작에 한 번, 거시 전략 후보를 샌드박스에서 '내 턴 전체 + 상대 턴 전체' 롤아웃해 비교한다.
+// 턴 시작에 한 번, 거시 전략 후보를 샌드박스에서 비교한다.
 //  · 후보: 기본 휴리스틱 / 공격 자제 / 전장별 집중 공격 (최대 4개)
 //  · 모든 후보가 같은 깊이에서 평가되므로 기준선이 공정하다 (구식 탐색의 조기 종료 결함 제거)
-//  · 비열람 티어는 상대 손패를 덱과 섞어 다시 뽑는 결정화로 정보 누수를 막는다
+//  · 일반 초고수는 내 손패와 공개 보드만으로 내 턴을 평가한다. 상대 손패·다음 행동은 가정하지 않는다.
+//  · 그 외 비열람 탐색 티어는 상대 손패를 덱과 섞어 다시 뽑는 결정화로 정보 누수를 막는다.
 POLICY.turnPlan = null;   // {noAttack:true} | {focusBf:i} | null — movePlan이 존중한다
 function polDeterminize(p, salt){
   if(polTier().peek) return;                       // 열람 티어는 실제 손패 그대로
@@ -1037,10 +1628,11 @@ async function polPlanTurn(p, ctx){
     .filter(i => G.bfs[i].units.some(u=>u.ctrl===o) || G.bfs[i].controller===o);
   for(const i of atkBfs.slice(0,3)) plans.push({ label:'집중 공격 #'+i, plan:{focusBf:i} });
   for(const i of atkBfs.slice(0,2)) plans.push({ label:'총공격 #'+i, plan:{focusBf:i, allin:true} });
-  // 예산(수당 최대 5초): 후보 × 결정화 표본을 예산 안에서 소화한다.
-  // 비열람 티어는 상대 손패 결정화 표본을 여러 개 평균해 추측 노이즈를 줄인다.
+  // 일반 초고수는 상대 손패를 고려하지 않는 현재 국면형 판단을 쓴다.
+  // 나머지 비열람 탐색 티어는 상대 손패 결정화 표본을 여러 개 평균해 추측 노이즈를 줄인다.
+  const selfOnly = POLICY.level==='master';
   const budget = Math.min(POLICY.budget || 400, 5000);
-  const D = polTier().peek ? 1 : 3;   // 열람 티어는 실제 손패라 표본이 전부 동일 — 1개면 충분
+  const D = (selfOnly || polTier().peek) ? 1 : 3;
   const deadline = Date.now() + budget;
   let best = null;
   for(const c of plans){
@@ -1050,13 +1642,13 @@ async function polPlanTurn(p, ctx){
       if(best && Date.now() > deadline) break;
       SIM.deadline = deadline + 600;               // 개별 롤아웃 상한 (기본 플랜은 반드시 평가)
       const v = await simTry(p, async()=>{
-        polDeterminize(p, d);
+        if(!selfOnly) polDeterminize(p, d);
         // 플랜은 {p, tc} 스코프를 갖는다 — 상대 좌석·다음 턴으로 새지 않게 movePlan이 검증한다
         POLICY.turnPlan = c.plan ? { p, tc:G.turnCount, ...c.plan } : null;
         try {
           await simPlayOutTurn(p);
           await simSettle();
-          if(G.winner===null && G.turn===o) await simPlayOutTurn(o);
+          if(!selfOnly && G.winner===null && G.turn===o) await simPlayOutTurn(o);
         } finally { POLICY.turnPlan = null; }
       });
       SIM.deadline = 0;

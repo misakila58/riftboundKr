@@ -84,7 +84,7 @@ setInterval(()=>{
 async function botShowdown(){
   const p=BOT.seat;
   botSync();
-  const act = POLICY.showdownAction(p);
+  const act = await POLICY.showdownAction(p);
   if(act){
     const ok = await POLICY.runAction(p, act);
     if(ok !== false) return;      // 우선권 전환은 엔진(playCardFromHand/activateAbility)이 처리

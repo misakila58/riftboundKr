@@ -174,7 +174,7 @@ function mkPolicy(level, ab, wover){
     // 진행 순서·실행은 POLICY.step 하나로 통일한다 — 여기에 사본을 두면 브라우저 봇과 어긋난다
     _ctx: POLICY.newCtx(),
     async showdown(p){
-      const act = POLICY.showdownAction(p);
+      const act = await POLICY.showdownAction(p);
       if(!act) return false;
       return (await POLICY.runAction(p, act)) !== false;
     },

@@ -1,5 +1,6 @@
 // ══════════ UI: 렌더링 & 상호작용 ══════════
-const UI = {};
+// bot-sim.js가 예측 중 UI 전체를 조용한 구현으로 갈아 끼웠다가 되돌린다 → const 금지
+let UI = {};
 // 연출은 fx.js가 채운다. 로드 전이나 로드 실패에도 게임이 멈추지 않도록 빈 구현을 먼저 둔다.
 UI.fx = { on:false, unit(){}, cast(){}, chainAdd(){}, turnEnd(){}, priority(){}, score(){}, check(){}, setOn(){} };
 
@@ -504,11 +505,21 @@ UI.showHover = function(c, x, y){
   if(!el){ el = document.createElement('div'); el.id = 'card-hover'; document.body.appendChild(el); }
   if(el._for !== c){ el.innerHTML = UI.cardInfoHTML(c); el._for = c; }
   el.style.display = 'block';
-  const pos = hoverPlace(x, y, el.offsetWidth || 240, el.offsetHeight || 480,
-                         window.innerWidth, window.innerHeight);
+  const sp = fixedLayoutSpace(x, y);
+  const pos = hoverPlace(sp.x, sp.y, el.offsetWidth || 240, el.offsetHeight || 480,
+                         sp.width, sp.height);
   el.style.left = pos.left + 'px';
   el.style.top  = pos.top  + 'px';
 };
+// 화면 배율(<html>의 CSS zoom)이 걸려 있으면 마우스 좌표(화면 기준)와
+// fixed 요소의 left/top(확대 전 레이아웃 기준)이 서로 다른 자를 쓴다.
+// 팝업이 커서를 따라오도록 좌표와 뷰포트 크기를 레이아웃 좌표계로 환산한다.
+function fixedLayoutSpace(x, y){
+  const z = parseFloat(getComputedStyle(document.documentElement).zoom);
+  const s = (Number.isFinite(z) && z > 0) ? z : 1;
+  return { x: x/s, y: y/s, width: window.innerWidth/s, height: window.innerHeight/s };
+}
+
 // 커서 옆에 띄우되 화면 밖으로 나가면 접는다. 순수 함수로 빼 둔 이유는
 // 브라우저 창 크기를 실제로 못 재는 환경에서도 이 규칙만 따로 검증할 수 있게 하기 위해서다.
 function hoverPlace(x, y, w, h, vw, vh){
@@ -864,8 +875,9 @@ function openMenuAt(menu, e){
   menu.appendChild(close);
   menu.style.display='block';
   const x=(e&&e.clientX)||0, y=(e&&e.clientY)||0;
-  menu.style.left=Math.max(4, Math.min(x, innerWidth-menu.offsetWidth-6))+'px';
-  menu.style.top =Math.max(4, Math.min(y, innerHeight-menu.offsetHeight-6))+'px';
+  const sp=fixedLayoutSpace(x, y);
+  menu.style.left=Math.max(4, Math.min(sp.x, sp.width-menu.offsetWidth-6))+'px';
+  menu.style.top =Math.max(4, Math.min(sp.y, sp.height-menu.offsetHeight-6))+'px';
 }
 
 // ---------- 손패 클릭 ----------

@@ -15,6 +15,8 @@ const SIM = {
   lock: false,
   picks: 0, maxPicks: 500,
   deadline: 0,
+  movementDepth: 0,      // 이동 후보를 재어 보는 중첩 깊이 (이때만 재진입 허용)
+  returned: null,        // 이번 시뮬레이션에서 공개적으로 손패로 돌아간 카드들
   stats: { runs: 0, aborted: 0, errors: 0 },
 };
 
@@ -84,11 +86,16 @@ function simAnswer(fn){
 
 // ── 진입/이탈 ──
 // 엔진 전역을 통째로 갈아 끼웠다가 되돌린다. 반드시 짝을 맞춰 호출한다(항상 finally).
-function simEnter(policy){
+// movementProbe: 이동 선택지 하나를 재어 보는 중첩 호출. 이 경우에만 재진입을 허용한다
+// (선택지 안에서 다시 선택지를 물어보는 구조라 한 겹은 반드시 필요하다).
+function simEnter(policy, movementProbe){
   if(NET.online) throw new Error('SIM: 온라인 대전 중에는 시뮬레이션할 수 없습니다');
-  if(SIM.lock)   throw new Error('SIM: 재진입 금지');
-  SIM.lock = true; SIM.active = true;
+  if(SIM.lock && !movementProbe) throw new Error('SIM: 재진입 금지');
+  if(movementProbe && (SIM.movementDepth||0) >= 2) throw new Error('SIM: 이동 탐색 깊이 초과');
+  // 상태를 바꾸기 '전'의 값을 저장해야 중첩 호출에서 정확히 되돌아간다
   const saved = {
+    simActive:SIM.active, simLock:SIM.lock, picks:SIM.picks,
+    movementDepth:SIM.movementDepth||0, returned:SIM.returned,
     G, UID: (typeof UID!=='undefined'?UID:1),
     rng: (typeof _rngState!=='undefined'?_rngState:1),
     ctxBf: (typeof _ctxBf!=='undefined'?_ctxBf:null),
@@ -98,8 +105,15 @@ function simEnter(policy){
     hash: null,
   };
   if(SIM.debug) saved.hash = simHash(G);
-  UI = simUI(policy);                       // 슬롯 자체를 교체 (래퍼를 얹지 않는다)
-  G = cloneG(saved.G);
+  SIM.lock = true; SIM.active = true;
+  SIM.returned = [];
+  if(movementProbe) SIM.movementDepth = (SIM.movementDepth||0) + 1;
+  // 여기서 실패하면 SIM.lock이 켜진 채 남아 이후 모든 시뮬레이션이 '재진입 금지'로 막힌다.
+  // simTry는 simEnter의 예외를 조용히 삼키므로 잠금 복구를 여기서 직접 해 준다.
+  try {
+    UI = simUI(policy);                     // 슬롯 자체를 교체 (래퍼를 얹지 않는다)
+    G = cloneG(saved.G);
+  } catch(e){ simExit(saved); throw e; }
   SIM.picks = 0;
   return saved;
 }
@@ -111,7 +125,11 @@ function simExit(saved){
   if(typeof _ctxBf!=='undefined') _ctxBf = saved.ctxBf;
   if(typeof _ctxUnit!=='undefined') _ctxUnit = saved.ctxUnit;
   if(typeof _curKind!=='undefined') _curKind = saved.curKind;
-  SIM.lock = false; SIM.active = false;
+  SIM.lock = saved.simLock===undefined ? false : saved.simLock;
+  SIM.active = saved.simActive===undefined ? false : saved.simActive;
+  if(saved.picks!==undefined) SIM.picks = saved.picks;
+  SIM.movementDepth = saved.movementDepth||0;
+  SIM.returned = saved.returned;
   if(SIM.debug && saved.hash !== null){
     const now = simHash(G);
     if(now !== saved.hash) throw new Error('SIM: 실제 게임 상태가 오염되었습니다 (해시 불일치)');
@@ -128,22 +146,40 @@ function simHash(g){
 // ── 후보 수를 하나 두어 보고 결과를 평가한다 ──
 // act: async () => void  (클론된 G 위에서 실행됨)
 // 반환: 평가 점수 (실패·예산초과면 null)
-async function simTry(p, act, policy){
+async function simTry(p, act, policy, movementProbe){
   const pol = policy || POLICY;
   let saved;
-  try { saved = simEnter(pol); }
+  try { saved = simEnter(pol, movementProbe); }
   catch(e){ return null; }
   try {
     SIM.stats.runs++;
     await act();
     await simSettle();          // 결전을 끝까지 진행한 뒤 평가 (안 하면 공격이 공짜로 보인다)
-    return evalState(G, p);
+    return evalState(G, p) + simReturnedHandValue(p);
   } catch(e){
     if(e instanceof SimBudget) SIM.stats.aborted++; else SIM.stats.errors++;
     return null;
   } finally {
     simExit(saved);
   }
+}
+
+// 손패 한 장의 일반 가치는 evalState가 센다. 여기서는 '공개적으로 손패로 돌아간'
+// 유닛의 재사용 가치만 더한다 — 바로 전투에 못 쓰므로 기지 전력 가치의 절반으로 본다.
+// 상대에게 돌려준 유닛은 음수 — 돌풍으로 상대 유닛을 살려 보내는 손해가 계산에 들어간다.
+function simReturnedHandValue(p){
+  let value=0; const groups=new Map();
+  for(const r of SIM.returned||[]){
+    const key=r.owner+':'+r.n, g=groups.get(key);
+    if(g){ g.before=Math.min(g.before,r.before); g.count++; }
+    else groups.set(key,{...r,count:1});
+  }
+  for(const r of groups.values()){
+    // 되돌아간 뒤 다시 내버렸거나 버려진 사본은 세지 않는다
+    const copies=Math.min(r.count, Math.max(0, G.players[r.owner].hand.filter(n=>n===r.n).length - r.before));
+    value += copies * (r.owner===p?1:-1) * (card(r.n).m||0) * BOT_W.unitBase * 0.5;
+  }
+  return value;
 }
 
 // 이동으로 결전이 열렸다면 전투까지 실제로 해결시킨다.

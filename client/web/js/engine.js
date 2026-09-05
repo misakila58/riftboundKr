@@ -540,9 +540,29 @@ async function startTurn(){
 }
 
 async function endTurn(){
-  const p=G.turn, P=G.players[p];
+  if(G._endingTurn) return;      // 결전을 해결하는 동안 종료가 두 번 돌지 않게
+  const p=G.turn;
+  G._endingTurn={p};
   // 턴 종료 트리거 (소나, 눈부신 오로라 등)
   await fireEvent('onEndTurn', {p});
+  if(G.winner!==null){ G._endingTurn=null; return; }
+  // 종료 트리거가 양측 유닛을 한 전장에 모았다면 결전이 열린다 (오로라 → 죽음꽃 포식자).
+  // 그 전투를 끝내기 전에는 만료 처리도 턴 넘김도 하지 않는다.
+  await cleanup(p);
+  if(G.state==='showdown'){
+    UI.log('종료 단계에 열린 결전을 먼저 해결합니다', 'combat');
+    UI.render();
+    return;                      // resolveShowdown이 끝나면 finishEndTurn으로 돌아온다
+  }
+  await finishEndTurn(p);
+}
+
+// 종료 단계의 나머지 절차. 종료 트리거가 만든 결전이 있었다면 그 결전이 모두
+// 끝난 뒤 resolveShowdown이 이 함수를 불러 같은 종료 단계를 이어서 마친다.
+async function finishEndTurn(p){
+  if(!G._endingTurn || G._endingTurn.p!==p || G.state==='showdown') return false;
+  if(G.winner!==null){ G._endingTurn=null; return true; }
+  const P=G.players[p];
   // 종료 단계: 기절 해제, 지속 효과 만료, 표시 피해 제거, 풀 비우기
   // (공식: 유닛의 표시 피해는 전투 종료 시와 매 턴 종료 시 제거된다)
   everyUnit().forEach(u=>{
@@ -568,7 +588,9 @@ async function endTurn(){
   // 추가 턴 (시간 왜곡)
   if(G.extraTurnFor===p){ G.extraTurnFor=null; UI.log(`⏳ ${pname(p)} 추가 턴!`, 'score'); }
   else G.turn=opp(p);
+  G._endingTurn=null;
   await startTurn();
+  return true;
 }
 
 // ---------- 공용 헬퍼: 피해/버프/준비/이동/도구 폐기 ----------
@@ -614,8 +636,17 @@ async function readyUnit(u, byP, opts){
   if(byP!==undefined && u.ctrl===byP) await fireEvent('onYouReadyUnit', {p:byP, it:u});
 }
 // 효과에 의한 이동 (스펠/능력) — 이동 트리거 포함
+// 효과로 옮길 수 있는가. 봇의 후보 생성과 실제 이동이 같은 규칙을 본다.
+function canEffectMove(u, dest){
+  if(!u || u._dead || u.loc===dest) return false;
+  if(dest!=='base' && !(Number.isInteger(dest) && G.bfs[dest])) return false;
+  // 「후퇴 없는 전선」: 이곳에서 기지로는 못 나간다
+  if(dest==='base' && u.loc!=='base' && G.bfs[u.loc].n===BF_STATIC.NO_RETREAT) return false;
+  return true;
+}
+
 async function effectMove(p, u, dest){
-  if(u.loc===dest) return;
+  if(!canEffectMove(u, dest)) return false;
   const from=u.loc;
   removeUnit(u); placeUnit(u, dest);
   u.turnMoves=(u.turnMoves||0)+1;
@@ -624,6 +655,124 @@ async function effectMove(p, u, dest){
   if(from!=='base') await fireBfTrigger(from,'onMoveFromHere',{p, it:u, bfIdx:from});
   await runTriggerList(unitFx(u).triggers?.onMoveSelf, {p:u.ctrl, unit:u, it:u, bfIdx:(dest!=='base'?dest:null), dest});
   if(dest!=='base') await fireEvent('onMoveToBf', {p:u.ctrl, bfIdx:dest});
+  return true;
+}
+
+// ══════════ 효과 이동 / 손패 복귀: 대상과 목적지를 한 번에 ══════════
+// 유닛만 먼저 고르면 "어디로 보낼지"를 모른 채 결정하게 되어, 사람은 되돌릴 수 없고
+// 봇은 이득 없는 이동을 고른다. 두 축을 한 선택지로 묶어 양쪽이 같은 후보를 본다.
+//
+// to: 'base' | 'bf' | 'any'(전장+기지) | 'baseLink'(기지↔전장 왕복) | 전장 번호
+async function chooseEffectMove(p, spec, to, extra={}){
+  const units = unitsBySpec(spec, p), options=[];
+  for(const u of units){
+    const dests = to==='base' ? ['base']
+      : to==='baseLink' ? (u.loc==='base' ? G.bfs.map((_,i)=>i) : ['base'])
+      : to==='any' ? [...G.bfs.map((_,i)=>i), 'base']
+      : to==='bf' ? G.bfs.map((_,i)=>i)
+      : [to];
+    for(const dest of dests){
+      if(!canEffectMove(u, dest)) continue;
+      if(extra.swapUid){                       // 물결을 바꾸는 자: 서로 자리를 맞바꿀 수 있을 때만
+        const me=everyUnit().find(x=>x.uid===extra.swapUid);
+        if(!me || dest!==me.loc || !canEffectMove(me, u.loc)) continue;
+      }
+      options.push({ v:options.length,
+        label:`${unitName(u)} → ${dest==='base'?'기지':card(G.bfs[dest].n).ko}`,
+        movement:{ uid:u.uid, dest, ...extra } });
+    }
+  }
+  if(!options.length) return null;
+  if(spec.optional) options.push({ v:null, label:'이동하지 않음', movement:null });
+  const sel = await UI.pickOption(p, '이동시킬 유닛과 목적지 선택', options);
+  const choice = (options.find(o=>o.v===sel)||{}).movement;
+  return choice ? await resolveEffectMove(p, choice) : null;
+}
+async function resolveEffectMove(p, choice){
+  const u = everyUnit().find(x=>x.uid===choice.uid);
+  if(!canEffectMove(u, choice.dest)) return null;
+  if(!choice.alreadyPicked){
+    noteSpellPick(p, u);
+    if(!(await payDeflect(p, u))) return null;
+  }
+  if(choice.buff) await buffUnit(u, p);
+  // 「폭풍의 돌격」: 도착 전장의 적에게 이동 유닛의 위력만큼 피해
+  if(choice.storm) for(const e of G.bfs[choice.dest].units.filter(x=>x.ctrl!==p)) dealDamage(e, might(u), 'spell');
+  if(choice.swapUid){
+    const me=everyUnit().find(x=>x.uid===choice.swapUid);
+    if(!canEffectMove(me, u.loc)) return null;
+    await effectMove(p, me, u.loc);
+  }
+  await effectMove(p, u, choice.dest);
+  if(choice.ready) await readyUnit(u, p);
+  // 「용의 분노」: 도착지의 다른 적 유닛과 상호 피해
+  if(choice.dragon){
+    const others=everyUnit().filter(x=>x.ctrl!==p && x!==u && x.loc===choice.dest);
+    if(others.length){
+      const t=await UI.pickUnitFrom(p, others, '상호 피해를 줄 다른 적 유닛');
+      if(t && await payDeflect(p, t)){
+        const a=might(u), b=might(t);
+        dealDamage(t, a, 'spell'); dealDamage(u, b, 'spell');
+        UI.log(`${unitName(u)} ⚔ ${unitName(t)} 상호 피해!`, 'combat');
+      }
+    }
+  }
+  return u;
+}
+
+// 손패 복귀는 이동도 사망도 아니다. 항상 '소유자'의 손으로 돌아간다.
+async function chooseReturnToHand(p, spec, extra={}){
+  if(extra.energy && !canPay(p, extra.energy, [])) return null;
+  const options = unitsBySpec(spec, p).map((u,i)=>({
+    v:i, label:unitName(u), card:unitCard(u), returnHand:{ uid:u.uid, ...extra } }));
+  if(!options.length) return null;
+  if(spec.optional) options.push({ v:null, label:'되돌리지 않음', returnHand:null });
+  const sel = await UI.pickOption(p, '소유자의 손패로 되돌릴 대상', options);
+  const choice = (options.find(o=>o.v===sel)||{}).returnHand;
+  return choice ? await resolveReturnToHand(p, choice) : null;
+}
+async function resolveReturnToHand(p, choice){
+  if(choice.energy){
+    if(!canPay(p, choice.energy, [])) return null;
+    payCost(p, choice.energy, []);
+  }
+  const P=G.players[p];
+  if(choice.gearIndex!==undefined){                 // 「경이의 꾸러미」: 도구
+    const g=P.gear[choice.gearIndex]; if(!g) return null;
+    P.gear.splice(choice.gearIndex,1);
+    // '떠나는 도구 자신'의 격발만 — 전역 브로드캐스트는 남은 다른 도구를 잘못 격발시킨다
+    const gf=FX[g.n];
+    if(gf && gf.triggers && gf.triggers.onGearLeave)
+      for(const t of gf.triggers.onGearLeave) await execOps(t.ops, {p, gear:g});
+    G.players[g.owner!==undefined?g.owner:p].hand.push(g.n);
+    UI.log('도구를 손패로 되돌림', 'p'+p);
+    return g;
+  }
+  if(choice.bfIdx!==undefined){                     // 숨김 카드
+    const hs=G.bfs[choice.bfIdx].hiddenCards, hc=hs[choice.hiddenIndex];
+    if(!hc || hc.by!==p) return null;
+    hs.splice(choice.hiddenIndex,1);
+    G.players[hc.owner!==undefined?hc.owner:hc.by].hand.push(hc.n);
+    UI.log('숨김 카드를 손패로 되돌림', 'p'+p);
+    return hc;
+  }
+  const u=everyUnit().find(x=>x.uid===choice.uid); if(!u) return null;
+  if(!choice.alreadyPicked){
+    noteSpellPick(p, u);
+    if(!(await payDeflect(p, u))) return null;
+  }
+  const owner = u.owner!==undefined ? u.owner : u.ctrl;   // 통제권을 뺏은 유닛은 원래 주인에게
+  removeUnit(u);
+  if(!u.isToken){                                   // 토큰은 손패로 가지 않고 사라진다
+    // 예측 중에는 '공개적으로 돌아간' 카드만 재사용 가치에 반영한다 (상대의 기존 손패는 평가 안 함)
+    if(typeof SIM!=='undefined' && SIM.active)
+      (SIM.returned||(SIM.returned=[])).push({ owner, n:u.n,
+        before:G.players[owner].hand.filter(n=>n===u.n).length });
+    G.players[owner].hand.push(u.n);
+  }
+  UI.log(`${unitName(u)} 소유자의 손패로 돌아감`, 'p'+p);
+  if(choice.channel) channelRunes(owner, choice.channel, true);
+  return u;
 }
 // 기절 (룰 410). 기절을 거는 모든 경로가 이 함수를 거쳐야 전설 훅·트리거가 빠지지 않는다.
 // - 이미 기절한 유닛은 다시 기절시키지 않는다 (410.1.a.1) → 트리거도 돌지 않음
@@ -688,6 +837,32 @@ function playRestriction(c, p, fromHidden){
   if(G.turn!==p) return '자신의 턴에만 플레이할 수 있습니다';
   if(G.phase!=='action') return '행동 단계에만 플레이할 수 있습니다';
   return null;
+}
+
+// 유닛을 '플레이'하는 모든 경로가 함께 쓰는 합법 배치 위치.
+// 손패가 아닌 곳(눈부신 오로라·영혼포식자)에서 플레이해도 비용만 면제될 뿐
+// 배치 규칙과 카드가 허용하는 특수 위치는 그대로 적용된다.
+function unitPlayLocationOptions(p, n){
+  const fx = FX[n] || { kw:{} };
+  // 마법사냥꾼 간수: 상대는 유닛을 기지에만
+  const jailed = everyUnit().some(u=>u.ctrl!==p && u.loc!=='base' && unitFx(u).jailerUnits);
+  const locs=[{v:'base',label:'기지'}];
+  if(!jailed){
+    const openOK = fx.playToOpenBf || everyUnit().some(u=>u.ctrl===p && unitFx(u).openBfAura);
+    G.bfs.forEach((bf,i)=>{
+      if(bf.controller===p) locs.push({v:i,label:`전장: ${card(bf.n).ko}`});
+      else if(openOK && bf.controller===null && !bf.units.length) locs.push({v:i,label:`빈 전장: ${card(bf.n).ko}`});
+      // 죽음꽃 포식자: '점거된 적 전장' = 상대가 통제하면서 유닛이 남아 있는 전장.
+      // 통제자만 남고 빈 전장이나, 통제되지 않은 채 적 유닛만 있는 곳은 해당하지 않는다.
+      else if(fx.playToEnemyBf && bf.controller!==null && bf.controller!==p && bf.units.length)
+        locs.push({v:i,label:`적 전장: ${card(bf.n).ko}`});
+    });
+  }
+  return locs;
+}
+async function pickUnitPlayLocation(p, n){
+  const locs = unitPlayLocationOptions(p, n);
+  return locs.length===1 ? 'base' : await UI.pickOption(p, '유닛을 배치할 위치', locs);
 }
 
 async function playCardFromHand(p, handIdx, opts={}){
@@ -782,6 +957,10 @@ async function playCardFromHand(p, handIdx, opts={}){
     if(AC.kind==='pip') pips=[...pips, AC.dom];
   }
   energy = applyCostMods(p, c, energy);
+  // 효과로 플레이하는 카드(폐기장·덱에서)는 비용만 면제된다. 배치·트리거·플레이 이벤트는 그대로다.
+  // 영혼포식자·괴롭히는 밤은 에너지만 면제하고 힘은 내야 하므로 둘을 따로 받는다.
+  if(opts.ignoreEnergy) energy=0;
+  if(opts.ignorePower) pips=[];
   let accel = false;
   if(c.type==='Unit' && fx.kw.accelerate && !opts.fromHidden){
     const accPips = [ (c.dom&&c.dom.length===1)?c.dom[0]:'Any' ];
@@ -798,18 +977,7 @@ async function playCardFromHand(p, handIdx, opts={}){
   if(c.type==='Unit'){
     if(opts.fromHidden) loc=opts.bfIdx;
     else {
-      // 마법사냥꾼 간수: 상대는 유닛을 기지에만
-      const jailed = everyUnit().some(u=>u.ctrl!==p && u.loc!=='base' && unitFx(u).jailerUnits);
-      const locs=[{v:'base',label:'기지'}];
-      if(!jailed){
-        const openOK = fx.playToOpenBf || everyUnit().some(u=>u.ctrl===p && unitFx(u).openBfAura);
-        G.bfs.forEach((bf,i)=>{
-          if(bf.controller===p) locs.push({v:i,label:`전장: ${card(bf.n).ko}`});
-          else if(openOK && bf.controller===null && !bf.units.length) locs.push({v:i,label:`빈 전장: ${card(bf.n).ko}`});
-          else if(fx.playToEnemyBf && (bf.units.some(u=>u.ctrl!==p) || (bf.controller!==null&&bf.controller!==p))) locs.push({v:i,label:`적 전장: ${card(bf.n).ko}`});
-        });
-      }
-      loc = locs.length===1?'base': await UI.pickOption(p,'유닛을 배치할 위치', locs);
+      loc = await pickUnitPlayLocation(p, n);
       if(loc===null) return false;
     }
   }
@@ -836,7 +1004,7 @@ async function playCardFromHand(p, handIdx, opts={}){
   const legionOK = P.playedCards>=1;
   P.playedCards++;
 
-  UI.log(`${pname(p)} 「${c.ko}」 플레이`, 'p'+p);
+  UI.log(`${pname(p)} 「${c.ko}」 ${opts.fromTrash?'폐기장에서 ':''}플레이`, 'p'+p);
 
   // 유닛·도구는 응수 창 없이 즉시 해결된다 — 공식 규칙 333.1.c: "자원을 추가하는 능력·유닛·도구는
   // 확정(Finalize) 즉시 해결되며 Execute 단계로 진행하지 않는다" ([반응]으로 응수 불가).
@@ -905,7 +1073,7 @@ async function playCardFromHand(p, handIdx, opts={}){
     // ── 중립 상태: 기존 즉시 해결 + 대응 창 ──
     let execAs=p, countered=false;
     if(!opts.fromHidden && !fx.counter && !fx.steal){
-      const cw=await counterWindow(p, c);
+      const cw=await counterWindow(p, c, {legionOK, addPaid, addCount, bfIdx:opts.bfIdx});
       if(cw && cw.countered) countered=true;
       else if(cw && cw.steal!==undefined) execAs=cw.steal;
     }
@@ -1002,7 +1170,7 @@ async function resolveSpellEffects(p, n, fx, o){
 //  · 카운터/탈취는 '주문'에만 (저항: "Counter a spell") — 기존 제한 유지
 //  · 일반 [반응]은 즉시 해결(LIFO — 대기 중인 주문보다 먼저), 그 반응에 대한 재응수 창은
 //    playCardFromHand 재귀로 자연히 열린다. 응수할 카드가 없으면 조용히 지나간다(속도 유지).
-async function reactionWindow(caster, c){
+async function reactionWindow(caster, c, context={}){
   if(G.manual) return null;
   const o=opp(caster);
   let result=null;
@@ -1022,7 +1190,11 @@ async function reactionWindow(caster, c){
         }
       }
       // card를 실어 보내면 응수 모달에서 마우스 오버로 그 카드의 효과를 볼 수 있다 (ui.js optionCard)
-      opts.push({v:{hand:i}, label:`⚡ ${cc.ko} (비용 ${cost}${pips.length?' + 힘'+pips.length:''})`, isCounter:!!(fx.counter||fx.steal), card:cc});
+      // pendingSpell: 아직 해결되지 않은 상대 주문. 봇이 "이걸 맞고 나면 어떻게 되는가"를
+      // 재어 볼 때 쓴다. 이미 무효화된 뒤(result)라면 대기 중인 주문이 없다.
+      opts.push({v:{hand:i}, label:`⚡ ${cc.ko} (비용 ${cost}${pips.length?' + 힘'+pips.length:''})`,
+        isCounter:!!(fx.counter||fx.steal), card:cc,
+        pendingSpell: result ? null : {...context, p:caster, n:c.n}});
     });
     // [반응] 활성화 능력도 닫힌 상태 응수로 발동할 수 있다 (규칙 309.2)
     if(typeof polAbList==='function' && typeof polAbLegal==='function'){
@@ -1063,9 +1235,11 @@ async function reactionWindow(caster, c){
       continue;                                  // 상대는 이어서 다른 반응도 낼 수 있다
     }
     // 일반 반응: 정식 플레이 경로로 — 먼저 해결되고(LIFO), 그 안에서 caster의 재응수 창이 열린다
-    const prevRw=G._rwFor; G._rwFor=o;
+    const prevRw=G._rwFor, prevPending=G._returnPending;
+    G._rwFor=o;
+    G._returnPending = result ? null : {...context, p:caster, n:c.n};
     try{ await playCardFromHand(o, idx, {}); }
-    finally{ G._rwFor=prevRw; }
+    finally{ G._rwFor=prevRw; G._returnPending=prevPending; }
     if(G.winner!==null) return result;
   }
   return result;
@@ -1456,8 +1630,11 @@ async function resolveShowdown(){
     }
   }
   UI.render();
-  UI.prompt(G.turn===G.actingPlayer?`${pname(G.turn)}의 행동 단계`:'');
+  UI.prompt(G._endingTurn ? '종료 단계 — 열린 결전 처리 중'
+    : (G.turn===G.actingPlayer?`${pname(G.turn)}의 행동 단계`:''));
   await cleanup(G.turn);
+  // 종료 단계에 열렸던 결전이 모두 끝났다면 보류해 둔 종료 절차를 마저 밟는다
+  if(G._endingTurn && G.state==='neutral' && !G.showdown) await finishEndTurn(G._endingTurn.p);
 }
 
 // 피해 배분: assigner가 targets에 total 피해를 배분 (치명 우선/탱커 우선 자동, 순서는 프롬프트)
@@ -1767,8 +1944,16 @@ function noteSpellPick(p, u){
     UI.log(`「꿈꾸는 나무」: 카드 1장 드로우`, 'p'+p);
   }
 }
-async function pickBySpec(p, spec, promptText){
-  // spec 필터로 대상 후보 구성
+// 대상 조건의 위력 판정. 전투 결전 중에는 공/방 지정 위력을 쓴다
+// (돌풍의 "위력 3 이하"가 전투 중 [맹공] 등으로 달라진 위력을 반영하도록).
+function targetMight(u){
+  const sd=G.showdown;
+  const role = (sd && sd.hasCombat && u.loc===sd.bfIdx) ? (u.ctrl===sd.attacker?'attacker':'defender') : undefined;
+  return might(u, role, {forKill:true});
+}
+
+// spec에 맞는 유닛 목록 (고르기·굴절 지불 없이 후보만)
+function unitsBySpec(spec, p){
   let cands = everyUnit();
   if(spec.side==='friendly') cands=cands.filter(u=>u.ctrl===p);
   if(spec.side==='enemy') cands=cands.filter(u=>u.ctrl!==p);
@@ -1782,13 +1967,20 @@ async function pickBySpec(p, spec, promptText){
   if(spec.where==='base') cands=cands.filter(u=>u.loc==='base');
   // 'in combat' = 진행 중인 전투 결전 전장의 유닛만 (전투가 없으면 대상 없음)
   if(spec.where==='combat') cands=cands.filter(u=>G.showdown && u.loc===G.showdown.bfIdx);
-  if(spec.mightMax!==undefined) cands=cands.filter(u=>might(u)<=spec.mightMax);
-  if(spec.mightMin!==undefined) cands=cands.filter(u=>might(u)>=spec.mightMin);
+  if(spec.mightMax!==undefined) cands=cands.filter(u=>targetMight(u)<=spec.mightMax);
+  if(spec.mightMin!==undefined) cands=cands.filter(u=>targetMight(u)>=spec.mightMin);
+  if(spec.energyMax!==undefined) cands=cands.filter(u=>(unitCard(u).e||0)<=spec.energyMax);
+  if(spec._uids) cands=cands.filter(u=>spec._uids.includes(u.uid));
   if(spec.champion) cands=cands.filter(u=>!u.isToken&&card(u.n).super==='Champion');
   if(spec.buffed) cands=cands.filter(u=>u.buff>0);
   if(spec.exhausted) cands=cands.filter(u=>u.ex);
   if(spec.damaged) cands=cands.filter(u=>u.dmg>0);
   if(spec.stunned) cands=cands.filter(u=>u.stunned);
+  return cands;
+}
+
+async function pickBySpec(p, spec, promptText){
+  const cands = unitsBySpec(spec, p);
   if(!cands.length) return spec.count==='all'?[]:null;
   if(spec.count==='all') return cands;
   const u = await UI.pickUnitFrom(p, cands, promptText, spec.optional);
@@ -1966,24 +2158,23 @@ async function execOps(ops, ctx){
         us.forEach(u=>{ removeUnit(u); placeUnit(u,'base'); });
         break; }
       case 'moveUnit': {
-        const u=await pickBySpec(p, op.spec, '이동시킬 유닛 선택');
-        if(u){
-          let dest;
-          if(op.to==='here') dest=_ctxBf;
-          else if(op.to==='its base') dest='base';
-          else dest=await UI.pickOption(p,'이동할 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})));
-          // effectMove 경유 — 이동 횟수(turnMoves)와 이동 트리거(케인·야스오 등)에 반영
-          if(dest!==null){ await effectMove(p, u, dest); it=u; }
-        }
+        // 목적지까지 한 선택지로 묶는다 — 갈 수 없는 곳은 후보에 아예 나오지 않는다
+        const to = op.to==='here' ? _ctxBf : op.to==='its base' ? 'base' : 'bf';
+        const u = await chooseEffectMove(p, op.spec, to);
+        if(u) it=u;
         break; }
       case 'bounce': {
-        let u=null;
-        if(op.who==='me') u=ctx.unit; else if(op.who==='it') u=it;
-        else u=await pickBySpec(p,{type:'unit',side:op.who.includes('enemy')?'enemy':'any',where:'any',count:1},'손패로 되돌릴 유닛 선택');
-        if(u && !u.isToken){
-          removeUnit(u); G.players[u.ctrl].hand.push(u.n);
-          UI.log(`${unitName(u)} 손패로 돌아감`, 'p'+p);
-        } else if(u&&u.isToken){ removeUnit(u); }
+        // 소유자의 손으로 돌아간다 (통제권을 뺏은 유닛은 원래 주인에게)
+        const fixed = op.who==='me' ? ctx.unit : op.who==='it' ? it : null;
+        if(op.who==='me' || op.who==='it'){
+          if(fixed){
+            if(op.optional) await chooseReturnToHand(p,{_uids:[fixed.uid],optional:true},{alreadyPicked:true,energy:op.energy});
+            else await resolveReturnToHand(p,{uid:fixed.uid,alreadyPicked:true});
+          }
+        } else {
+          const side = op.who.includes('enemy') ? 'enemy' : op.who.includes('friendly') ? 'friendly' : 'any';
+          await chooseReturnToHand(p,{type:'unit',side,where:'any',count:1,optional:!!op.optional});
+        }
         break; }
       case 'readySelf': if(ctx.unit){ await readyUnit(ctx.unit, p); } break;
       case 'readyIt': if(it){ await readyUnit(it, p); } break;
@@ -2036,15 +2227,8 @@ async function execOps(ops, ctx){
         break; }
       // ── 전설 전용 특수 op ──
       case 'yasuoMove': {
-        const mine=everyUnit().filter(u=>u.ctrl===p);
-        const u=await UI.pickUnitFrom(p,mine,'이동시킬 아군 유닛 선택');
-        if(u){
-          // effectMove 경유 — 이동 횟수·이동 트리거 반영 (야스오 205의 3회 이동 득점 등)
-          if(u.loc==='base'){
-            const sel=await UI.pickOption(p,'이동할 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})));
-            if(sel!==null){ await effectMove(p, u, sel); UI.log(`(전설 능력)`, 'p'+p); }
-          } else { await effectMove(p, u, 'base'); UI.log(`(전설 능력)`, 'p'+p); }
-        }
+        // 기지↔전장 왕복 — 유닛과 목적지를 함께 고른다
+        if(await chooseEffectMove(p,{side:'friendly'},'baseLink')) UI.log(`(전설 능력)`, 'p'+p);
         break; }
       case 'teemoFetch': {
         const P=G.players[p];
@@ -2059,11 +2243,22 @@ async function execOps(ops, ctx){
         break; }
       // ── 선택/조건부 실행 ──
       case 'optional': {
+        // 이동은 "할까요?"를 따로 묻지 않는다 — 목적지 후보에 '이동하지 않음'을 넣어
+        // 어디로 갈지 본 다음 결정하게 한다 (봇도 사람도 눈감고 답하지 않게)
+        if(op.inner.op==='moveUnit' || op.inner.op==='moveSpec'){
+          await execOps([{...op.inner, spec:{...op.inner.spec, optional:true}}], {...ctx, it});
+          break;
+        }
         const yes=await UI.confirmP(p,'선택 효과를 실행할까요?');
         if(yes) await execOps([op.inner], {...ctx, it});
         break; }
       case 'payThen': {
         if(!canPay(p,op.energy,[])) break;
+        // "에너지를 내고 나 자신을 손패로" 류는 지불과 대상을 한 선택지로 묶는다
+        if(op.inner.op==='bounce' && op.inner.who==='me'){
+          await execOps([{...op.inner, optional:true, energy:op.energy}], {...ctx, it});
+          break;
+        }
         const yes=await UI.confirmP(p,`에너지 ${op.energy}를 지불하고 효과를 실행할까요?`);
         if(yes){ payCost(p,op.energy,[]); await execOps([op.inner], {...ctx, it}); }
         break; }

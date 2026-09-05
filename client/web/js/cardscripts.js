@@ -188,7 +188,7 @@ Object.assign(SCRIPTS, {
   264: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('guerrilla')]}]; return fx; },
   266: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('powerSiphon')]}]; return fx; },
   268: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('gunsBlazing')]}]; return fx; },
-  270: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('buff',{count:1,spec:{side:'friendly',where:'base'}}),OPX('moveItToBf')]}]; return fx; },
+  270: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('buffAndMove')]}]; return fx; },
 
   // ── 전장 ──
   285: fx=>{ fx.manual=[]; fx.triggers.onDefendHere=[{ops:[OPX('moveSpec',{spec:{side:'friendly',where:'here',optional:true},to:'base'})]}]; return fx; },
@@ -243,71 +243,49 @@ const EXTRA_OPS = {
     UI.log(`「힘 착취」: 전장의 아군 +1 / 적 -1`,'p'+ctx.p); },
 
   // ── 이동/복귀 ──
-  async moveSpec(op, ctx, h){ const u=await pickBySpec(ctx.p, op.spec, '이동시킬 유닛 선택'); if(!u) return;
-    let dest;
-    if(op.to==='base') dest='base';
-    else { const opts=G.bfs.map((bf,i)=>({v:i,label:'전장: '+card(bf.n).ko})); if(op.to==='chooseAny') opts.push({v:'base',label:'기지'});
-      dest=await UI.pickOption(ctx.p,'목적지 선택',opts); if(dest===null) return; }
-    if(u.loc===dest) return;
-    await effectMove(ctx.p, u, dest);
-    if(op.ready) await readyUnit(u, ctx.p);
-    h.setIt(u); },
+  async moveSpec(op, ctx, h){
+    const to = op.to==='chooseAny' ? 'any' : op.to==='base' ? 'base' : 'bf';
+    const u = await chooseEffectMove(ctx.p, op.spec, to, {ready:!!op.ready});
+    if(u) h.setIt(u); },
   async moveItToBf(op, ctx, h){ const it=h.it(); if(!it) return;
-    const sel=await UI.pickOption(ctx.p,'이동할 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko}))); if(sel===null) return;
-    await effectMove(ctx.p, it, sel); },
+    // 대상은 이미 정해졌으므로 목적지만 고른다 (굴절은 앞 단계에서 이미 지불)
+    await chooseEffectMove(ctx.p, {_uids:[it.uid]}, 'bf', {alreadyPicked:true}); },
+  // 「축복받은 진군」: 기지의 아군을 버프하고 전장으로 — 버프 대상과 목적지를 함께 고른다
+  async buffAndMove(op, ctx, h){
+    const u = await chooseEffectMove(ctx.p, {side:'friendly',where:'base'}, 'bf', {buff:true});
+    if(u) h.setIt(u); },
   async moveFriendlyToItsBf(op, ctx, h){ const it=h.it(); if(!it||it.loc==='base') return;
-    const yes=await UI.confirmP(ctx.p,'아군 유닛을 그 전장으로 이동할까요?'); if(!yes) return;
-    const u=await pickBySpec(ctx.p,{side:'friendly',count:1},'이동할 아군 유닛'); if(u&&u.loc!==it.loc) await effectMove(ctx.p,u,it.loc); },
+    // '보낼까요?'를 먼저 묻지 않는다 — 누구를 보낼지 본 뒤 '이동하지 않음'을 고를 수 있다
+    await chooseEffectMove(ctx.p, {side:'friendly',optional:true}, it.loc); },
   async bounceSpec(op, ctx, h){
-    let cands=everyUnit();
-    if(op.spec.side==='friendly') cands=cands.filter(u=>u.ctrl===ctx.p);
-    if(op.spec.side==='enemy') cands=cands.filter(u=>u.ctrl!==ctx.p);
-    if(op.spec.where==='bf') cands=cands.filter(u=>u.loc!=='base');
-    if(op.maxM!==undefined) cands=cands.filter(u=>might(u)<=op.maxM);
-    if(op.notSelf&&ctx.unit) cands=cands.filter(u=>u!==ctx.unit);
-    if(!cands.length) return;
-    const u=await UI.pickUnitFrom(ctx.p, cands, '손패로 되돌릴 유닛 선택', op.spec.optional); if(!u) return;
-    removeUnit(u); if(!u.isToken) G.players[u.ctrl].hand.push(u.n);
-    UI.log(`${unitName(u)} 손패로 돌아감`,'p'+ctx.p); h.setIt(u); },
+    // 위력 조건은 '지금'의 위력으로 본다 — 전투 중 [맹공]·버프로 달라진 값까지 반영된다
+    const spec={...op.spec, mightMax: op.maxM!==undefined ? op.maxM : op.spec.mightMax};
+    if(op.notSelf && ctx.unit) spec._exclude=[ctx.unit];
+    const u=await chooseReturnToHand(ctx.p, spec);
+    if(u) h.setIt(u); },
   async retreatOp(op, ctx, h){
-    const cands=everyUnit().filter(u=>u.ctrl===ctx.p); if(!cands.length) return;
-    const u=await UI.pickUnitFrom(ctx.p,cands,'손패로 되돌릴 아군 유닛'); if(!u) return;
-    // 원문: '소유자(owner)'의 손으로 — 통제권을 뺏어온 유닛이면 원래 주인에게 돌아간다
-    const owner=u.owner??u.ctrl; removeUnit(u); if(!u.isToken) G.players[owner].hand.push(u.n);
-    channelRunes(owner,1,true); },
+    // 소유자의 손으로 돌아가고, 그 소유자가 룬 1개를 탈진 전개한다
+    const u=await chooseReturnToHand(ctx.p, {side:'friendly'}, {channel:1});
+    if(u) h.setIt(u); },
   async tideTurner(op, ctx, h){ const me=ctx.unit; if(!me) return;
-    const others=everyUnit().filter(u=>u.ctrl===ctx.p&&u.loc!==me.loc);
-    if(!others.length) return;
-    const t=await UI.pickUnitFrom(ctx.p, others, '위치를 교환할 아군 유닛 선택', true); if(!t) return;
-    const a=me.loc, b=t.loc;
-    UI.log(`「물결을 바꾸는 자」 위치 교환!`,'p'+ctx.p);
-    // 교환도 두 유닛 각각의 '이동' — effectMove로 이동 횟수·트리거 반영
-    await effectMove(ctx.p, me, b);
-    await effectMove(ctx.p, t, a); },
+    // 교환도 두 유닛 각각의 '이동'. 서로 자리를 바꿀 수 있는 짝만 후보로 나온다
+    UI.log(`「물결을 바꾸는 자」 위치 교환`,'p'+ctx.p);
+    await chooseEffectMove(ctx.p, {side:'friendly',optional:true,_exclude:[me]}, me.loc, {swapUid:me.uid}); },
   async possess(op, ctx, h){ const u=await pickBySpec(ctx.p,{side:'enemy',where:'bf',count:1},'통제권을 뺏을 적 유닛'); if(!u) return;
     removeUnit(u); u.ctrl=ctx.p; placeUnit(u,'base');
     UI.log(`「빙의」: ${unitName(u)}의 통제권 획득!`,'p'+ctx.p); h.setIt(u); },
   async stormbringer(op, ctx, h){
-    const u=await pickBySpec(ctx.p,{side:'friendly',where:'base',count:1},'기지의 아군 유닛 선택'); if(!u) return;
-    const sel=await UI.pickOption(ctx.p,'전장 선택',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko}))); if(sel===null) return;
-    for(const e of G.bfs[sel].units.filter(x=>x.ctrl!==ctx.p)) dealDamage(e, might(u), 'spell');
-    await effectMove(ctx.p, u, sel); },
+    // 어느 전장에 보내느냐로 피해량과 전투 결과가 통째로 달라진다 → 쌍으로 고른다
+    await chooseEffectMove(ctx.p, {side:'friendly',where:'base'}, 'bf', {storm:true}); },
   async dragonRage(op, ctx, h){
-    const u=await pickBySpec(ctx.p,{side:'enemy',count:1},'이동시킬 적 유닛'); if(!u) return;
-    const opts=G.bfs.map((bf,i)=>({v:i,label:'전장: '+card(bf.n).ko})).concat([{v:'base',label:'기지'}]);
-    const dest=await UI.pickOption(ctx.p,'목적지',opts); if(dest===null) return;
-    await effectMove(ctx.p, u, dest);
-    if(dest!=='base'){
-      const others=G.bfs[dest].units.filter(x=>x.ctrl!==ctx.p&&x!==u);
-      if(others.length){ const t=await UI.pickUnitFrom(ctx.p, others, '상호 피해를 줄 다른 적 유닛');
-        if(t){ dealDamage(t, might(u), 'spell'); dealDamage(u, might(t), 'spell'); UI.log(`${unitName(u)} ⚔ ${unitName(t)} 상호 피해!`,'combat'); } }
-    } },
+    // 원문은 "이동시킨 뒤 도착지의 다른 적 유닛을 고른다" — 도착지가 적 기지여도 성립한다
+    // (기존에는 전장으로 보냈을 때만 상호 피해를 처리했다)
+    await chooseEffectMove(ctx.p, {side:'enemy'}, 'any', {dragon:true}); },
   async whirlwind(op, ctx, h){
-    for(const pi of [opp(ctx.p), ctx.p]){
-      const cands=everyUnit().filter(u=>u.ctrl===pi); if(!cands.length) continue;
-      const u=await UI.pickUnitFrom(pi, cands, `${pname(pi)}: 손패로 되돌릴 유닛 (선택)`, true);
-      if(u){ removeUnit(u); if(!u.isToken) G.players[pi].hand.push(u.n); UI.log(`${unitName(u)} 손패로`,'p'+pi); }
-    } },
+    // 각 플레이어가 자기 유닛 하나를 고른다 (토큰은 손패로 가지 않고 사라진다)
+    for(const pi of [opp(ctx.p), ctx.p])
+      await chooseReturnToHand(pi, {side:'friendly', optional:true});
+  },
 
   // ── 폐기장/덱 상호작용 ──
   async trashToHand(op, ctx, h){ const P=G.players[ctx.p];
@@ -326,12 +304,23 @@ const EXTRA_OPS = {
     if(!cands.length){ if(!op.optional) UI.toast('폐기장에 대상이 없습니다','warn'); return; }
     if(op.optional){ const yes=await UI.confirmP(ctx.p,'폐기장에서 카드를 플레이할까요?'); if(!yes) return; }
     const sel=await UI.pickOption(ctx.p,'폐기장에서 플레이할 카드',cands.map(n=>({v:n,label:card(n).ko,n}))); if(sel===null) return;
+    const c=card(sel);
+    if(c.type==='Unit'){
+      // 정식 플레이 함수는 손패의 카드만 받으므로 고른 한 장을 잠시 손패 맨 앞에 옮긴다.
+      // 이 경로를 써야 배치 위치·등장 준비·플레이 트리거·공통 이벤트가 모두 처리된다.
+      // 힘 비용은 여기서 따로 내지 않고 playCardFromHand가 정상 지불하게 둔다.
+      const ti=P.trash.indexOf(sel);
+      P.trash.splice(ti,1); P.hand.unshift(sel);
+      const ok=await playCardFromHand(ctx.p,0,{fromTrash:true,ignoreEnergy:true,ignorePower:!op.payPower});
+      if(ok===false){                       // 취소·자원 부족 → 폐기장으로 되돌린다
+        if(P.hand[0]===sel) P.hand.shift();
+        P.trash.splice(ti,0,sel);
+      }
+      return;
+    }
     if(op.payPower) payCost(ctx.p,0,powerPips(card(sel)));
     P.trash.splice(P.trash.indexOf(sel),1);
-    const c=card(sel);
-    if(c.type==='Unit'){ const u=makeUnit(sel,ctx.p,{loc:'base'}); placeUnit(u,'base'); UI.log(`${pname(ctx.p)} 「${c.ko}」 폐기장에서 플레이`,'p'+ctx.p);
-      await runTriggerList((FX[sel]||{}).triggers?.onPlay, {p:ctx.p, unit:u, legionOK:true}); }
-    else if(c.type==='Spell'){ UI.log(`${pname(ctx.p)} 「${c.ko}」 폐기장에서 플레이`,'p'+ctx.p);
+    if(c.type==='Spell'){ UI.log(`${pname(ctx.p)} 「${c.ko}」 폐기장에서 플레이`,'p'+ctx.p);
       for(const po of ((FX[sel]||{}).playOps||[])) await execOps(po.ops,{p:ctx.p,kind:'spell'});
       if(op.thenRecycle){ G.players[ctx.p].deck.push(sel); await fireEvent('onYouRecycle',{p:ctx.p}); } else P.trash.push(sel); }
     },
@@ -442,9 +431,19 @@ const EXTRA_OPS = {
       if(card(n).type==='Unit'){ unitN=n; break; } revealed.push(n); }
     P.deck.push(...revealed);
     if(revealed.length) await fireEvent('onYouRecycle',{p:ctx.p});
-    if(unitN!==null){ const u=makeUnit(unitN,ctx.p,{loc:'base'}); placeUnit(u,'base');
-      UI.log(`「눈부신 오로라」: 「${card(unitN).ko}」 무료 소환!`,'p'+ctx.p);
-      await runTriggerList((FX[unitN]||{}).triggers?.onPlay,{p:ctx.p,unit:u,legionOK:true}); } },
+    if(unitN!==null){
+      // 공개된 카드를 손패 맨 앞에 잠시 두고 정식 플레이 경로로 보낸다.
+      // 이 경로여야 배치 위치 선택(죽음꽃 포식자의 적 전장 포함)·등장 준비·
+      // 플레이 트리거·공통 플레이 이벤트가 손패에서 낸 것과 똑같이 처리된다.
+      P.hand.unshift(unitN);
+      UI.log(`「눈부신 오로라」: 「${card(unitN).ko}」 무료 플레이!`,'p'+ctx.p);
+      const ok=await playCardFromHand(ctx.p,0,{fromDeck:true,ignoreEnergy:true,ignorePower:true});
+      // 강제 효과라 취소할 수 없다 — 위치 선택을 닫았으면 기지에 그대로 등장시킨다
+      if(ok===false && P.hand[0]===unitN){
+        P.hand.shift();
+        const u=makeUnit(unitN,ctx.p,{loc:'base'}); placeUnit(u,'base');
+        await runTriggerList((FX[unitN]||{}).triggers?.onPlay,{p:ctx.p,unit:u,legionOK:true});
+      } } },
   async teemoDefend(op, ctx, h){ const me=ctx.unit; if(!me||me.loc==='base') return;
     const enemies=G.bfs[me.loc].units.filter(u=>u.ctrl!==ctx.p); if(!enemies.length) return;
     const t=await UI.pickUnitFrom(ctx.p, enemies, '대상 적 유닛 선택'); if(!t) return;
@@ -501,7 +500,9 @@ const EXTRA_OPS = {
     for(const u of buffed){ const take=Math.min(left,u.buff); u.buff-=take; left-=take; if(!left) break; }
     channelRunes(ctx.p, n, true); },
   async gunsBlazing(op, ctx, h){
-    let maxP=Object.values(G.players[ctx.p].power).reduce((a,b)=>a+b,0)+G.players[ctx.p].runes.filter(r=>!r.ex).length;
+    // 힘 핍은 탈진된 룬도 재활용해 낼 수 있다(payCost가 탈진 룬을 먼저 재활용한다).
+    // 준비 룬만 세면 에너지를 쓰느라 탈진된 룬만큼 지불 한도가 부족하게 잡힌다.
+    let maxP=Object.values(G.players[ctx.p].power).reduce((a,b)=>a+b,0)+G.players[ctx.p].runes.length;
     if(maxP<=0) return;
     const n=await UI.pickNumber(ctx.p,'지불할 힘(✳) 수',0,Math.min(maxP,10)); if(!n) return;
     const pips=[]; for(let i=0;i<n;i++) pips.push('Any');
@@ -545,14 +546,11 @@ const EXTRA_OPS = {
     // 숨김 카드도 n을 실어 미리보기를 붙인다 — hc.by===ctx.p 필터라 내가 숨긴 것만 후보다(정보 노출 아님)
     G.bfs.forEach((bf,bi)=>bf.hiddenCards.forEach((hc,hi)=>{ if(hc.by===ctx.p) opts.push({v:{t:'hidden',bi,hi},label:'숨김 카드',n:hc.n}); }));
     if(!opts.length) return;
-    const sel=await UI.pickOption(ctx.p,'손패로 되돌릴 대상',opts); if(!sel) return;
-    if(sel.t==='unit'){ removeUnit(sel.u); P.hand.push(sel.u.n); }
-    else if(sel.t==='gear'){ const g=P.gear.splice(sel.i,1)[0];
-      // '떠나는 도구 자신'의 격발만 — 전역 브로드캐스트는 남아 있는 다른 도구를 잘못 격발시킨다
-      const gf=FX[g.n]; if(gf&&gf.triggers&&gf.triggers.onGearLeave) for(const t of gf.triggers.onGearLeave) await execOps(t.ops,{p:ctx.p,gear:g});
-      P.hand.push(g.n); }
-    else { const hc=G.bfs[sel.bi].hiddenCards.splice(sel.hi,1)[0]; P.hand.push(hc.n); }
-    UI.log('손패로 되돌림','p'+ctx.p); },
+    const sel=await UI.pickOption(ctx.p,'소유자의 손패로 되돌릴 대상',opts); if(!sel) return;
+    // 실제 되돌리기는 공용 경로로 — 통제권을 뺏어온 유닛/도구도 원래 주인에게 간다
+    if(sel.t==='unit') await resolveReturnToHand(ctx.p,{uid:sel.u.uid, alreadyPicked:true});
+    else if(sel.t==='gear') await resolveReturnToHand(ctx.p,{gearIndex:sel.i});
+    else await resolveReturnToHand(ctx.p,{bfIdx:sel.bi, hiddenIndex:sel.hi}); },
   async exhThisDraw(op, ctx, h){ if(!ctx.gear||ctx.gear.ex) return;
     const yes=await UI.confirmP(ctx.p,'도구를 탈진하고 카드를 뽑을까요?'); if(!yes) return;
     ctx.gear.ex=true; for(let i=0;i<(op.n||1);i++) drawCard(ctx.p); },

@@ -167,7 +167,8 @@ function parseOp(s){
   if((m = s.match(/^[Dd]eal (\d+) damage split among any number of enemy units( here)?$/)))
     return { op:'dealSplit', n:+m[1], spec:{side:'enemy', where:m[2]?'here':'any'} };
   // 전장 아군 유닛 → 기지
-  if(/^[Mm]ove a friendly unit at a battlefield to its base$/.test(s))
+  // 「사이렌 호」는 "to your base"로 인쇄돼 있다 — 같은 효과이므로 둘 다 받는다
+  if(/^[Mm]ove a friendly unit at a battlefield to (?:its|your) base$/.test(s))
     return { op:'moveSpec', spec:{side:'friendly',where:'bf'}, to:'base' };
   // 추가 턴 / 자기 추방
   if(/^[Tt]ake a turn after this one$/.test(s)) return { op:'extraTurn' };
@@ -509,10 +510,10 @@ const SCRIPTS = {
   // 빅토르 — 1+탈진: 1⚔ 신병 토큰 플레이
   265: fx=>{ fx.manual=[]; fx.activated=[{cost:{energy:1,exhaustSelf:true},
         ops:[{op:'token',count:1,might:1,name:'Recruit',where:'play'}], label:'신병 토큰 1개 플레이'}]; return fx; },
-  // 세트 — 탈진: 유닛에게 이번 턴 [개입] 부여
+  // 미스 포츈 — 탈진: 유닛에게 이번 턴 [개입] 부여
   267: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},
         ops:[{op:'grantKw',who:'a unit',kws:[['Ganking',1]],dur:'turn'}], label:'유닛에게 [개입] 부여'}]; return fx; },
-  // 미스 포츈 — 버프된 아군 유닛 사망 시 대체 회수 (프롬프트) / 정복 시 준비
+  // 세트 — 버프된 아군 유닛 사망 시 대체 회수 (프롬프트) / 정복 시 준비
   269: fx=>{ fx.manual=[]; fx.hookBuffedDeathSave = true;
         fx.triggers.onConquerYou=[{ops:[{op:'readyLegend'}]}]; return fx; },
 
