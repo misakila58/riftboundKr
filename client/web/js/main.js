@@ -121,6 +121,100 @@ function deckToCode(d){
     deckCodeList(sorted(d.main)), deckCodeList(sorted(d.runes)), deckCodeList(d.bfs),
     deckCodeList(sorted(d.side)), encodeURIComponent(d.name||'')].join('|');
 }
+// ── 덱 목록 텍스트 파서 ──
+// 덱 빌더들이 내보내는 형식을 그대로 붙여넣을 수 있게 한다:
+//   Legend:
+//   1 Kai'Sa, Void Daughter
+//   MainDeck:
+//   3 Chemtech Enforcer
+//   ...
+// 카드 이름은 영문·한글 모두 받고, 쉼표/하이픈·대소문자·따옴표 차이는 무시한다.
+// (덱 빌더는 "이름, 수식어", 이 시뮬레이터의 데이터는 "이름 - 수식어"를 쓴다)
+function deckNameKey(s){
+  return String(s).toLowerCase()
+    .replace(/[\u2018\u2019\u201c\u201d']/g, '')        // 따옴표 종류 차이
+    .replace(/[,\u2013\u2014-]/g, ' ')                   // 쉼표·각종 하이픈 → 공백
+    .replace(/[^a-z0-9가-힣 ]/g, '')
+    .replace(/\s+/g, ' ').trim();
+}
+let _deckNameIndex = null;
+function deckNameIndex(){
+  if(_deckNameIndex) return _deckNameIndex;
+  const idx = new Map();
+  for(const c of CARDS){
+    for(const nm of [c.name, c.ko]){
+      const k = nm && deckNameKey(nm);
+      if(k && !idx.has(k)) idx.set(k, c);
+    }
+  }
+  return (_deckNameIndex = idx);
+}
+// 섹션 제목 → 내부 이름
+const DECKLIST_SECTIONS = {
+  legend:'legend', champion:'champion', chosenchampion:'champion',
+  maindeck:'main', main:'main', deck:'main',
+  battlefields:'bfs', battlefield:'bfs',
+  runepool:'runes', runedeck:'runes', runes:'runes', rune:'runes',
+  sideboard:'side', sidedeck:'side', side:'side',
+};
+function deckFromList(text){
+  const found = { legend:[], champion:[], main:[], bfs:[], runes:[], side:[] };
+  const unknown = [];
+  let cur = null;
+  for(let line of String(text).split(/\r?\n/)){
+    line = line.trim();
+    if(!line || line.startsWith('#') || line.startsWith('//')) continue;
+    // 섹션 제목: "MainDeck:" · "Rune Pool:" · "사이드보드:"
+    const head = line.match(/^([A-Za-z가-힣 ]+)\s*:\s*$/);
+    if(head){
+      const key = head[1].toLowerCase().replace(/\s+/g,'');
+      cur = DECKLIST_SECTIONS[key] || null;
+      if(!cur) throw new Error(`알 수 없는 항목입니다: "${head[1].trim()}"`);
+      continue;
+    }
+    // 카드 줄: "3 Chemtech Enforcer" · "3x Chemtech Enforcer" · "Chemtech Enforcer"
+    const m = line.match(/^(?:(\d+)\s*[xX]?\s+)?(.+?)\s*$/);
+    if(!m) continue;
+    if(!cur) throw new Error('항목 제목(Legend:, MainDeck: 등) 없이 카드가 먼저 나왔습니다');
+    const cnt = m[1] ? +m[1] : 1;
+    const nm = m[2].replace(/\s*\([^)]*\)\s*$/, '');    // 끝의 (세트코드) 같은 꼬리표 제거
+    const c = deckNameIndex().get(deckNameKey(nm));
+    if(!c){ if(!unknown.includes(nm)) unknown.push(nm); continue; }
+    for(let i=0;i<cnt;i++) found[cur].push(c.n);
+  }
+  if(unknown.length){
+    // 카드 이름 자체에 쉼표가 들어가므로 줄바꿈으로 나눠야 읽힌다
+    const head = unknown.slice(0, 10).map(x => '  · ' + x).join('\n');
+    const more = unknown.length > 10 ? `\n  · … 외 ${unknown.length - 10}종` : '';
+    throw new Error(`이 시뮬레이터에 없는 카드가 ${unknown.length}종 있습니다:\n${head}${more}\n\n`
+      + '이 시뮬레이터는 Origins(OGN)와 스타터 카드만 지원합니다 — 다른 세트의 덱은 가져올 수 없습니다.');
+  }
+  if(!found.legend.length) throw new Error('Legend 항목이 없습니다');
+  const legendN = found.legend[0];
+  const champN = found.champion[0];
+  if(champN === undefined) throw new Error('Champion 항목이 없습니다');
+  // 선발 챔피언은 메인 덱 40장에 포함된다 (룰 103.2) — 목록이 39장이면 챔피언을 더한다
+  const main = found.main.includes(champN) ? [...found.main] : [champN, ...found.main];
+  const d = { name:'가져온 덱', legendN, champN, main, runes:found.runes, bfs:found.bfs };
+  if(found.side.length) d.side = found.side;
+  return d;
+}
+
+// 덱 코드(RB1|...)와 덱 목록 텍스트를 모두 받는다
+function deckFromAny(text){
+  const t=String(text||'').trim();
+  if(!t) throw new Error('내용이 비어 있습니다');
+  return t.startsWith(DECK_CODE_TAG+'|') ? deckFromCode(t) : deckCheck(deckFromList(t));
+}
+// 장수 확인 — 코드와 목록이 같은 기준을 쓰게 한 곳에 모은다
+function deckCheck(d){
+  if(d.main.length!==40) throw new Error(`메인 덱이 40장이 아닙니다 (${d.main.length}장 — 선발 챔피언 포함)`);
+  if(d.runes.length!==12) throw new Error(`룬이 12개가 아닙니다 (${d.runes.length}개)`);
+  if(d.bfs.length!==3) throw new Error(`전장이 3개가 아닙니다 (${d.bfs.length}개)`);
+  if(d.side && d.side.length>MAX_SIDE) throw new Error(`사이드덱은 ${MAX_SIDE}장까지입니다 (${d.side.length}장)`);
+  return d;
+}
+
 function deckFromCode(code){
   const raw=String(code||'').trim().replace(/\s+/g,'');
   const p=raw.split('|');
@@ -135,11 +229,7 @@ function deckFromCode(code){
   // 이 시뮬레이터가 아는 카드인지 확인 — 다른 세트/버전 코드를 조용히 받아들이지 않는다
   for(const n of [d.legendN, d.champN, ...d.main, ...d.runes, ...d.bfs, ...(d.side||[])])
     if(!card(n)) throw new Error('모르는 카드가 들어 있습니다 (카드 번호 '+n+') — 버전이 다른 덱 코드일 수 있습니다');
-  if(d.main.length!==40) throw new Error(`메인 덱이 40장이 아닙니다 (${d.main.length}장)`);
-  if(d.runes.length!==12) throw new Error(`룬이 12개가 아닙니다 (${d.runes.length}개)`);
-  if(d.bfs.length!==3) throw new Error(`전장이 3개가 아닙니다 (${d.bfs.length}개)`);
-  if(d.side && d.side.length!==8) throw new Error('사이드덱은 0장 또는 8장이어야 합니다');
-  return d;
+  return deckCheck(d);
 }
 
 // ---------- 서버에 못 올린 덱 임시 보관 ----------
@@ -649,12 +739,32 @@ async function copyDeckToOtherStore(d){
   }catch(e){ UI.toast(`${where}에 복사하지 못했습니다 — ${e.message}`,'warn'); }
 }
 
+// 덱 코드 한 줄과 덱 목록 여러 줄을 모두 받아야 하므로 prompt 대신 입력창을 띄운다
+function askDeckText(){
+  return new Promise(res=>{
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>📥 덱 가져오기</h3>
+      <div style="font-size:12px;color:#8f9bb3;margin-bottom:6px">
+        덱 코드(RB1|…) 또는 덱 목록 텍스트를 그대로 붙여넣으세요.</div>
+      <textarea id="dk-import-text" spellcheck="false" placeholder="RB1|247|27|…&#10;&#10;또는&#10;&#10;Legend:&#10;1 Kai'Sa, Void Daughter&#10;&#10;MainDeck:&#10;3 Chemtech Enforcer&#10;…"
+        style="width:100%;height:220px;padding:8px;border-radius:6px;border:1px solid #3a4a70;background:#0e1626;color:#e8e6e0;font-size:12px;font-family:Consolas,monospace;resize:vertical"></textarea>`;
+    const btns=document.createElement('div'); btns.className='modal-btns';
+    const ok=document.createElement('button'); ok.className='primary'; ok.textContent='가져오기';
+    ok.onclick=()=>{ const v=box.querySelector('#dk-import-text').value; closeModal(); res(v); };
+    const no=document.createElement('button'); no.textContent='취소';
+    no.onclick=()=>{ closeModal(); res(null); };
+    btns.appendChild(ok); btns.appendChild(no); box.appendChild(btns);
+    openModal(); markModalDismissable();
+    setTimeout(()=>box.querySelector('#dk-import-text').focus(), 0);
+  });
+}
+
 // 덱 코드를 붙여넣어 지금 보고 있는 저장소에 저장한다
 async function importDeckCode(){
-  const raw=prompt('덱 코드를 붙여넣으세요 (RB1| 로 시작합니다)');
+  const raw=await askDeckText();
   if(raw===null) return;
   let d;
-  try{ d=deckFromCode(raw); }
+  try{ d=deckFromAny(raw); }
   catch(e){ alert('가져오지 못했습니다 — '+e.message); return; }
   const name=prompt('덱 이름', d.name);
   if(name===null) return;
@@ -683,6 +793,9 @@ function initDecks(){
 // champOverride: 유저가 직접 고른 챔피언 (null이면 전설 기준 자동 = 견본덱 방식)
 const ED = { index:null, main:[], side:[], runes:{}, bfs:[], legendN:null, champOverride:null, selN:null,
              arts:{} };   // 카드번호 → 일러스트 인덱스 (0/없음 = 기본 그림)
+// 사이드덱 최대 장수 — 2026-07-24 대회 규정으로 8장에서 10장으로 늘었다.
+// 공식 문구는 "10 or fewer"라 그 안에서는 몇 장이든 된다 (정확히 N장이 아니다).
+const MAX_SIDE = 10;
 // 카드를 고를 때 사이드덱으로 보낼지 (체크박스 또는 Shift+클릭)
 function edToSide(e){
   if(e && e.shiftKey) return true;
@@ -821,7 +934,7 @@ function edAddCard(c, toSide){
   }
   if(edCopies(c.n)>=3){ UI.toast('같은 카드는 메인·사이드를 합쳐 3장까지입니다','warn'); return false; }
   if(toSide){
-    if(ED.side.length>=8){ UI.toast('사이드덱은 8장까지입니다','warn'); return false; }
+    if(ED.side.length>=MAX_SIDE){ UI.toast(`사이드덱은 ${MAX_SIDE}장까지입니다`,'warn'); return false; }
     ED.side.push(c.n); warnBan(); return true;
   }
   if(ED.main.length>=40){ UI.toast('메인 덱은 40장입니다','warn'); return false; }
@@ -934,8 +1047,7 @@ function renderEditor(){
   });
   const sc=document.getElementById('ed-side-count');
   sc.textContent=ED.side.length;
-  // 0장도 8장도 아니면 저장할 수 없으므로 눈에 띄게 표시한다
-  sc.style.color = (ED.side.length===0 || ED.side.length===8) ? '' : '#ff9c6e';
+  sc.style.color = ED.side.length>MAX_SIDE ? '#ff9c6e' : '';
 
   // 룬
   const runesEl=document.getElementById('ed-runes');
@@ -1057,9 +1169,8 @@ function initEditor(){
       if(Object.keys(a).length) deck.arts=a;
     }
     if(deck.main.length!==40){ msg.textContent='메인 덱은 정확히 40장이어야 합니다'; return; }
-    // 공식 규칙: 사이드덱은 0장 또는 정확히 8장 (중간값 없음)
-    if(ED.side.length!==0 && ED.side.length!==8){
-      msg.textContent=`사이드덱은 0장이거나 정확히 8장이어야 합니다 (지금 ${ED.side.length}장)`; return;
+    if(ED.side.length>MAX_SIDE){
+      msg.textContent=`사이드덱은 ${MAX_SIDE}장까지입니다 (지금 ${ED.side.length}장)`; return;
     }
     if(runes.length!==12){ msg.textContent='룬은 정확히 12개여야 합니다'; return; }
     if(deck.bfs.length!==3){ msg.textContent='전장은 정확히 3개여야 합니다'; return; }
@@ -1363,6 +1474,7 @@ const RM = {
   // 선발 챔피언도 이때 바꿀 수 있다 (전설 태그가 맞고 메인에 들어 있어야 한다).
   openSideboard(deck, ban, onDone){
     const main=[...deck.main], side=[...(deck.side||[])];
+    const sideSize=side.length;   // 1장 넣으면 1장 빼므로 시작 장수를 그대로 유지한다
     let champN=deck.champN;
     const legend=card(deck.legendN);
     const legendTags=(legend&&legend.tags)||[];
@@ -1375,7 +1487,7 @@ const RM = {
 
     const box=document.getElementById('modal-box');
     const render=()=>{
-      const okNow = main.length===40 && side.length===8;
+      const okNow = main.length===40 && side.length===sideSize;
       const group=arr=>{ const g={}; arr.forEach(n=>g[n]=(g[n]||0)+1); return g; };
       const listHTML=(arr,cls)=>{
         const g=group(arr);
@@ -1396,7 +1508,7 @@ const RM = {
             <div class="sb-list" id="sb-main">${listHTML(main,'to-side')}</div>
           </div>
           <div class="sb-col">
-            <div class="sb-head">사이드덱 <b class="${side.length===8?'':'bad'}">${side.length}</b>/8 <small>클릭 → 메인으로</small></div>
+            <div class="sb-head">사이드덱 <b class="${side.length===sideSize?'':'bad'}">${side.length}</b>/${sideSize} <small>클릭 → 메인으로</small></div>
             <div class="sb-list" id="sb-side">${listHTML(side,'to-main')}</div>
           </div>
         </div>
@@ -1429,7 +1541,7 @@ const RM = {
       box.querySelector('#sb-cancel').onclick=()=>{ closeModal(); UI.prompt(''); };
       const okBtn=box.querySelector('#sb-ok');
       okBtn.onclick=()=>{
-        if(main.length!==40 || side.length!==8){ UI.toast('메인 40장 · 사이드 8장을 맞춰주세요','warn'); return; }
+        if(main.length!==40 || side.length!==sideSize){ UI.toast(`메인 40장 · 사이드 ${sideSize}장을 맞춰주세요`,'warn'); return; }
         const out={...deck, main:[...main], side:[...side], champN};
         if(ban && !banSelfCheck(true, out)) return;
         closeModal();
@@ -1463,7 +1575,7 @@ const RM = {
         UI.prompt('🔄 재대결 준비 완료 — 상대의 덱 선택을 기다리는 중...');
       };
       // 사이드덱이 있는 덱이면 교체 화면을 한 번 거친다 (게임 사이에만 가능한 절차)
-      if(deck.side && deck.side.length===8){ closeModal(); RM.openSideboard(deck, ban, send); return; }
+      if(deck.side && deck.side.length){ closeModal(); RM.openSideboard(deck, ban, send); return; }
       closeModal();
       send(deck);
     };

@@ -149,6 +149,7 @@ const LIMITS = {
   TOKEN_TTL_MS: 30 * 24 * 3600 * 1000,  // 데스크톱 앱: 토큰 30일
   MAX_ROOMS: 500,
   MAX_DECK_NAME: 30,
+  MAX_SIDE: 10,             // 사이드덱 최대 (2026-07-24 대회 규정)
   MAX_ROOM_NAME: 24,
   MAX_CHAT: 200,
   AUTH_WINDOW_MS: 15 * 60 * 1000,
@@ -354,12 +355,12 @@ function validDeck(d) {
       if (!st.some(t => lt.includes(t))) return '시그니처 카드는 같은 챔피언의 전설 덱에만 넣을 수 있습니다';
     }
   }
-  // 사이드덱 — 없어도 되고, 있으면 0장 또는 정확히 8장 (공식 규칙).
+  // 사이드덱 — 없어도 되고, 있으면 10장 이하 (2026-07-24 대회 규정: "8장 이하"에서 상향).
   // 메인 덱에 넣을 수 있는 카드 종류만 들어가고(룬·전설·전장 불가),
   // 같은 카드 3장 제한은 메인과 합쳐서 센다 → 위에서 만든 counts를 이어 쓴다.
   if (d.side !== undefined) {
     if (!Array.isArray(d.side)) return '사이드덱 형식 오류';
-    if (d.side.length !== 0 && d.side.length !== 8) return '사이드덱은 0장 또는 8장이어야 합니다';
+    if (d.side.length > LIMITS.MAX_SIDE) return `사이드덱은 ${LIMITS.MAX_SIDE}장까지입니다`;
     for (const n of d.side) {
       if (!Number.isInteger(n)) return '사이드덱 카드 오류';
       if (VALID.main.size && !VALID.main.has(n)) return '사이드덱에 넣을 수 없는 카드가 있습니다';
