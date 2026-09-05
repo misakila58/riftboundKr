@@ -27,6 +27,19 @@ fs.mkdirSync(DIST, { recursive: true });
 console.log('서버 번들 생성 중...');
 execSync(`npx --yes esbuild "${path.join(SRV, 'server.js')}" --bundle --platform=node --outfile="${path.join(DIST, 'riftbound-server.js')}"`, { stdio: 'inherit' });
 
+// 1.5) 지금 배포하는 코드가 어느 커밋인지 남긴다.
+// 서버가 이 값을 알려주면, 관리 도구에서 "내 로컬이 몇 커밋 앞서 있는지" 바로 보인다.
+const build = { commit:'unknown', date:'', subject:'' };
+try {
+  const g = a => execSync('git ' + a, { cwd: path.join(SRV, '..'), encoding:'utf8' }).trim();
+  build.commit  = g('rev-parse --short HEAD');
+  build.date    = g('log -1 --format=%cd --date=short');
+  build.subject = g('log -1 --format=%s').slice(0, 120);
+} catch (e) { console.warn('⚠ git 정보를 읽지 못해 커밋 표시를 건너뜁니다'); }
+build.built = new Date().toISOString();
+fs.writeFileSync(path.join(DIST, 'build.json'), JSON.stringify(build));
+console.log(`빌드 커밋: ${build.commit} (${build.date}) ${build.subject}`);
+
 // 2) 카드 검증 데이터
 fs.copyFileSync(path.join(SRV, 'cards.json'), path.join(DIST, 'cards.json'));
 

@@ -17,6 +17,13 @@ const DATA_DIR = path.join(BASE, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
+// 배포 시 build-dist.js가 남긴 커밋 정보 (개발 중 실행이면 파일이 없다)
+let BUILD = { commit:'dev', date:'', subject:'', built:'' };
+try {
+  const bf = path.join(BASE, 'build.json');
+  if (fs.existsSync(bf)) BUILD = { ...BUILD, ...JSON.parse(fs.readFileSync(bf, 'utf8')) };
+} catch (e) {}
+
 // ══════════ 익명 사용 통계 ══════════
 // 세는 것: 모드별 게임 수, 평균 턴, 중도 이탈, 덱 조합별 승률, 날짜별 접속 수, 버전 분포.
 // 저장하지 않는 것: IP·설치 ID·계정·닉네임·덱 목록·개별 요청. 도착 즉시 카운터만 올리고 버린다.
@@ -37,6 +44,28 @@ function statsSave() {
   }, 5000);   // 5초에 한 번만 디스크에 쓴다 (요청마다 쓰지 않게)
 }
 const statsBump = (k, by) => { STATS[k] = (STATS[k] || 0) + (by || 1); };
+// 시간 단위 버킷 (h:YYYY-MM-DDTHH:mode). 날짜 버킷만으로는 '최근 24시간'을 낼 수 없다.
+// 48시간이 지난 버킷은 지운다 — 집계 파일이 무한히 커지지 않게.
+const statHourKey = d => d.toISOString().slice(0, 13);
+function statsPruneHours(now) {
+  const cut = statHourKey(new Date(now.getTime() - 48 * 3600e3));
+  for (const k of Object.keys(STATS)) {
+    if (k.startsWith('h:') && k.slice(2, 15) < cut) delete STATS[k];
+  }
+}
+// 지금부터 24시간 뒤로 세어 모드별 시작 판수를 합산한다
+function stats24h(now) {
+  const out = { total: 0 };
+  for (const m of STAT_MODES) out[m] = 0;
+  for (let i = 0; i < 24; i++) {
+    const hk = statHourKey(new Date(now.getTime() - i * 3600e3));
+    for (const m of STAT_MODES) {
+      const v = STATS[`h:${hk}:${m}`] || 0;
+      out[m] += v; out.total += v;
+    }
+  }
+  return out;
+}
 const STAT_MODES = ['bot', 'hotseat', 'p2p', 'online'];
 const STAT_ENDS  = ['normal', 'surrender', 'left'];
 const statInt = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
@@ -52,7 +81,14 @@ function statsRecord(b) {
   const mode = STAT_MODES.includes(b.mode) ? b.mode : null;
   if (!mode) return;
 
-  if (b.ev === 'game_start') { statsBump(`day:${d}:start:${mode}`); statsBump(`total:start:${mode}`); return statsSave(); }
+  if (b.ev === 'game_start') {
+    const now = new Date();
+    statsBump(`day:${d}:start:${mode}`);
+    statsBump(`total:start:${mode}`);
+    statsBump(`h:${statHourKey(now)}:${mode}`);
+    statsPruneHours(now);
+    return statsSave();
+  }
 
   if (b.ev === 'game_end') {
     const end = STAT_ENDS.includes(b.end) ? b.end : 'normal';
@@ -329,7 +365,25 @@ const server = http.createServer(async (req, res) => {
 
   // 헬스체크 (클라이언트가 서버 주소 유효성 확인 + 접근 코드 필요 여부 확인용)
   if (p === '/api/health' && req.method === 'GET')
-    return json(res, 200, { ok: true, name: 'riftbound-sim', version: 2, requiresAccess: !!ACCESS_CODE });
+    return json(res, 200, { ok: true, name: 'riftbound-sim', version: 2, requiresAccess: !!ACCESS_CODE,
+      commit: BUILD.commit, commitDate: BUILD.date, built: BUILD.built });
+
+  // 서버 관리 도구가 읽는 한 줄 요약. 숫자와 커밋 해시뿐이라 민감하지 않다.
+  // 배치 파일에서 그대로 출력할 수 있게 JSON이 아닌 평문으로 준다.
+  if (p === '/api/status' && req.method === 'GET') {
+    const now = new Date();
+    const s = stats24h(now);
+    const label = { bot:'봇', hotseat:'핫시트', p2p:'친구', online:'온라인' };
+    const parts = STAT_MODES.filter(m => s[m] > 0).map(m => `${label[m]} ${s[m]}`);
+    // KEY|값 한 줄씩 — 배치 파일이 delims=| 로 그대로 나눠 읽는다
+    const lines = [
+      `GAMES|${s.total}판${parts.length ? ' (' + parts.join(' · ') + ')' : ''}`,
+      `BUILD|${BUILD.commit}${BUILD.date ? ' (' + BUILD.date + ')' : ''}${BUILD.subject ? ' ' + BUILD.subject : ''}`,
+      `COMMIT|${BUILD.commit}`,
+    ];
+    res.writeHead(200, { 'Content-Type':'text/plain; charset=utf-8', 'Cache-Control':'no-store' });
+    return res.end(lines.join('\n') + '\n');
+  }
 
   // 익명 통계 — 계정 없이도 보낼 수 있어야 하므로 인증 앞에 둔다.
   // 요청 본문만 보고 카운터를 올린다 (IP·헤더는 읽지 않는다).

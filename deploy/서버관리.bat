@@ -31,11 +31,16 @@ set "SSHOPT="
 set "KEYSTATE=비밀번호 입력 필요  ^<- 7번으로 키를 등록하면 안 묻습니다"
 if exist "%KEYPATH%" set SSHOPT=-i "%KEYPATH%"
 if exist "%KEYPATH%" set "KEYSTATE=SSH 키 사용 중 (비밀번호 안 물음)"
+call :readstatus
 cls
 echo.
 echo   ================================================
 echo     리프트바운드 서버 관리   %USERNAME_SSH%@%HOST%
 echo     접속 방식: %KEYSTATE%
+echo   ------------------------------------------------
+echo     최근 24시간: %S_GAMES%
+echo     서버 빌드  : %S_BUILD%
+echo     내 로컬    : %L_STATE%
 echo   ================================================
 echo.
 echo     1. 최신 버전 배포        (git 최신본으로 서버 갱신)
@@ -76,6 +81,10 @@ if errorlevel 1 (
 goto done
 
 :status
+echo.
+echo   최근 24시간: %S_GAMES%
+echo   서버 빌드  : %S_BUILD%
+echo   내 로컬    : %L_STATE%
 echo.
 ssh %SSHOPT% %USERNAME_SSH%@%HOST% "systemctl status riftbound --no-pager -l | head -n 20; echo; echo '-- 디스크 --'; df -h / | tail -n 1"
 goto done
@@ -150,3 +159,33 @@ goto done
 echo.
 pause
 goto menu
+
+rem ══════════════════════════════════════════════════════════════════
+rem  서버 현황 읽기 — SSH 없이 HTTPS 한 번.
+rem  서버는 KEY^|값 을 한 줄씩 돌려준다. -f 라서 옛 서버(404)면 아무것도 안 나오고
+rem  기본 안내 문구가 그대로 남는다.
+rem ══════════════════════════════════════════════════════════════════
+:readstatus
+set "S_GAMES=읽지 못함 - 아직 배포 전이거나 서버가 꺼져 있습니다"
+set "S_BUILD=알 수 없음"
+set "S_COMMIT="
+for /f "usebackq tokens=1,* delims=|" %%A in (`curl -s -f --max-time 6 "https://%HOST%/api/status" 2^>nul`) do call :setfield "%%A" "%%B"
+
+rem 내 저장소가 서버보다 몇 커밋 앞서 있나
+set "L_STATE="
+for /f "usebackq delims=" %%C in (`git -C "%~dp0.." rev-parse --short HEAD 2^>nul`) do set "L_STATE=%%C"
+if not defined L_STATE set "L_STATE=git 저장소를 찾지 못함"
+if not defined S_COMMIT goto :eof
+for /f "usebackq delims=" %%N in (`git -C "%~dp0.." rev-list --count %S_COMMIT%..HEAD 2^>nul`) do call :setahead %%N
+goto :eof
+
+:setfield
+if "%~1"=="GAMES"  set "S_GAMES=%~2"
+if "%~1"=="BUILD"  set "S_BUILD=%~2"
+if "%~1"=="COMMIT" set "S_COMMIT=%~2"
+goto :eof
+
+:setahead
+if "%~1"=="0" set "L_STATE=%L_STATE% - 서버와 같음"
+if not "%~1"=="0" set "L_STATE=%L_STATE% - 서버보다 %~1커밋 앞섬, 1번으로 배포하세요"
+goto :eof
