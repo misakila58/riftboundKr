@@ -206,7 +206,28 @@ function doSave() {
 const userCount = () => Object.keys(db.users).length;
 
 // ---------- 인증 ----------
+// 세션은 db.json에 함께 저장한다. 메모리에만 두면 서버를 재시작할 때마다(=배포할 때마다)
+// 모두 로그아웃되어, 덱을 저장하려던 사람이 "로그인이 필요합니다"를 만나게 된다.
 const sessions = new Map();
+(function loadSessions() {
+  const saved = db.sessions;
+  if (!saved || typeof saved !== 'object') return;
+  const now = Date.now();
+  let n = 0;
+  for (const [t, sv] of Object.entries(saved)) {
+    if (sv && typeof sv.userId === 'string' && Number.isFinite(sv.expires) && sv.expires > now) {
+      sessions.set(t, { userId: sv.userId, expires: sv.expires });
+      n++;
+    }
+  }
+  if (n) console.log(`로그인 세션 ${n}개 복원`);
+})();
+function persistSessions() {
+  const out = {};
+  for (const [t, sv] of sessions) out[t] = sv;
+  db.sessions = out;
+  saveDB();
+}
 let hashInFlight = 0;
 function scryptAsync(pw, salt) {
   return new Promise((resolve, reject) => {
@@ -224,18 +245,26 @@ function makeToken() { return crypto.randomBytes(32).toString('hex'); }
 function issueToken(userId) {
   const token = makeToken();
   sessions.set(token, { userId, expires: Date.now() + LIMITS.TOKEN_TTL_MS });
+  persistSessions();
   return token;
 }
 function userFromToken(token) {
   if (!token || typeof token !== 'string') return null;
   const s = sessions.get(token);
   if (!s) return null;
-  if (s.expires < Date.now()) { sessions.delete(token); return null; }
+  const now = Date.now();
+  if (s.expires < now) { sessions.delete(token); persistSessions(); return null; }
+  // 계속 쓰는 동안에는 만료되지 않게 기간을 밀어 준다.
+  // 매 요청마다 디스크에 쓰지 않도록, 남은 기간이 하루 이상 줄었을 때만 갱신한다.
+  const full = now + LIMITS.TOKEN_TTL_MS;
+  if (full - s.expires > 24 * 3600 * 1000) { s.expires = full; persistSessions(); }
   return db.users[s.userId] || null;
 }
 setInterval(() => {
   const now = Date.now();
-  for (const [t, s] of sessions) if (s.expires < now) sessions.delete(t);
+  let gone = 0;
+  for (const [t, s] of sessions) if (s.expires < now) { sessions.delete(t); gone++; }
+  if (gone) persistSessions();
 }, 3600 * 1000).unref?.();
 
 function safeEqualHex(a, b) {

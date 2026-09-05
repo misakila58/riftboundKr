@@ -64,7 +64,16 @@ const DeckStore = {
   _write(a){ localStorage.setItem('rb_local_decks', JSON.stringify(a)); },
   async list(){ return this.local ? this._read() : NET.getDecks(); },
   async save(deck,index){
-    if(!this.local) return NET.saveDeck(deck,index);
+    if(!this.local){
+      try{ return await NET.saveDeck(deck,index); }
+      catch(e){
+        // 서버에 못 넣었다고 편집 내용을 버리지 않는다 — 이 기기에 넣어 두고
+        // 다시 로그인해 메뉴로 들어올 때 자동으로 올린다.
+        pendingDeckAdd(deck, index);
+        const why = /로그인/.test(e.message) ? '로그인이 풀렸습니다' : e.message;
+        throw new Error(why + ' — 덱은 이 기기에 임시 보관했습니다. 다시 로그인하면 자동으로 올라갑니다.');
+      }
+    }
     const a=this._read();
     if(index!==undefined&&index!==null){ if(!a[index]) throw new Error('덱이 없습니다'); a[index]=deck; }
     else { if(a.length>=20) throw new Error('덱은 최대 20개까지 저장할 수 있습니다'); a.push(deck); }
@@ -75,6 +84,38 @@ const DeckStore = {
     const a=this._read(); a.splice(idx,1); this._write(a); return a;
   },
 };
+
+// ---------- 서버에 못 올린 덱 임시 보관 ----------
+// 서버 저장이 실패하는 가장 흔한 이유는 서버 재시작으로 로그인 세션이 끊긴 경우다.
+// 그때 편집 내용을 버리면 40장을 다시 짜야 하므로, 이 기기에 담아 두었다가 나중에 올린다.
+function pendingKey(){ return 'rb_pending_decks_'+(NET.base||'local'); }
+function pendingDeckList(){
+  try{ return JSON.parse(localStorage.getItem(pendingKey())||'[]'); }catch(e){ return []; }
+}
+function pendingDeckWrite(a){
+  try{ localStorage.setItem(pendingKey(), JSON.stringify(a)); }catch(e){}
+}
+function pendingDeckAdd(deck, index){
+  const a=pendingDeckList();
+  // 같은 덱을 여러 번 시도해도 하나만 남게 한다 (이름 + 덮어쓸 위치 기준)
+  const i=a.findIndex(x=>x.deck.name===deck.name && x.index===(index??null));
+  const item={ deck, index: index??null, at: Date.now() };
+  if(i>=0) a[i]=item; else a.push(item);
+  pendingDeckWrite(a.slice(-20));
+}
+// 로그인 후 메뉴로 들어올 때 밀린 덱을 올린다. 실패하면 그대로 남겨 둔다.
+async function pendingDeckFlush(){
+  const a=pendingDeckList();
+  if(!a.length || DeckStore.local) return;
+  const left=[]; let ok=0;
+  for(const item of a){
+    try{ myDecks = await NET.saveDeck(item.deck, item.index===null?undefined:item.index); ok++; }
+    catch(e){ left.push(item); }
+  }
+  pendingDeckWrite(left);
+  if(ok) UI.toast(`임시 보관해 둔 덱 ${ok}개를 서버에 저장했습니다`);
+  if(left.length) UI.toast(`덱 ${left.length}개는 아직 올리지 못했습니다 — 이 기기에 남아 있습니다`,'warn');
+}
 
 // ---------- 전설 목록/덱 자동 구성 (핫시트·자동완성 공용) ----------
 function legendList(){ return CARDS.filter(c=>c.type==='Legend'); }
@@ -308,6 +349,8 @@ async function enterMenu(){
       UI.toast(`덱 ${myDecks.length}개 복원됨`);
     }
   }
+  // 지난번에 서버에 못 올린 덱이 있으면 먼저 올린다
+  await pendingDeckFlush();
   syncSrvBackup(myDecks);
   document.getElementById('menu-welcome').textContent=`${NET.userId}님, 환영합니다!`;
   document.getElementById('deck-count').textContent=myDecks.length;
@@ -919,7 +962,17 @@ function initEditor(){
       myDecks=await DeckStore.save(deck, ED.index);
       if(!DeckStore.local) syncSrvBackup(myDecks);
       renderDeckList(); showScreen('decks-screen');
-    }catch(e){ msg.textContent=e.message; }
+    }catch(e){
+      msg.textContent=e.message;
+      // 로그인이 풀린 경우: 덱은 이 기기에 이미 보관됐으므로 편집기를 떠나도 안전하다
+      if(/로그인/.test(e.message)){
+        if(confirm(e.message+'\n\n지금 다시 로그인할까요? (덱은 그대로 보관됩니다)')){
+          NET.token=null;
+          try{ localStorage.removeItem('rb_token'); }catch(_){}
+          enterLogin();
+        }
+      }
+    }
   };
 }
 
