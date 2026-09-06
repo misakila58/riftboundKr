@@ -52,6 +52,20 @@ UI.prompt = function(text){
   document.getElementById('prompt-area').innerHTML =
     text?`<div class="prompt-title">${esc(text)}</div>`:'';
 };
+// 지금 게임 상태에 맞는 안내 문구로 되돌린다.
+// 상대의 선택을 기다리며 띄운 문구가 선택이 끝난 뒤에도 남지 않게 하는 용도다.
+UI.promptForState = function(){
+  if(typeof G==='undefined' || !G) return;
+  // 승부가 났으면 대기 문구만 지운다 (승리 화면이 그 위를 덮는다)
+  if(G.winner!==null){ UI.prompt(''); return; }
+  if(G.state==='showdown' && G.showdown){ UI.promptShowdown(); return; }
+  if(G._endingTurn){ UI.prompt('종료 단계 — 열린 결전 처리 중'); return; }
+  if(G.phase==='action'){
+    UI.prompt(`${pname(G.turn)}의 행동 단계 — 카드 플레이 / 이동 / 능력 발동 / 턴 종료`);
+    return;
+  }
+  UI.prompt('');
+};
 UI.promptShowdown = function(){
   const sd=G.showdown; if(!sd) return;
   const bf=G.bfs[sd.bfIdx];

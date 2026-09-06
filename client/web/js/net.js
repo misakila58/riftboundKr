@@ -230,6 +230,10 @@ NET._resolveChoice = function(m){
   if(typeof m.seat === 'number' && m.seat !== pc.p){ console.warn('rejected choice from wrong seat', m); return; }
   delete NET.pendingChoices[m.id];
   pc.res(pc.deserialize(m.data));
+  // 기다리던 선택이 끝났으니 안내를 지금 상태에 맞게 되돌린다.
+  // pc.res는 Promise를 풀어 줄 뿐이라 엔진은 다음 마이크로태스크에서 이어진다 →
+  // 엔진이 새 안내(다음 대기·결전 등)를 띄우면 그쪽이 덮어쓴다.
+  if(!Object.keys(NET.pendingChoices).length && UI.promptForState) UI.promptForState();
 };
 
 // ---------- 게임 종료/이탈 정리 ----------
