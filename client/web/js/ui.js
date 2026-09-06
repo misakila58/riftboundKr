@@ -84,6 +84,8 @@ UI.promptShowdown = function(){
     : `${pname(G.actingPlayer)}: [행동]/[반응] 카드·능력을 사용하거나 패스하세요`);
   document.getElementById('btn-pass').style.display='';
   document.getElementById('btn-endturn').style.display='none';
+  // 우선권이 나에게 왔고 쓸 수 있는 숨김 카드가 있으면 알려 준다
+  setTimeout(()=>{ try{ UI.askHidden(); }catch(e){} }, 0);
 };
 
 // ---------- 선택 프리미티브 (Promise 기반) ----------
@@ -900,6 +902,82 @@ function openMenuAt(menu, e){
 // 오프라인은 로컬 핫시트(2인이 번갈아 두기) 때문에 좌석을 가리지 않는다.
 // 다만 BOT 대전의 봇 좌석은 예외 — 봇이 스스로 두는 자리를 사람이 대신 조작하면
 // 규칙 밖의 수가 되고, 봇의 비공개 정보([숨겨짐] 카드, 비용으로 버리는 손패)까지 드러난다.
+// ══════════ 숨겨 둔 카드 알림 ══════════
+// 숨김 카드는 전장을 눌러야만 공개된다. 화면에 '🕶숨김카드×N' 표시만 있어서
+// 결전 중에 트릭을 그냥 흘려보내는 일이 잦았다 → 내 차례가 오면 한 번 물어본다.
+// 같은 상황에서 반복해 뜨지 않도록 '언제 물었는지'를 기억한다.
+let _hiddenAskedKey = null;
+let _hiddenMuted = false;          // 이번 판에는 그만 묻기
+UI.resetHiddenAsk = function(){ _hiddenAskedKey = null; _hiddenMuted = false; };
+
+// 지금 공개해서 쓸 수 있는 내 숨김 카드 목록
+function myPlayableHidden(p){
+  const out = [];
+  if(typeof G==='undefined' || !G || !G.bfs) return out;
+  G.bfs.forEach((bf, i) => {
+    // 「녹서스 파괴공작원」이 있으면 이곳은 공개 자체가 막힌다
+    if(bf.units.some(u => u.ctrl !== p && unitFx(u).blockReveal)) return;
+    bf.hiddenCards.forEach(h => {
+      if(h.by !== p) return;
+      if(h.turn === G.turnCount && G.turn === p) return;   // 숨긴 턴에는 못 쓴다
+      if(playRestriction(card(h.n), p, true)) return;      // 지금 타이밍에 못 내는 카드
+      out.push({ bfIdx: i, n: h.n });
+    });
+  });
+  return out;
+}
+
+// 내 차례가 왔을 때 한 번 물어본다
+UI.askHidden = function(){
+  if(_hiddenMuted) return;
+  if(typeof G==='undefined' || !G || G.winner!==null) return;
+  if(typeof replayLock==='function' && replayLock()) return;
+  if(document.getElementById('modal-overlay').style.display !== 'none') return;  // 다른 창이 떠 있으면 미룬다
+  const p = G.actingPlayer;
+  if(p==null) return;
+  if(typeof botIs==='function' && botIs(p)) return;          // 봇 차례엔 묻지 않는다
+  if(NET.online && p !== NET.seat) return;                   // 온라인: 내 좌석일 때만
+  const list = myPlayableHidden(p);
+  if(!list.length) return;
+
+  // 같은 상황에서 다시 뜨지 않게 (턴·상태·체인 길이·행동권자·남은 장수로 구분)
+  const key = [G.turnCount, G.state, G.showdown ? G.showdown.chain.length : -1, p, list.length].join(':');
+  if(key === _hiddenAskedKey) return;
+  _hiddenAskedKey = key;
+
+  const box = document.getElementById('modal-box');
+  const where = G.state==='showdown' ? '결전 중입니다' : '내 행동 단계입니다';
+  box.innerHTML = `<h3>🕶 숨겨 둔 카드가 있습니다</h3>
+    <div style="font-size:13px;color:#9aa4bd;margin-bottom:10px">${where} — 지금 공개해서 쓸 수 있습니다.</div>`;
+  const btns = document.createElement('div');
+  btns.className = 'modal-btns';
+  btns.style.flexDirection = 'column';
+  list.forEach(h => {
+    const b = document.createElement('button');
+    b.className = 'primary';
+    b.textContent = `공개: ${card(h.n).ko}  (${card(G.bfs[h.bfIdx].n).ko})`;
+    b.onmouseenter = () => UI.inspect(card(h.n));
+    b.onclick = () => {
+      closeModal();
+      if(!canInitiate(p)) return;
+      NET.dispatch({k:'playHidden', p, bfIdx:h.bfIdx}, () => playHidden(p, h.bfIdx));
+    };
+    btns.appendChild(b);
+  });
+  const no = document.createElement('button');
+  no.textContent = '지금은 두기';
+  no.onclick = closeModal;
+  btns.appendChild(no);
+  const mute = document.createElement('button');
+  mute.className = 'link-btn';
+  mute.textContent = '이번 판에는 그만 묻기';
+  mute.onclick = () => { _hiddenMuted = true; closeModal(); };
+  btns.appendChild(mute);
+  box.appendChild(btns);
+  openModal();
+  markModalDismissable();
+};
+
 function canInitiate(p){
   if(typeof botIs==='function' && botIs(p)){ UI.toast('봇의 카드는 조작할 수 없습니다','warn'); return false; }
   if(!NET.online) return true;

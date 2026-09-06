@@ -24,6 +24,7 @@ function pname(p){ return G.players[p].name; }
 // ---------- 게임 생성 ----------
 function newGame(cfg){
   UID = 1;
+  if(typeof UI!=="undefined" && UI.resetHiddenAsk) UI.resetHiddenAsk();   // 새 판에는 "그만 묻기"도 초기화
   seedRng(cfg.seed || (Date.now()&0xffffffff));
   G = {
     players: cfg.players.map((pc,i)=>{
@@ -537,6 +538,7 @@ async function startTurn(){
   G.actingPlayer=p; // 이전 턴 결전 해결 시점의 행동 권한이 남지 않도록 턴 주인으로 초기화
   UI.render();
   UI.prompt(`${pname(p)}의 행동 단계 — 카드 플레이 / 이동 / 능력 발동 / 턴 종료`);
+  if(UI.askHidden) setTimeout(()=>{ try{ UI.askHidden(); }catch(e){} }, 0);
 }
 
 async function endTurn(){
