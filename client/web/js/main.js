@@ -835,6 +835,16 @@ function openEditor(index){
       document.getElementById('ed-msg').textContent =
         '🚫 밴 카드 포함: '+banned.map(n=>card(n).ko).join(', ')+' — 밴 적용 대전에서는 사용할 수 없습니다';
   }
+  // 예전에 저장된 덱은 선발 챔피언이 메인 40장 밖에 있을 수 있다 (등록 41장) —
+  // 열었을 때 바로 알려 주고, 저장할 때 막는다.
+  {
+    const cn=edChampN();
+    if(cn!=null && ED.main.length && !ED.main.includes(cn)){
+      const el=document.getElementById('ed-msg');
+      el.textContent=(el.textContent?el.textContent+' / ':'')
+        +`⚠ 선발 챔피언 「${card(cn).ko}」가 메인 덱에 없습니다 — 선발도 40장에 포함되어야 합니다 (룰 103.2). 카드를 한 장 빼고 넣어 주세요.`;
+    }
+  }
   ED.selN=null;
   renderEditor();
   showScreen('editor-screen');
@@ -1118,11 +1128,17 @@ function initEditor(){
     });
   champSel.onchange=()=>{
     ED.champOverride=champSel.value?+champSel.value:null;
-    // 새 챔피언과 같은 카드가 메인 덱에 있으면 제거 (챔피언 존에 자동 배정되므로)
+    // 선발 챔피언은 메인 40장 안에 있어야 한다 (룰 103.2) —
+    // 게임 시작 시 그 한 장을 챔피언 존으로 '분리'하는 것이지, 40장 밖의 한 장이 아니다.
     const n=edChampN();
-    const before=ED.main.length;
-    ED.main=ED.main.filter(x=>x!==n);
-    if(ED.main.length<before) UI.toast('선발 챔피언과 같은 카드는 메인 덱에서 제외했습니다','warn');
+    if(n!=null && !ED.main.includes(n)){
+      if(ED.main.length>=40){
+        UI.toast(`메인 덱이 40장이라 「${card(n).ko}」를 넣을 수 없습니다 — 카드를 한 장 빼고 다시 고르세요`,'warn');
+      } else {
+        ED.main.push(n);
+        UI.toast(`선발 챔피언 「${card(n).ko}」를 메인 덱에 넣었습니다 (40장에 포함됩니다)`);
+      }
+    }
     renderEditor();
   };
   ['ed-type-filter','ed-search','ed-dom-only','ed-sort'].forEach(id=>{
@@ -1174,14 +1190,15 @@ function initEditor(){
     }
     if(runes.length!==12){ msg.textContent='룬은 정확히 12개여야 합니다'; return; }
     if(deck.bfs.length!==3){ msg.textContent='전장은 정확히 3개여야 합니다'; return; }
-    // 선발 챔피언 정합: 덱에 챔피언이 있으면 선발도 그중 하나여야 한다 (덱 밖 챔피언을
-    // 선발로 지정하면 게임에서 덱 속 챔피언이 일반 카드처럼 뽑힌다)
-    {
+    // 선발 챔피언은 메인 40장 안에 있어야 한다 (룰 103.2).
+    // 밖에 있으면 등록 장수가 41장이 되고, 게임 시작 시 선발이 덱 속 다른 챔피언으로
+    // 조용히 바뀌거나 40장 + 챔피언존 1장으로 진행된다.
+    if(deck.champN!=null && !deck.main.includes(deck.champN)){
       const deckChamps=[...new Set(deck.main.filter(n=>{ const c=card(n); return c.type==='Unit'&&c.super==='Champion'; }))];
-      if(deckChamps.length && deck.champN && !deckChamps.includes(deck.champN)){
-        msg.textContent=`선발 챔피언(${card(deck.champN).ko})이 메인 덱에 없습니다 — 덱의 챔피언(${deckChamps.map(n=>card(n).ko).join(', ')}) 중에서 선택하거나 해당 카드를 덱에 넣어 주세요`;
-        return;
-      }
+      msg.textContent=`선발 챔피언 「${card(deck.champN).ko}」가 메인 덱에 없습니다 — 선발 챔피언도 40장에 포함됩니다 (룰 103.2).`
+        + (deckChamps.length ? ` 덱에 든 챔피언(${deckChamps.map(n=>card(n).ko).join(', ')}) 중에서 고르거나,` : '')
+        + ' 카드를 한 장 빼고 그 챔피언을 넣어 주세요.';
+      return;
     }
     const bannedIn=deckBannedCards(deck);
     if(bannedIn.length) UI.toast('🚫 밴 카드 포함 덱입니다 — 밴 적용 대전에서는 사용할 수 없습니다: '+bannedIn.map(n=>card(n).ko).join(', '),'warn');
