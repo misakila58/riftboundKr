@@ -105,33 +105,60 @@ function Need-Node {
 
 # ══════════════════════════ 각 기능 ══════════════════════════
 
-function Do-Deploy {
-  Write-Host ''
-  # 배포는 서버를 재시작한다. 로그인은 유지되지만 진행 중이던 대전은 끊긴다
-  # (방은 서버 메모리에만 있어 재시작으로 사라진다).
-  # 메뉴에 표시된 값은 화면을 그린 시점의 것이라, 다른 메뉴를 보다 왔으면 낡아 있다.
-  # 실제로 끊는 건 지금이므로 여기서 다시 물어본다.
+# 서버를 재시작하는 일(배포·재시작) 전에 끊기는 사람이 있는지 확인받는다.
+# 메뉴에 표시된 값은 화면을 그린 시점의 것이라 다른 메뉴를 보다 왔으면 낡아 있다.
+# 실제로 끊는 건 지금이므로 여기서 다시 조회한다.
+# (방은 서버 메모리에만 있어 재시작으로 사라진다 - 이어서 둘 방법이 없다)
+function Confirm-Interrupt([string]$what) {
   Write-Host '  진행 중인 대전을 확인하는 중...' -ForegroundColor DarkGray
   $now = Get-ServerStatus
   if ($null -eq $now.Playing) {
     Write-Host '  [!] 서버 상태를 읽지 못했습니다 - 진행 중인 대전이 있는지 알 수 없습니다.' -ForegroundColor Yellow
-    $go = Read-Host '      그래도 배포할까요? (y/N)'
-    if ($go -ne 'y' -and $go -ne 'Y') { Write-Host '  배포를 취소했습니다.'; return }
+    $go = Read-Host "      그래도 $what 할까요? (y/N)"
+    return ($go -eq 'y' -or $go -eq 'Y')
   }
-  elseif ($now.Playing -gt 0) {
+  if ($now.Playing -gt 0) {
     Write-Host "  [!] 지금 대전 $($now.Playing)판이 진행 중입니다." -ForegroundColor Yellow
     foreach ($g in $now.Live) { Write-Host "        - $g" -ForegroundColor Yellow }
-    Write-Host '      배포하면 서버가 재시작되어 이 대전들이 끊깁니다.'
+    Write-Host "      $what 하면 서버가 재시작되어 이 대전들이 끊깁니다."
     Write-Host '      (로그인은 유지되지만, 두던 게임은 이어서 둘 수 없습니다)'
     Write-Host ''
-    $go = Read-Host '      그래도 지금 배포할까요? (y/N)'
-    if ($go -ne 'y' -and $go -ne 'Y') { Write-Host '  배포를 취소했습니다.'; return }
+    $go = Read-Host "      그래도 지금 $what 할까요? (y/N)"
     Write-Host ''
+    return ($go -eq 'y' -or $go -eq 'Y')
   }
-  else {
-    Write-Host '  진행 중인 대전이 없습니다 - 끊길 게임 없이 배포합니다.' -ForegroundColor Green
-    Write-Host ''
+  Write-Host "  진행 중인 대전이 없습니다 - 끊길 게임 없이 $what 합니다." -ForegroundColor Green
+  Write-Host ''
+  return $true
+}
+
+# 지금 누가 두고 있는지만 따로 본다 (메뉴 9번). 배포해도 되는지 판단용.
+function Do-Live {
+  Write-Host ''
+  Write-Host '  == 지금 진행 중인 대전 ==' -ForegroundColor Cyan
+  Write-Host ''
+  $now = Get-ServerStatus
+  if ($null -eq $now.Playing) {
+    Write-Host '  [!] 서버 상태를 읽지 못했습니다. 서버가 켜져 있는지 확인하세요.' -ForegroundColor Yellow
+    return
   }
+  if ($now.Playing -eq 0) {
+    Write-Host '  진행 중인 대전이 없습니다 - 지금 배포해도 끊길 게임이 없습니다.' -ForegroundColor Green
+  } else {
+    Write-Host "  대전 $($now.Playing)판 진행 중 - 지금 배포하면 모두 끊깁니다." -ForegroundColor Yellow
+    foreach ($g in $now.Live) { Write-Host "    - $g" }
+  }
+  $wait = if ($null -eq $now.Waiting) { '알 수 없음' } else { "$($now.Waiting)개" }
+  Write-Host ''
+  Write-Host "  상대를 기다리는 방: $wait"
+  Write-Host "  최근 24시간       : $($now.Games)"
+  Write-Host ''
+  Write-Host '  (아이디는 서버가 첫 글자만 남기고 가려서 보냅니다)' -ForegroundColor DarkGray
+}
+
+function Do-Deploy {
+  Write-Host ''
+  if (-not (Confirm-Interrupt '배포')) { Write-Host '  배포를 취소했습니다.'; return }
   Write-Host '  == 최신 버전 배포 중 (2~4분) ==' -ForegroundColor Cyan
   Write-Host '  깃허브에 push한 내용이 서버에 반영됩니다. 계정/덱 데이터는 그대로 보존됩니다.'
   Write-Host ''
@@ -153,7 +180,12 @@ function Do-Status($st) {
 }
 
 function Do-Logs    { Write-Host ''; Invoke-Remote 'journalctl -u riftbound -n 60 --no-pager' }
-function Do-Restart { Write-Host ''; Invoke-Remote 'systemctl restart riftbound && sleep 2 && systemctl is-active riftbound' }
+function Do-Restart {
+  Write-Host ''
+  # 재시작도 배포와 똑같이 진행 중인 대전을 끊는다
+  if (-not (Confirm-Interrupt '재시작')) { Write-Host '  재시작을 취소했습니다.'; return }
+  Invoke-Remote 'systemctl restart riftbound && sleep 2 && systemctl is-active riftbound'
+}
 
 function Do-Stats {
   Write-Host ''
@@ -264,6 +296,7 @@ while ($true) {
   Write-Host '    6. 통계 데이터 내려받기  (엑셀용 CSV + 원본 JSON)'
   Write-Host '    7. SSH 직접 접속'
   Write-Host '    8. 비밀번호 없이 접속 설정 (SSH 키 등록 - 최초 1회)'
+  Write-Host '    9. 지금 진행 중인 대전 확인 (배포해도 되는지)'
   Write-Host '    0. 종료'
   Write-Host ''
   $sel = Read-Host '  번호 (그냥 Enter = 1)'
@@ -278,6 +311,7 @@ while ($true) {
     '6' { Do-Export;   Pause-Return }
     '7' { Do-Shell;    Pause-Return }
     '8' { Do-SetupKey; Pause-Return }
+    '9' { Do-Live;     Pause-Return }
     '0' { exit 0 }
     default { }
   }
