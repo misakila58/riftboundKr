@@ -283,7 +283,14 @@ button { cursor:pointer; font-family:inherit; }
 /* 양쪽 진영의 별도 개수 칸을 없애고 남는 가로 공간은 기지에 배분한다. */
 .player-area > .count-display { display:none; }
 .player-area > .base-zone { max-width:none; }
-.player-area > .hand-zone { flex-grow:0; }
+/* 손패는 넓을수록 좋다 — 좁으면 줄바꿈으로 쌓여 카드가 서로 가려진다.
+   화면이 넓으면 전장 중앙선 부근(42%)까지 쓰되,
+   기지가 320px 아래로 눌리지 않게 하고, 좁은 창에서는 예전 폭(340px)을 지킨다.
+   (760px = 진영 칸 424 + 칸 사이 여백 16 + 기지 최소 320) */
+.player-area > .hand-zone {
+  flex-grow:0;
+  flex-basis:max(340px, min(42%, calc(100% - 760px)));
+}
 /* '손패 확인'으로 들여다본 봇 손패 — 내 손패와 헷갈리지 않게 점선 테두리로 구분하고,
    보기 전용임을 커서로도 알린다 (확대·정보 표시는 그대로 동작한다) */
 .card-mini.peeked { outline:1px dashed #6a7aa0; outline-offset:-2px; opacity:.82; cursor:zoom-in; }
