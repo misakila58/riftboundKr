@@ -146,7 +146,9 @@ Object.assign(SCRIPTS, {
   194: fx=>{ fx.manual=[]; fx.nocturne=true; return fx; },
   196: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('playFromTrash',{type:'Unit',optional:true,payPower:true})]}]; return fx; },
   198: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('playFromTrash',{type:'Unit',payPower:true})]}]; return fx; },
-  199: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('tideTurner')]}]; return fx; },
+  // 「물결을 바꾸는 자」는 "다른 위치에 있는" 유닛을 고른다 — 숨겨 둔 전장에서는 고를 수 없는
+  // 문구이므로 룰 737이 대상 제한의 예외로 명시한다 (룰북이 이 카드를 예로 든다).
+  199: fx=>{ fx.manual=[]; fx.hiddenFreeTarget=true; fx.triggers.onPlay=[{ops:[OPX('tideTurner')]}]; return fx; },
   200: fx=>{ fx.manual=[]; fx.triggers.onAttack=[{ops:[OPX('tfGamble')]}]; return fx; },
   201: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('timelineReset')]}]; return fx; },
   202: fx=>{ fx.manual=[]; fx.triggers.onYouDiscard=[{ops:[OPX('readySelf'),OPX('might',{n:1,self:true,dur:'turn'})]}]; return fx; },

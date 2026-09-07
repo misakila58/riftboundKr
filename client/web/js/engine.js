@@ -26,10 +26,29 @@ function card(n){ return CARD_BY_N[n]; }
 function opp(p){ return 1-p; }
 function pname(p){ return G.players[p].name; }
 
+// 카드별 전용 op는 pickBySpec을 거치지 않고 UI.pickUnitFrom을 직접 부른다.
+// 숨김 제한(룰 737)을 한 곳에서 걸기 위해 감싼다. engine.js가 ui.js보다 먼저 로드되므로
+// 게임을 시작할 때(=UI가 준비된 뒤) 한 번만 설치한다.
+function installHiddenTargetGuard(){
+  if(typeof UI==='undefined' || typeof UI.pickUnitFrom!=='function' || UI.pickUnitFrom._hiddenGuard) return;
+  const orig = UI.pickUnitFrom;
+  const wrapped = function(p, cands, promptText, optional){
+    if(_hiddenBf!==null && Array.isArray(cands)){
+      const only = cands.filter(u=>u.loc===_hiddenBf);
+      // 제한하면 후보가 하나도 없는 경우는 카드 문구가 그 전장을 배제한 것이므로 룰이 예외로 둔다
+      if(only.length) cands = only;
+    }
+    return orig.call(UI, p, cands, promptText, optional);
+  };
+  wrapped._hiddenGuard = true;
+  UI.pickUnitFrom = wrapped;
+}
+
 // ---------- 게임 생성 ----------
 function newGame(cfg){
   UID = 1;
   if(typeof UI!=="undefined" && UI.resetHiddenAsk) UI.resetHiddenAsk();   // 새 판에는 "그만 묻기"도 초기화
+  installHiddenTargetGuard();
   seedRng(cfg.seed || (Date.now()&0xffffffff));
   G = {
     players: cfg.players.map((pc,i)=>{
@@ -358,6 +377,24 @@ function canPay(p, energy, pips){
   const ready = P.runes.filter(r=>!r.ex).length;
   // spellOK: 주문 전용 에너지(럭스 314) 포함
   return P.energy + (arguments[3]?(P.energySpell||0):0) + ready >= energy;
+}
+
+// 이 지불이 룬을 건드리는가 (재활용하거나 탈진시키는가). payCost와 같은 우선순위로 흉내만 낸다.
+// 지불 전에 "룬을 아끼려면 [반응] 자원 능력을 먼저 쓰겠는가"를 물어볼지 판단하는 데 쓴다.
+function payUsesRunes(p, energy, pips, spellOK){
+  const P=G.players[p];
+  let spellAny = spellOK ? (P.powerSpell||0) : 0;
+  const pool = {...P.power};
+  for(const pip of pips){
+    if(spellAny>0){ spellAny--; continue; }
+    if(pip==='Any'){ const d=Object.keys(pool).find(d=>pool[d]>0); if(d){ pool[d]--; continue; } }
+    else { if(pool[pip]>0){ pool[pip]--; continue; } if(pool.Any>0){ pool.Any--; continue; } }
+    return true;                       // 이 핍은 룬을 재활용해야 낸다
+  }
+  let need = energy;
+  if(spellOK) need -= Math.min(P.energySpell||0, need);
+  need -= Math.min(P.energy, need);
+  return need > 0;                     // 남으면 준비 룬을 탈진시켜야 한다
 }
 
 // 실제 지불 (canPay 선행 가정)
@@ -998,15 +1035,27 @@ async function playCardFromHand(p, handIdx, opts={}){
   }
   const spellOK = c.type==='Spell';   // 주문 전용 자원(럭스 314·카이사 전설 247)은 주문에만 쓸 수 있다
   // 룰 357.1.a: 비용 지불 단계에서 [반응] 태그의 자원 추가 능력을 발동해 비용을 충당할 수 있다
-  // (카이사·다리우스 전설, 인장 등 — 부족하면 후보를 제시하고, 발동 후 다시 지불을 시도한다)
+  // (카이사·다리우스 전설, 인장 등)
+  const fundList=()=>{
+    if(!(typeof polAbList==='function' && typeof polAbLegal==='function' && typeof polAbIsResource==='function')) return [];
+    try{
+      return polAbList(p).filter(cd=>cd.ab && cd.ab.reaction && polAbIsResource(cd) && polAbLegal(p,cd)
+        && !(!spellOK && polAbOps(cd).some(o=>/^addSpell/.test(o))));   // 주문 전용 자원은 주문 지불에만
+    }catch(e){ return []; }
+  };
+  // 모자랄 때만 물어보면, 룬을 재활용해 낼 수 있는 한 카이사 전설을 쓸 기회가 영영 없다.
+  // 룬 재활용·탈진은 실제로 치르는 비용이므로, 그걸 아낄 수 있는 능력이 있으면 먼저 물어본다.
+  for(let guard=0; guard<4 && canPay(p, energy, pips, spellOK) && payUsesRunes(p, energy, pips, spellOK); guard++){
+    const funds=fundList();
+    if(!funds.length) break;
+    const sel=await UI.pickOption(p, `「${c.ko}」 룬을 쓰기 전에 [반응] 자원 능력을 먼저 쓸까요? (룰 357.1.a)`,
+      [...funds.map((cd,i)=>({v:i, label:`⚡ ${cd.name} — ${cd.ab.label}`})), {v:'no', label:'그냥 지불 (룬 사용)'}]);
+    if(sel===null || sel==='no') break;
+    await activateAbility(p, funds[sel].src, funds[sel].ab);
+  }
+  // 그래도 모자라면 충당할지 묻는다 (여기서 취소하면 플레이 자체가 취소된다)
   for(let guard=0; guard<8 && !canPay(p, energy, pips, spellOK); guard++){
-    let funds=[];
-    if(typeof polAbList==='function' && typeof polAbLegal==='function' && typeof polAbIsResource==='function'){
-      try{
-        funds=polAbList(p).filter(cd=>cd.ab && cd.ab.reaction && polAbIsResource(cd) && polAbLegal(p,cd)
-          && !(!spellOK && polAbOps(cd).some(o=>/^addSpell/.test(o))));   // 주문 전용 자원은 주문 지불에만
-      }catch(e){ funds=[]; }
-    }
+    const funds=fundList();
     if(!funds.length){ UI.toast('자원이 부족합니다','warn'); return false; }
     const sel=await UI.pickOption(p, `「${c.ko}」 자원이 부족합니다 — [반응] 자원 능력으로 충당할까요? (룰 357.1.a)`,
       [...funds.map((cd,i)=>({v:i, label:`⚡ ${cd.name} — ${cd.ab.label}`})), {v:'stop', label:'취소 (플레이 포기)'}]);
@@ -1071,7 +1120,8 @@ async function playCardFromHand(p, handIdx, opts={}){
     // 통찰 (자체 키워드 또는 오라)
     if(fx.kw.vision || effKw(u).vision) await visionCheck(p);
     // 플레이 트리거
-    await runTriggerList(fx.triggers.onPlay, {p, unit:u, bfIdx: (loc!=='base'?loc:null), legionOK, paidAdd:addPaid, addCount});
+    await runTriggerList(fx.triggers.onPlay, {p, unit:u, bfIdx: (loc!=='base'?loc:null), legionOK, paidAdd:addPaid, addCount,
+      hiddenBf: (opts.fromHidden && !fx.hiddenFreeTarget) ? opts.bfIdx : null});
     // 위력적 유닛 훅 (볼리베어)
     if(isMighty(u)) await legendHook(p,'hookMightyPlay',{p, unit:u});
     if(fx.manual.length) UI.manualNotice(c);
@@ -1082,7 +1132,9 @@ async function playCardFromHand(p, handIdx, opts={}){
     if(G.state==='showdown' && G.showdown){
       const sd=G.showdown;
       const item={ kind:(fx.counter||fx.steal)?'counter':'spell', p, n, fx,
-        legionOK, addPaid, addCount, bfIdx:opts.bfIdx, steal:!!fx.steal, countered:false };
+        legionOK, addPaid, addCount, bfIdx:opts.bfIdx, steal:!!fx.steal, countered:false,
+        // 체인은 나중에 해결되므로 '숨김에서 나왔다'는 사실을 항목이 들고 간다 (룰 737 대상 제한)
+        hiddenBf: (opts.fromHidden && !fx.hiddenFreeTarget) ? opts.bfIdx : null };
       if(item.kind==='counter'){
         // 카운터/탈취: 체인 위의 미해결 상대 주문을 대상으로 지정 (플레이 시점 대상 지정 — 규칙 355)
         // 카운터도 주문이므로 '카운터의 카운터'가 가능하다 (kind:'counter'도 대상에 포함)
@@ -1116,13 +1168,16 @@ async function playCardFromHand(p, handIdx, opts={}){
     }
     // ── 중립 상태: 기존 즉시 해결 + 대응 창 ──
     let execAs=p, countered=false;
-    if(!opts.fromHidden && !fx.counter && !fx.steal){
+    // 숨김에서 플레이하는 것도 체인을 연다 (룰 737) — 예전에는 중립 상태에서 응수 창을 건너뛰어
+    // 숨겨 둔 주문만 카운터가 통하지 않았다. 결전 중에는 원래대로 체인에 적재된다.
+    if(!fx.counter && !fx.steal){
       const cw=await counterWindow(p, c, {legionOK, addPaid, addCount, bfIdx:opts.bfIdx});
       if(cw && cw.countered) countered=true;
       else if(cw && cw.steal!==undefined) execAs=cw.steal;
     }
     if(fx.counter||fx.steal){ UI.log(`「${c.ko}」 — 대응할 상대 주문이 없어 효과 없이 폐기됩니다`, 'sys'); }
-    if(!countered) await resolveSpellEffects(p, n, fx, {legionOK, addPaid, addCount, bfIdx:opts.bfIdx, execAs});
+    if(!countered) await resolveSpellEffects(p, n, fx, {legionOK, addPaid, addCount, bfIdx:opts.bfIdx, execAs,
+      hiddenBf: (opts.fromHidden && !fx.hiddenFreeTarget) ? opts.bfIdx : null});
     else trashCard(p, n);
   }
   else if(c.type==='Gear'){
@@ -1183,7 +1238,8 @@ async function resolveSpellEffects(p, n, fx, o){
   if(fx.playOps.length){
     for(const po of fx.playOps){
       if(po.legion && !o.legionOK){ UI.log(`[군단] 조건 미충족 — 효과 생략`, 'sys'); continue; }
-      await execOps(po.ops, {p:execAs, legionOK:o.legionOK, bfIdx:o.bfIdx, kind:'spell', paidAdd:o.addPaid, addCount:o.addCount});
+      await execOps(po.ops, {p:execAs, legionOK:o.legionOK, bfIdx:o.bfIdx, kind:'spell', paidAdd:o.addPaid, addCount:o.addCount,
+        hiddenBf:o.hiddenBf??null});
     }
   }
   // 소모형 플래그 해제 (다음 주문 할인/보너스)
@@ -1337,6 +1393,20 @@ async function hideCard(p, handIdx){
   UI.render();
 }
 
+// 숨겨 둔 전장 안에 대상이 하나도 없으면 그 주문은 숨김에서 플레이할 수 없다 (룰 737).
+// 판단할 수 있는 것(spec으로 대상을 고르는 카드)만 본다 — 커스텀 스크립트는 건드리지 않는다.
+function hiddenSpellHasTarget(n, p, bfIdx){
+  const fx=FX[n];
+  if(!fx || fx.hiddenFreeTarget || !fx.playOps) return true;
+  const specs=[];
+  for(const po of fx.playOps) for(const op of (po.ops||[])) if(op.spec) specs.push(op.spec);
+  if(!specs.length) return true;
+  const save=_hiddenBf; _hiddenBf=bfIdx;
+  const none = specs.every(s=>unitsBySpec(s, p).length===0);
+  _hiddenBf=save;
+  return !none;
+}
+
 async function playHidden(p, bfIdx){
   const bf=G.bfs[bfIdx];
   // 녹서스 파괴공작원: 이곳의 상대 [숨겨짐] 카드는 공개 불가
@@ -1357,6 +1427,10 @@ async function playHidden(p, bfIdx){
   // 안 되는 타이밍이면 공개 전에 거른다 (공개했다가 되돌리면 카드 정보만 새 나간다)
   const restr = playRestriction(card(n), p, true);
   if(restr){ UI.toast(restr,'warn'); return; }
+  // 룰 737: 그 전장에 합법 대상이 없는 주문은 숨김에서 플레이할 수 없다
+  if(card(n).type==='Spell' && !hiddenSpellHasTarget(n, p, bfIdx)){
+    UI.toast('이 전장에 대상이 없어 숨김에서 공개할 수 없습니다 (룰 737)','warn'); return;
+  }
   bf.hiddenCards.splice(bf.hiddenCards.indexOf(h),1);
   // 유닛·주문·도구 모두 정식 플레이 경로를 탄다 — 비용 0(738.1), 유닛은 이 전장에 등장(737.2),
   // 주문 대상도 이 전장 컨텍스트(bfIdx), 결전 중이면 체인에 적재.
@@ -1573,7 +1647,8 @@ async function resolveChainItem(it){
   UI.log(`🔗 해결: 「${c.ko}」 (${pname(it.p)})`, 'p'+it.p);
   it.resolved=true;
   await resolveSpellEffects(it.p, it.n, it.fx,
-    {legionOK:it.legionOK, addPaid:it.addPaid, addCount:it.addCount, bfIdx:it.bfIdx, execAs:it.execAs??it.p});
+    {legionOK:it.legionOK, addPaid:it.addPaid, addCount:it.addCount, bfIdx:it.bfIdx, execAs:it.execAs??it.p,
+     hiddenBf:it.hiddenBf??null});
   await cleanup(it.p);
 }
 // 결전 중 행동(체인 적재) 처리 — 공식 규칙: 적재자가 '최신 항목의 컨트롤러'로서 우선권을 유지한다.
@@ -1970,7 +2045,9 @@ async function activateAbility(p, source, ab){
     // [추가](Add) 자원 능력은 체인에 쌓이지 않고 즉시 해결된다 — 응수 불가, 우선권 유지 (규칙 333.1.c
     // "Abilities that Add resources... resolve immediately when Finalized" + 카드 리마인더 "반응할 수 없다").
     // 자원이 즉시 들어와야 같은 시점에 카드 비용 지불에 쓸 수 있다.
-    const RESOURCE_OPS = new Set(['addEnergy','addPower']);
+    // 주문 전용 자원(카이사 전설 247·럭스 314)도 [추가] 자원 능력이다. 빠져 있어서 체인에 쌓였고,
+    // 체인은 결전이 끝나야 해결되므로 정작 그 시점의 카드 비용에는 쓸 수 없었다.
+    const RESOURCE_OPS = new Set(['addEnergy','addPower','addSpellEnergy','addSpellPower']);
     if(ab.ops.length && ab.ops.every(o=>RESOURCE_OPS.has(o.op))){
       UI.log(`${pname(p)} 「${srcName}」 [추가] 능력 — 즉시 해결 (응수 불가)`, 'p'+p);
       await execOps(ab.ops, {p, unit:source.u, gear:source.g, kind:'ability',
@@ -2022,6 +2099,8 @@ function unitsBySpec(spec, p){
   // 유닛의 죽음의 종소리가 결전 전장을 잘못 가리키지 않게 한다
   if(spec.where==='here' && _ctxBf!==null) cands=cands.filter(u=>u.loc===_ctxBf);
   else if(spec.where==='here' && G.showdown) cands=cands.filter(u=>u.loc===G.showdown.bfIdx);
+  // 숨김에서 나온 플레이의 대상은 숨겨 둔 전장 안에서 고른다 (룰 737)
+  if(_hiddenBf!==null) cands=cands.filter(u=>u.loc===_hiddenBf);
   if(spec.where==='bf') cands=cands.filter(u=>u.loc!=='base');
   if(spec.where==='base') cands=cands.filter(u=>u.loc==='base');
   // 'in combat' = 진행 중인 전투 결전 전장의 유닛만 (전투가 없으면 대상 없음)
@@ -2060,12 +2139,18 @@ function effDmgBonus(u, srcP){
 }
 
 let _ctxBf = null;
+// 숨김에서 플레이한 카드가 '플레이하면서' 고르는 대상은 숨겨 둔 전장 안에서만 고른다 (룰 737).
+// 나중에 따로 발동하는 트리거·능력(존야의 대체 효과, 티모의 [방어 시] 등)에는 걸리지 않는다.
+// 카드 문구 자체가 그 전장에서 고르는 것을 불가능하게 만드는 경우는 룰이 예외로 두므로
+// (「물결을 바꾸는 자」 — "다른 위치의 유닛") 그런 카드는 fx.hiddenFreeTarget으로 빼 둔다.
+let _hiddenBf = null;
 let _ctxUnit = null;   // 효과 발생원 유닛 — "다른(another)" 대상 제한에서 자기 자신 제외용
 let _curKind = 'effect';
 async function execOps(ops, ctx){
   if(G.winner!==null) return;
   const p=ctx.p;
   _ctxBf = ctx.bfIdx??null;
+  _hiddenBf = ctx.hiddenBf??null;
   _ctxUnit = ctx.unit??null;
   _curKind = ctx.kind||'effect';
   let it = ctx.it||null;
@@ -2210,7 +2295,9 @@ async function execOps(ops, ctx){
       case 'addPower': G.players[p].power[op.dom]+=op.n; UI.log(`${pname(p)} 힘 +${op.n}`, 'p'+p); break;
       case 'token': {
         let loc='base';
-        if(op.where==='here' && _ctxBf!==null) loc=_ctxBf;
+        // 숨김에서 나온 플레이가 유닛을 플레이하게 하면 그 전장에 놓는다 (룰 737.3)
+        if(_hiddenBf!==null) loc=_hiddenBf;
+        else if(op.where==='here' && _ctxBf!==null) loc=_ctxBf;
         else if(op.where==='play'){
           // 토큰도 '플레이'하는 것이므로 기지 또는 통제 중인 전장을 고른다 (룰 406/143)
           const locs=[{v:'base',label:'기지'}];
@@ -2438,16 +2525,16 @@ async function execOps(ops, ctx){
       default: {
         // 카드별 전용 op (cardscripts.js)
         if(typeof EXTRA_OPS!=='undefined' && EXTRA_OPS[op.op]){
-          const saveBf=_ctxBf, saveKind=_curKind, saveUnit=_ctxUnit;
+          const saveBf=_ctxBf, saveKind=_curKind, saveUnit=_ctxUnit, saveHid=_hiddenBf;
           await EXTRA_OPS[op.op](op, {...ctx, it}, {it:()=>it, setIt:(v)=>{it=v;}});
-          _ctxBf=saveBf; _curKind=saveKind; _ctxUnit=saveUnit;
+          _ctxBf=saveBf; _curKind=saveKind; _ctxUnit=saveUnit; _hiddenBf=saveHid;
         }
         else UI.log(`(자동화 미지원 op: ${op.op})`, 'sys');
       }
     }
     UI.render();
   }
-  _ctxBf=null;
+  _ctxBf=null; _hiddenBf=null;
 }
 
 // op 목록을 한글 요약으로
