@@ -1706,54 +1706,58 @@ async function killUnit(u){
   const P=G.players[u.ctrl];
   const wasBuffed=u.buff>0, wasStunned=u.stunned, deathLoc=u.loc;
 
-  // 최후의 전사(OGS 320): 이번 턴 다음 사망 → 탈진 상태로 귀환 (대체, 비용 없음·강제)
-  if(u._highlander){
-    u._highlander=false;
-    u.dmg=0; u.ex=true; u._dead=false; u._decree=false;
-    removeUnit(u); placeUnit(u,'base');
-    UI.log(`「${unitName(u)}」 사망 대신 탈진 상태로 귀환 (최후의 전사)`, 'p'+u.ctrl);
-    UI.render(); return;
-  }
-  // 무허가 무기고: 사망 대체 (분노 힘 1 지불)
-  if(u._armory && canPay(u.ctrl,0,['Fury'])){
-    const yes=await UI.confirmP(u.ctrl, `[무허가 무기고] 분노 힘 1을 지불하고 「${unitName(u)}」을(를) 회수할까요?`, unitCard(u));
-    if(yes){
-      payCost(u.ctrl,0,['Fury']); u._armory=false;
+  // ── 사망 대체 효과 (룰 366~368) ──
+  // 대체 효과는 상시 능력이라(365.1) 'you may'가 없으면 고를 수 없는 강제 효과다.
+  // 여럿이 한 사망에 걸리면 대상의 소유자가 순서를 정한다 (368) — 고정 순서로 돌면 안 된다.
+  // 하나가 실제로 사망을 대체하면 그 유닛은 죽지 않으므로 나머지는 조건 자체가 사라진다.
+  {
+    const recall = (why) => {
       u.dmg=0; u.ex=true; u._dead=false; u._decree=false;
       removeUnit(u); placeUnit(u,'base');
-      UI.log(`「${unitName(u)}」 사망 대신 회수됨 (무허가 무기고)`, 'p'+u.ctrl);
-      UI.render(); return;
+      UI.log(`「${unitName(u)}」 사망 대신 회수됨 (${why})`, 'p'+u.ctrl);
+      UI.render();
+    };
+    const cands = [];
+    // 최후의 전사(320): 비용 없음 · 강제
+    if(u._highlander) cands.push({ label:'최후의 전사 — 탈진 상태로 귀환', forced:true,
+      run: async () => { u._highlander=false; recall('최후의 전사'); return true; } });
+    // 존야의 모래시계(77): 비용 없음 · 강제 (도구가 대신 폐기된다)
+    const zi = P.gear.findIndex(g=>FX[g.n]&&FX[g.n].zhonya);
+    if(zi>=0) cands.push({ label:'존야의 모래시계 — 도구를 대신 폐기', forced:true,
+      run: async () => { await killGear(u.ctrl, zi); recall('존야'); return true; } });
+    // 무허가 무기고(23): "you may pay 분노" — 선택
+    if(u._armory && canPay(u.ctrl,0,['Fury'])) cands.push({ label:'무허가 무기고 — 분노 힘 1 지불', forced:false,
+      run: async () => {
+        const yes = await UI.confirmP(u.ctrl, `[무허가 무기고] 분노 힘 1을 지불하고 「${unitName(u)}」을(를) 회수할까요?`, unitCard(u));
+        if(!yes) return false;
+        payCost(u.ctrl,0,['Fury']); u._armory=false; recall('무허가 무기고'); return true;
+      } });
+    // 미스 포츈 전설(269): "you may pay ✳ and exhaust me" — 선택
+    {
+      const lfx=FX[P.legendN];
+      if(u.buff>0 && lfx && lfx.hookBuffedDeathSave && !P.legendEx && canPay(u.ctrl,0,['Any']))
+        cands.push({ label:'미스 포츈 — ✳1 지불 + 전설 탈진 + 버프 소모', forced:false,
+          run: async () => {
+            const yes = await UI.confirmP(u.ctrl, `[미스 포츈] ✳1 지불+전설 탈진+버프 소모로 「${unitName(u)}」을(를) 회수할까요?`, unitCard(u));
+            if(!yes) return false;
+            payCost(u.ctrl,0,['Any']); P.legendEx=true; u.buff=Math.max(0,u.buff-1);
+            recall('미스 포츈'); return true;
+          } });
     }
-  }
-  // 존야의 모래시계: 도구를 대신 폐기하고 회수
-  {
-    const zi=P.gear.findIndex(g=>FX[g.n]&&FX[g.n].zhonya);
-    if(zi>=0){
-      const yes=await UI.confirmP(u.ctrl, `[존야의 모래시계] 도구를 대신 폐기하고 「${unitName(u)}」을(를) 회수할까요?`, unitCard(u));
-      if(yes){
-        await killGear(u.ctrl, zi);
-        u.dmg=0; u.ex=true; u._dead=false; u._decree=false;
-        removeUnit(u); placeUnit(u,'base');
-        UI.log(`「${unitName(u)}」 사망 대신 회수됨 (존야)`, 'p'+u.ctrl);
-        UI.render(); return;
-      }
-    }
-  }
-  // 미스 포츈 전설: 버프 유닛 사망 대체
-  if(u.buff>0){
-    const lfx=FX[P.legendN];
-    if(lfx && lfx.hookBuffedDeathSave && !P.legendEx && canPay(u.ctrl,0,['Any'])){
-      const yes = await UI.confirmP(u.ctrl, `[미스 포츈] ✳1 지불+전설 탈진+버프 소모로 「${unitName(u)}」을(를) 회수할까요?`, unitCard(u));
-      if(yes){
-        payCost(u.ctrl,0,['Any']); P.legendEx=true; u.buff=Math.max(0,u.buff-1);
-        u.dmg=0; u.ex=true; u._dead=false;
-        removeUnit(u); placeUnit(u,'base');
-        UI.log(`「${unitName(u)}」 사망 대신 기지으로 회수됨`, 'p'+u.ctrl);
-        UI.render(); return;
-      }
-    }
-  }
 
+    if(cands.length){
+      let order = cands;
+      if(cands.length > 1){
+        // 룰 368: 순서는 대상의 소유자가 정한다. 먼저 적용할 것을 고르게 하고 나머지는 뒤로 민다.
+        const sel = await UI.pickOption(u.ctrl,
+          `「${unitName(u)}」 사망 — 먼저 적용할 대체 효과 (룰 368)`,
+          cands.map((c,i)=>({ v:i, label:c.label + (c.forced?'':' (선택)') })));
+        const first = (typeof sel === 'number' && cands[sel]) ? sel : 0;
+        order = [cands[first], ...cands.filter((_,i)=>i!==first)];
+      }
+      for(const c of order){ if(await c.run()) return; }   // 하나라도 대체하면 사망하지 않는다
+    }
+  }
   removeUnit(u);
   UI.log(`💀 ${unitName(u)} 사망`, 'combat');
   // 도구는 폐기
