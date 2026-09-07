@@ -1106,6 +1106,7 @@ async function playCardFromHand(p, handIdx, opts={}){
       UI.log(`🔗 ${pname(p)} 「${c.ko}」 체인에 적재 (#${sd.chain.length}) — 양측 패스 시 마지막 것부터 해결`, 'p'+p);
       const evctx={p, n, type:c.type, seq:P.playedCards, unit:null, paidAdd:addPaid};
       await fireEvent('onYouPlayCard', evctx);
+      await fireEvent('onYouPlaySpell', evctx);   // 체인에 올린 시점이 곧 '플레이'다
       if(G.turn!==p) await fireEvent('onYouPlayOppTurn', evctx);
       if(opts.fromHidden) await fireEvent('onPlayFromHidden', evctx);
       await cleanup(p);
@@ -1137,6 +1138,8 @@ async function playCardFromHand(p, handIdx, opts={}){
   const evctx={p, n, type:c.type, seq:P.playedCards, unit:placedU, paidAdd:addPaid};
   await fireEvent('onYouPlayCard', evctx);
   if(c.type==='Unit') await fireEvent('onYouPlayUnit', evctx);
+  // '플레이할 때'다 — 해결까지 갈 필요가 없다. 카운터당해도 플레이는 이미 일어났다.
+  if(c.type==='Spell') await fireEvent('onYouPlaySpell', evctx);
   if(G.turn!==p) await fireEvent('onYouPlayOppTurn', evctx);
   if(opts.fromHidden) await fireEvent('onPlayFromHidden', evctx);
 
@@ -1200,7 +1203,6 @@ async function resolveSpellEffects(p, n, fx, o){
   }
   G._casting=null;
   if(fx.manual.length) UI.manualNotice(c);
-  await fireEvent('onYouPlaySpell', {p, n});
   if(G._banishSpell){ P.banish.push(n); G._banishSpell=false; UI.log(`「${c.ko}」 추방됨`, 'sys'); }
   else trashCard(p, n);
 }
@@ -1264,6 +1266,15 @@ async function reactionWindow(caster, c, context={}){
     if(rfx.counter||rfx.steal){
       payCost(o, cc.e||0, powerPips(cc));
       O.hand.splice(idx,1);
+      // 카운터도 '플레이한 주문'이다. 이 경로는 playCardFromHand를 거치지 않으므로
+      // 여기서 직접 플레이 이벤트를 낸다 (「레이븐블룸 학생」 등이 이걸 본다).
+      G.players[o].playedCards++;
+      {
+        const evctx={p:o, n:hn, type:cc.type, seq:G.players[o].playedCards, unit:null, paidAdd:false};
+        await fireEvent('onYouPlayCard', evctx);
+        await fireEvent('onYouPlaySpell', evctx);
+        if(G.turn!==o) await fireEvent('onYouPlayOppTurn', evctx);
+      }
       // 카운터도 주문 — 원 시전자가 '카운터의 카운터'로 재응수할 수 있다 (재귀 창)
       const sub=await reactionWindow(o, cc);
       trashCard(o, hn);

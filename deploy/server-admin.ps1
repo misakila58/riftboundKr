@@ -52,9 +52,11 @@ function Invoke-Remote([string]$command) {
 # 서버가 KEY|값 을 한 줄씩 돌려준다. 이 커밋이 배포되기 전 서버는 404를 준다.
 function Get-ServerStatus {
   $s = [ordered]@{
-    Games  = '읽지 못함 - 아직 배포 전이거나 서버가 꺼져 있습니다'
-    Build  = '알 수 없음'
-    Commit = $null
+    Games   = '읽지 못함 - 아직 배포 전이거나 서버가 꺼져 있습니다'
+    Build   = '알 수 없음'
+    Commit  = $null
+    Playing = $null      # 지금 진행 중인 대전 수 (배포하면 끊긴다)
+    Waiting = $null      # 대기 중인 방 수
   }
   try {
     $raw = Invoke-RestMethod -Uri "https://$HostName/api/status" -TimeoutSec 6 -ErrorAction Stop
@@ -63,9 +65,11 @@ function Get-ServerStatus {
       if ($i -lt 1) { continue }
       $key = $line.Substring(0, $i); $val = $line.Substring($i + 1).TrimEnd("`r")
       switch ($key) {
-        'GAMES'  { $s.Games  = $val }
-        'BUILD'  { $s.Build  = $val }
-        'COMMIT' { $s.Commit = $val }
+        'GAMES'   { $s.Games   = $val }
+        'BUILD'   { $s.Build   = $val }
+        'COMMIT'  { $s.Commit  = $val }
+        'PLAYING' { $s.Playing = [int]$val }
+        'WAITING' { $s.Waiting = [int]$val }
       }
     }
   } catch { }
@@ -98,8 +102,19 @@ function Need-Node {
 
 # ══════════════════════════ 각 기능 ══════════════════════════
 
-function Do-Deploy {
+function Do-Deploy($st) {
   Write-Host ''
+  # 배포는 서버를 재시작한다. 로그인은 유지되지만 진행 중이던 대전은 끊긴다
+  # (방은 서버 메모리에만 있어 재시작으로 사라진다).
+  if ($st -and $st.Playing -gt 0) {
+    Write-Host "  [!] 지금 대전 $($st.Playing)판이 진행 중입니다." -ForegroundColor Yellow
+    Write-Host '      배포하면 서버가 재시작되어 그 대전들이 끊깁니다.'
+    Write-Host '      (로그인은 유지되지만, 두던 게임은 이어서 둘 수 없습니다)'
+    Write-Host ''
+    $go = Read-Host '      그래도 지금 배포할까요? (y/N)'
+    if ($go -ne 'y' -and $go -ne 'Y') { Write-Host '  배포를 취소했습니다.'; return }
+    Write-Host ''
+  }
   Write-Host '  == 최신 버전 배포 중 (2~4분) ==' -ForegroundColor Cyan
   Write-Host '  깃허브에 push한 내용이 서버에 반영됩니다. 계정/덱 데이터는 그대로 보존됩니다.'
   Write-Host ''
@@ -213,6 +228,10 @@ while ($true) {
   Write-Host "    리프트바운드 서버 관리   $SshUser@$HostName"
   Write-Host "    접속 방식: $keyState"
   Write-Host '  ------------------------------------------------'
+  $live = if ($null -eq $st.Playing) { '알 수 없음' }
+          elseif ($st.Playing -gt 0) { "대전 $($st.Playing)판 진행 중  <- 배포하면 끊깁니다" }
+          else { '진행 중인 대전 없음 (배포해도 안전)' }
+  Write-Host "    지금        : $live"
   Write-Host "    최근 24시간: $($st.Games)"
   Write-Host "    서버 빌드  : $($st.Build)"
   Write-Host "    내 로컬    : $local"
@@ -232,7 +251,7 @@ while ($true) {
   if ($sel -eq '') { $sel = '1' }
 
   switch ($sel) {
-    '1' { Do-Deploy;   Pause-Return }
+    '1' { Do-Deploy $st; Pause-Return }
     '2' { Do-Status $st; Pause-Return }
     '3' { Do-Logs;     Pause-Return }
     '4' { Do-Restart;  Pause-Return }

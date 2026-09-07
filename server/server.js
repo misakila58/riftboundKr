@@ -441,7 +441,13 @@ const server = http.createServer(async (req, res) => {
     const label = { hotseat:'핫시트', p2p:'친구', online:'온라인' };
     const parts = STAT_MODES.filter(m => s[m] > 0).map(m => `${label[m]} ${s[m]}`);
     // KEY|값 한 줄씩 — 배치 파일이 delims=| 로 그대로 나눠 읽는다
+    // 지금 실제로 진행 중인 대전 — 서버를 재시작하면 이 게임들이 끊긴다.
+    // 방은 메모리에만 있어 재시작으로 사라지고, 클라이언트에는 이어 붙일 방법이 없다.
+    const playing = [...rooms.values()].filter(r => r.started).length;
+    const waiting = [...rooms.values()].filter(r => !r.started).length;
     const lines = [
+      `PLAYING|${playing}`,
+      `WAITING|${waiting}`,
       `GAMES|${s.total}판${parts.length ? ' (' + parts.join(' · ') + ')' : ''}`,
       `BUILD|${BUILD.commit}${BUILD.date ? ' (' + BUILD.date + ')' : ''}${BUILD.subject ? ' ' + BUILD.subject : ''}`,
       `COMMIT|${BUILD.commit}`,

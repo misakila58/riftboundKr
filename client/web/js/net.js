@@ -76,7 +76,24 @@ NET.connect = function(){
         case 'choice': NET._resolveChoice(m); break;
       }
     };
-    ws.onclose = ()=>{ if(NET.online){ UI.toast('서버 연결이 끊어졌습니다','warn'); } };
+    ws.onclose = ()=>{
+      if(!NET.online) return;
+      // 대전 중이었다면 조용히 두면 안 된다 — 보드는 그대로인데 어떤 행동도 전달되지 않는다.
+      // (서버가 재시작되면 방 자체가 사라지므로 이어서 둘 방법이 없다)
+      const inGame = typeof G!=='undefined' && G && G.winner===null;
+      NET.online = false;
+      if(inGame){
+        UI.prompt('⚠ 서버 연결이 끊어졌습니다 — 이 대전은 이어서 진행할 수 없습니다');
+        setTimeout(()=>{
+          alert('서버와의 연결이 끊어졌습니다.\n\n'
+              + '서버가 갱신 중이거나 네트워크가 끊긴 경우입니다.\n'
+              + '진행 중이던 대전은 이어서 둘 수 없습니다 — 로비로 돌아갑니다.');
+          location.reload();
+        }, 100);
+      } else {
+        UI.toast('서버 연결이 끊어졌습니다','warn');
+      }
+    };
   });
 };
 // ── 클라이언트 간 버전 검증 (서버 무관) ──
@@ -113,7 +130,9 @@ NET._verIntercept = function(m){
 };
 NET.send = obj=>{
   if(typeof P2P!=='undefined' && P2P.active){ P2P.netSend(obj); return; } // P2P 직접 대전 경로
-  if(NET.ws&&NET.ws.readyState===1) NET.ws.send(JSON.stringify(obj));
+  if(NET.ws && NET.ws.readyState===1){ NET.ws.send(JSON.stringify(obj)); return; }
+  // 소켓이 닫힌 뒤의 행동을 말없이 버리면, 화면은 멀쩡한데 아무 반응이 없는 상태가 된다
+  UI.toast('서버에 연결되어 있지 않아 행동이 전달되지 않았습니다','warn');
 };
 
 // ---------- 락스텝: 액션 ----------
