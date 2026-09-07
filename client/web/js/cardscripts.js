@@ -343,7 +343,7 @@ const EXTRA_OPS = {
     const sel=await UI.pickOption(ctx.p,'손패에 넣을 카드 1장',top.map(n=>({v:n,label:card(n).ko,n})));
     const take = sel!==null?sel:top[0];
     P.hand.push(take);
-    top.splice(top.indexOf(take),1); P.deck.push(...top);
+    top.splice(top.indexOf(take),1); P.deck.push(...shuffle(top));
     if(top.length) await fireEvent('onYouRecycle',{p:ctx.p});
     UI.log(`${pname(ctx.p)} 덱 위 ${op.n}장 확인 → 1장 손패`,'p'+ctx.p); },
   async lookTopPlayUnit(op, ctx, h){ const P=G.players[ctx.p];
@@ -365,7 +365,7 @@ const EXTRA_OPS = {
         }
       }
     }
-    P.deck.push(...top);
+    P.deck.push(...shuffle(top));
     if(top.length) await fireEvent('onYouRecycle',{p:ctx.p}); },
   async luredHook(op, ctx, h){
     const mine=everyUnit().filter(u=>u.ctrl===ctx.p); if(!mine.length) return;
@@ -414,7 +414,7 @@ const EXTRA_OPS = {
       const top=P.deck.splice(0,5); if(!top.length) continue;
       const sel=await UI.pickOption(pi,`${pname(pi)}: 추방(플레이 예약)할 카드 1장`,top.map(n=>({v:n,label:card(n).ko,n})));
       const pick=sel!==null?sel:top[0];
-      top.splice(top.indexOf(pick),1); P.deck.push(...top); picks[pi]=pick;
+      top.splice(top.indexOf(pick),1); P.deck.push(...shuffle(top)); picks[pi]=pick;
       if(top.length) await fireEvent('onYouRecycle',{p:pi});
     }
     for(const pi of [opp(ctx.p), ctx.p]){
@@ -431,7 +431,7 @@ const EXTRA_OPS = {
     let unitN=null;
     while(P.deck.length){ const n=P.deck.shift();
       if(card(n).type==='Unit'){ unitN=n; break; } revealed.push(n); }
-    P.deck.push(...revealed);
+    P.deck.push(...shuffle(revealed));
     if(revealed.length) await fireEvent('onYouRecycle',{p:ctx.p});
     if(unitN!==null){
       // 공개된 카드를 손패 맨 앞에 잠시 두고 정식 플레이 경로로 보낸다.
@@ -454,7 +454,7 @@ const EXTRA_OPS = {
     const hiddenCnt=top.filter(n=>FX[n]&&FX[n].kw&&FX[n].kw.hidden).length;
     UI.log(`덱 위 5장 공개 — [숨겨짐] ${hiddenCnt}장`,'sys');
     if(hiddenCnt>0) dealDamage(t, hiddenCnt, 'effect');
-    P.deck.push(...top);
+    P.deck.push(...shuffle(top));
     if(top.length) await fireEvent('onYouRecycle',{p:ctx.p}); },
   async tfGamble(op, ctx, h){ const P=G.players[ctx.p];
     if(!P.runeDeck.length) return;

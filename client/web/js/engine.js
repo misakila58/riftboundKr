@@ -518,7 +518,10 @@ async function startTurn(){
   // 예전엔 턴 주인만 초기화해서, 상대 턴(결전 등)에 낸 카드가 내 지난 턴 수치에 이어 세어졌다.
   // → 「다리우스 - 삼두정」의 '한 턴에 두 번째 카드' 조건이나 [군단] 판정이 어긋났다.
   G.players.forEach(pl=>{ pl.playedCards=0; });
-  P.scoredBf={};
+  // '이번 턴에 어느 전장을 득점했나'는 최종 점수 판정(룰 452)에 쓰인다. 정복은 상대 턴에도
+  // 일어날 수 있으므로(방어에 성공해 통제를 되찾는 경우) 양쪽 기록을 모두 비워야 한다.
+  // 턴 주인만 비우면 지난 내 턴의 기록이 남아 "이번 턴 모든 전장 득점"이 잘못 성립했다.
+  G.players.forEach(pl=>{ pl.scoredBf={}; });
   G.bfs.forEach(bf=>bf.scored={});
   G.tflags=freshTF();
   everyUnit().forEach(u=>{ u.turnMoves=0; u._armory=false; u._highlander=false; u._guillotine=false; });
@@ -897,8 +900,10 @@ function playRestriction(c, p, fromHidden){
       return '체인 진행 중에는 [반응] 카드만 낼 수 있습니다';
     return null;
   }
-  // 중립 응수 창: 창이 열린 플레이어는 자기 턴이 아니어도 [반응] 주문을 낼 수 있다 (닫힌 상태 응수 — 규칙 309.2)
-  if(G._rwFor===p && ((fx.kw.reaction && c.type==='Spell') || fromHidden)) return null;
+  // 중립 응수 창: 창이 열린 플레이어는 자기 턴이 아니어도 [반응] 카드를 낼 수 있다 (닫힌 상태 응수 — 규칙 309.2)
+  // [반응]은 주문뿐 아니라 유닛에도 붙는다 (룰 739.3 "On Units: ... during Closed States on any player's turn").
+  // 「쉔 - 킨코우」가 그 유일한 예인데 주문만 허용하고 있어 상대 주문에 맞춰 낼 수가 없었다.
+  if(G._rwFor===p && ((fx.kw.reaction && (c.type==='Spell'||c.type==='Unit')) || fromHidden)) return null;
   if(G.turn!==p) return '자신의 턴에만 플레이할 수 있습니다';
   if(G.phase!=='action') return '행동 단계에만 플레이할 수 있습니다';
   return null;
@@ -1042,7 +1047,9 @@ async function playCardFromHand(p, handIdx, opts={}){
   if(opts.ignoreEnergy) energy=0;
   if(opts.ignorePower) pips=[];
   let accel = false;
-  if(c.type==='Unit' && fx.kw.accelerate && !opts.fromHidden){
+  // 숨김에서 공개하면 '기본 비용'만 면제된다 (룰 738.1). [가속] 같은 추가 비용은 그대로 고를 수 있다
+  // — 룰북도 "비용을 무시하고 플레이하되 가속 비용은 지불한다"를 예로 든다.
+  if(c.type==='Unit' && fx.kw.accelerate){
     const accPips = [ (c.dom&&c.dom.length===1)?c.dom[0]:'Any' ];
     if(canPay(p, energy+1, [...pips, ...accPips])){
       accel = await UI.confirmP(p, `[가속] 추가 비용(에너지 1+힘 1)을 지불하고 준비 상태로 등장시킬까요?`, c);
@@ -1172,10 +1179,8 @@ async function playCardFromHand(p, handIdx, opts={}){
       if(sd.chain.length===1) sd.chainStarter=p;
       UI.fx.chainAdd(c, p, sd.chain.length);
       UI.log(`🔗 ${pname(p)} 「${c.ko}」 체인에 적재 (#${sd.chain.length}) — 양측 패스 시 마지막 것부터 해결`, 'p'+p);
+      // 적재는 아직 해결이 아니다 — 플레이 이벤트는 이 항목이 체인에서 해결될 때 난다
       const evctx={p, n, type:c.type, seq:P.playedCards, unit:null, paidAdd:addPaid};
-      await fireEvent('onYouPlayCard', evctx);
-      await fireEvent('onYouPlaySpell', evctx);   // 체인에 올린 시점이 곧 '플레이'다
-      if(G.turn!==p) await fireEvent('onYouPlayOppTurn', evctx);
       if(opts.fromHidden) await fireEvent('onPlayFromHidden', evctx);
       await cleanup(p);
       UI.render();
@@ -1207,11 +1212,13 @@ async function playCardFromHand(p, handIdx, opts={}){
 
   // 공통 플레이 이벤트
   const evctx={p, n, type:c.type, seq:P.playedCards, unit:placedU, paidAdd:addPaid};
-  await fireEvent('onYouPlayCard', evctx);
-  if(c.type==='Unit') await fireEvent('onYouPlayUnit', evctx);
-  // '플레이할 때'다 — 해결까지 갈 필요가 없다. 카운터당해도 플레이는 이미 일어났다.
-  if(c.type==='Spell') await fireEvent('onYouPlaySpell', evctx);
-  if(G.turn!==p) await fireEvent('onYouPlayOppTurn', evctx);
+  // 주문은 여기가 아니라 해결될 때 낸다 (룰 356.3.e.11) — 카운터당하면 아예 나지 않는다 (룰 2848).
+  // 유닛·도구는 플레이와 동시에 보드에 들어가므로 여기가 곧 해결 시점이다.
+  if(c.type!=='Spell'){
+    await fireEvent('onYouPlayCard', evctx);
+    if(c.type==='Unit') await fireEvent('onYouPlayUnit', evctx);
+    if(G.turn!==p) await fireEvent('onYouPlayOppTurn', evctx);
+  }
   if(opts.fromHidden) await fireEvent('onPlayFromHidden', evctx);
 
   await cleanup(p);
@@ -1245,10 +1252,21 @@ function applyCostMods(p, c, energy){
   return Math.max(e, minE, 0);
 }
 
+// "카드/주문을 플레이할 때" 트리거는 그 주문이 해결되는 시점에 난다 (룰 356.3.e.11).
+// 카운터당한 주문은 여기까지 오지 않는다 — 플레이한 것으로 치지 않기 때문이다 (룰 2848).
+async function fireSpellPlayEvents(p, n){
+  const P=G.players[p];
+  const evctx={p, n, type:'Spell', seq:P.playedCards, unit:null, paidAdd:false};
+  await fireEvent('onYouPlayCard', evctx);
+  await fireEvent('onYouPlaySpell', evctx);
+  if(G.turn!==p) await fireEvent('onYouPlayOppTurn', evctx);
+}
+
 // ---------- 주문 효과 해결 (즉시 해결 경로와 체인 해결 경로가 공유) ----------
 async function resolveSpellEffects(p, n, fx, o){
   const c=card(n); const P=G.players[p];
   const execAs=o.execAs??p;
+  await fireSpellPlayEvents(p, n);          // 해결되는 지금이 '플레이할 때' 트리거의 시점이다
   UI.fx.cast(c, p);
   G._casting=p; G._spellKilled=false; G._banishSpell=false;
   if(fx.playOps.length){
@@ -1296,7 +1314,9 @@ async function reactionWindow(caster, c, context={}){
     const opts=[];
     O.hand.forEach((hn,i)=>{
       const fx=FX[hn]; if(!fx||!fx.kw||!fx.kw.reaction) return;
-      const cc=card(hn); if(cc.type!=='Spell') return;
+      // [반응] 유닛도 닫힌 상태에서 낼 수 있다 (룰 739.3). 유닛은 카운터가 아니므로
+      // 아래 카운터 분기는 그대로 지나가고 정식 플레이 경로(배치 위치 선택 포함)를 탄다.
+      const cc=card(hn); if(cc.type!=='Spell' && cc.type!=='Unit') return;
       const cost=cc.e||0, pips=powerPips(cc);
       if(!canPay(o,cost,pips)) return;
       if(fx.counter||fx.steal){
@@ -1339,22 +1359,17 @@ async function reactionWindow(caster, c, context={}){
       payCost(o, cc.e||0, powerPips(cc));
       O.hand.splice(idx,1);
       // 카운터도 '플레이한 주문'이다. 이 경로는 playCardFromHand를 거치지 않으므로
-      // 여기서 직접 플레이 이벤트를 낸다 (「레이븐블룸 학생」 등이 이걸 본다).
+      // 플레이 이벤트도 여기서 직접 낸다 (「레이븐블룸 학생」 등이 이걸 본다).
       G.players[o].playedCards++;
-      {
-        const evctx={p:o, n:hn, type:cc.type, seq:G.players[o].playedCards, unit:null, paidAdd:false};
-        await fireEvent('onYouPlayCard', evctx);
-        await fireEvent('onYouPlaySpell', evctx);
-        if(G.turn!==o) await fireEvent('onYouPlayOppTurn', evctx);
-      }
       // 카운터도 주문 — 원 시전자가 '카운터의 카운터'로 재응수할 수 있다 (재귀 창)
       const sub=await reactionWindow(o, cc);
       trashCard(o, hn);
       if(sub && (sub.countered || sub.steal!==undefined)){
         UI.log(`⚡「${cc.ko}」 — 무효화되어 효과 없음`, 'sys');
         UI.render();
-        continue;
+        continue;                                // 카운터당했으니 플레이 이벤트도 나지 않는다 (룰 2848)
       }
+      await fireSpellPlayEvents(o, hn);           // 여기서 실제로 해결된다
       if(rfx.steal){ UI.log(`⚡「${cc.ko}」: 「${c.ko}」의 통제권 탈취!`, 'p'+o); result={steal:o}; }
       else { UI.log(`⚡「${cc.ko}」: 「${c.ko}」 무효화!`, 'p'+o); result={countered:true}; }
       UI.render();
@@ -1652,6 +1667,7 @@ async function resolveChainItem(it){
     return;
   }
   if(it.kind==='counter'){
+    await fireSpellPlayEvents(it.p, it.n);   // 카운터 주문도 지금 해결된다
     trashCard(it.p, it.n);
     if(it.target && !it.target.countered && !it.target.resolved){
       if(it.steal){ it.target.execAs=it.p; UI.log(`🔗 ⚡「${c.ko}」: 「${card(it.target.n).ko}」 통제권 탈취!`, 'p'+it.p); }
@@ -1782,11 +1798,17 @@ async function resolveShowdown(){
   if(G._endingTurn && G.state==='neutral' && !G.showdown) await finishEndTurn(G._endingTurn.p);
 }
 
+// 피해를 받을 수 없는 유닛에게는 어떤 양도 치명 피해가 될 수 없으므로, 배분 강제 대상에서 빠진다
+// (룰 443.1.d.9 — 룰북이 「케인 - 해방」을 예로 든다). 남겨 두면 배분을 낭비하게 된다.
+function canTakeCombatDamage(u){
+  return !(unitFx(u).noDmgIfMoved2 && (u.turnMoves||0)>=2);
+}
+
 // 피해 배분: assigner가 targets에 total 피해를 배분 (치명 우선/탱커 우선 자동, 순서는 프롬프트)
 async function assignDamage(assigner, total, targets, role){
   const result=[];
   let remain=total;
-  let pool=[...targets];
+  let pool=targets.filter(canTakeCombatDamage);
   while(remain>0 && pool.length){
     // 케이틀린: 마지막에만 배분 가능
     const nonLast = pool.filter(u=>!unitFx(u).combatLast);
@@ -2023,11 +2045,14 @@ async function activateAbility(p, source, ab){
   payCost(p, cost.energy||0, pips);
   if(cost.recycleTrash){
     // 재활용할 카드는 플레이어가 지정한다 (바이 36 등 — 무작위였던 것 수정)
+    // 동시에 재활용되는 카드는 무작위 순서로 맨 아래에 놓는다 (룰 403.x)
+    const recycled=[];
     for(let i=0;i<cost.recycleTrash;i++){
       const sel=await UI.pickOption(p,'재활용할 카드 선택 (덱 맨 아래로)',P.trash.map((n,ti)=>({v:ti,label:card(n).ko,n})));
       const ti=(sel==null)?P.trash.length-1:sel;
-      P.deck.push(P.trash.splice(ti,1)[0]);
+      recycled.push(P.trash.splice(ti,1)[0]);
     }
+    P.deck.push(...shuffle(recycled));
     UI.log(`${pname(p)} 폐기장에서 ${cost.recycleTrash}장 재활용`, 'p'+p);
   }
   if(cost.discard){
@@ -2144,6 +2169,15 @@ async function pickBySpec(p, spec, promptText){
   return u;
 }
 
+// 분할 피해의 추가 피해는 '나눌 총량'에 한 번만 붙는다 (룰 718.5) — 그래서 고를 수 있는
+// 대상 수도 함께 늘어난다. 대상마다 더하면 대상 수만큼 피해가 불어난다.
+// 전장 보정은 나눠 줄 위치가 정해져 있을 때만 센다(op.spec.where==='here').
+function splitBonus(p, loc){
+  const at = (loc!==null && loc!==undefined && loc!=='base' && G.bfs[loc] && G.bfs[loc].n===BF_STATIC.BONUS_DMG) ? 1 : 0;
+  const all = everyUnit().some(x=>x.ctrl===p && unitFx(x).spellBonusAll) ? 1 : 0;
+  return at + all;
+}
+
 // 전장 상시: 주문/능력 피해 +1
 // 효과·주문 피해의 추가 피해. u=피해 대상, srcP=피해를 입히는 쪽(주문/능력의 시전자)
 function effDmgBonus(u, srcP){
@@ -2198,7 +2232,8 @@ async function execOps(ops, ctx){
         }
         break; }
       case 'dealSplit': {
-        let remain=op.n;
+        // 추가 피해는 여기서 총량에 한 번 붙는다 (룰 718.5) — 대상마다 붙이지 않는다
+        let remain=op.n + splitBonus(p, op.spec.where==='here' ? _ctxBf : null);
         const used=[];            // 같은 유닛을 두 번 고를 수 없다 ("여러 유닛에 나눠" = 서로 다른 유닛)
         while(remain>0){
           const cands=everyUnit().filter(u=>u.ctrl!==p && !used.includes(u) && (op.spec.where!=='here'||u.loc===_ctxBf));
@@ -2208,7 +2243,7 @@ async function execOps(ops, ctx){
           if(!(await payDeflect(p, u))){ used.push(u); continue; }   // 굴절 비용 미지불 시 그 유닛은 제외
           used.push(u);
           const amt=await UI.pickNumber(p,`「${unitName(u)}」에게 줄 피해 (1~${remain})`,1,remain);
-          dealDamage(u, amt+effDmgBonus(u, p), _curKind); remain-=amt;
+          dealDamage(u, amt, _curKind); remain-=amt;
           UI.log(`${unitName(u)}에게 피해 ${amt}`, 'combat');
         }
         break; }
