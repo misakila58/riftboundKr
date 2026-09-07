@@ -1,6 +1,11 @@
 // ══════════ 리프트바운드 게임 엔진 ══════════
 // 1v1 · 승점 8 · 전장 2개 · 효과 자동 처리
 
+// withBattlefieldSource는 전장 효과 선택 시 출처 패널을 띄우는 UI 함수(ui.js 정의).
+// 헤드리스(셀프플레이·테스트·봇 내부 시뮬)에는 ui.js가 없으므로, 표시 없이 실행만 하는
+// 폴백을 둔다. 브라우저는 ui.js의 async 함수가 호이스팅으로 이 폴백을 덮어 정상 동작한다.
+if(typeof globalThis.withBattlefieldSource === 'undefined') globalThis.withBattlefieldSource = (src, run) => run();
+
 let G = null;
 let UID = 1;
 
