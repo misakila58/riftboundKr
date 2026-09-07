@@ -668,6 +668,20 @@ async function effectMove(p, u, dest){
   if(from!=='base') await fireBfTrigger(from,'onMoveFromHere',{p, it:u, bfIdx:from});
   await runTriggerList(unitFx(u).triggers?.onMoveSelf, {p:u.ctrl, unit:u, it:u, bfIdx:(dest!=='base'?dest:null), dest});
   if(dest!=='base') await fireEvent('onMoveToBf', {p:u.ctrl, bfIdx:dest});
+  // 공격 판정 — 효과로 옮겨진 이동도 이동이다 (룰 427). 경합을 적용하는 주체는
+  // 이동을 일으킨 사람이 아니라 '움직인 유닛의 통제자'이고(428), 그 사람이 공격자가 된다(442.1.a.1).
+  // 「매혹」으로 상대 유닛을 내 전장에 끌어오면 상대가 공격자이고 그 유닛이 공격자 지정을 받는다.
+  if(dest!=='base'){
+    const bf=G.bfs[dest];
+    const owner=u.ctrl;
+    const isAttack = (bf.controller!==null && bf.controller!==owner) || bf.units.some(x=>x.ctrl!==owner);
+    if(isAttack){
+      await runTriggerList(unitFx(u).triggers?.onAttack, {p:owner, unit:u, bfIdx:dest});
+      await runTriggerList(unitFx(u).triggers?.onAttackOrDefend, {p:owner, unit:u, bfIdx:dest});
+      const defender = (bf.controller!==null && bf.controller!==owner) ? bf.controller : opp(owner);
+      await legendHookTarget(defender,'hookEnemyAttackMyBf',{p:defender, it:u, bfIdx:dest});
+    }
+  }
   return true;
 }
 
