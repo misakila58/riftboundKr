@@ -303,6 +303,8 @@ function polLegacyUnit(p, c, txt, optional){
 POLICY.unit = function(p, candidates, promptText, optional){
   if(!candidates || !candidates.length) return null;
   const txt = String(promptText||'');
+  const assault=txt.match(/\[맹공 (\d+)\]/);
+  if(assault) return polAssaultTarget(p,candidates,+assault[1])?.unit||null;
   // abilityPlan이 정복 가치까지 계산해 예약한 미스 포츈 전설의 [개입] 대상.
   // 같은 문구를 쓰는 다른 카드 효과와 섞이지 않도록 uid·턴·좌석을 모두 확인한다.
   const gp=POLICY._mfGankTarget;
@@ -823,6 +825,57 @@ function polIsRelocationSpell(n){
   return c.type==='Spell' && polHasRelocateOp(fx.playOps||[]);
 }
 
+// 맹공 부여 주문은 공격 중인 결전에서 실제 처치·생존 결과를 개선할 때만 쓴다.
+function polAssaultBonus(n){
+  if(card(n).type!=='Spell') return 0;
+  return (FX[n]?.playOps||[]).flatMap(g=>g.ops||[])
+    .filter(op=>op.op==='grantKw').flatMap(op=>op.kws||[])
+    .reduce((sum,[kw,v])=>sum+(kw==='Assault'?Number(v)||0:0),0);
+}
+function polAssaultTarget(p,candidates,bonus){
+  const sd=G.showdown;
+  if(!sd?.hasCombat || sd.attacker!==p || bonus<=0) return null;
+  const snap0=polSdSnap(p,sd), base=polSdOutcome(p,sd,snap0);
+  let best=null;
+  for(const u of candidates){
+    if(u.ctrl!==p || u.loc!==sd.bfIdx || u.stunned) continue;
+    const snap={mine:snap0.mine.map(x=>({...x})),theirs:snap0.theirs.map(x=>({...x}))};
+    const t=snap.mine.find(x=>x.uid===u.uid);
+    if(!t) continue;
+    const boosted={...u,grants:{...u.grants,assault:(Number(u.grants.assault)||0)+bonus}};
+    t.m=might(boosted,'attacker');
+    t.lethal=Math.max(1,might(boosted,'attacker',{forKill:true})-u.dmg);
+    const out=polSdOutcome(p,sd,snap);
+    const gain=(out.cls-base.cls)*10+out.exch-base.exch;
+    if(gain>0 && (!best || gain>best.gain)) best={unit:u,gain};
+  }
+  return best;
+}
+async function polAssaultShowdownAction(p){
+  const sd=G.showdown;
+  if(!sd?.hasCombat || sd.attacker!==p || sd.chain.length || SIM.lock || NET.online) return null;
+  const candidates=[];
+  G.players[p].hand.forEach((n,idx)=>{
+    const bonus=polAssaultBonus(n);
+    if(bonus && polCanPlay(p,card(n)) && polAssaultTarget(p,unitsAt(sd.bfIdx),bonus))
+      candidates.push({kind:'play',idx,n});
+  });
+  if(!candidates.length) return null;
+  const before=await simTry(p,async()=>{},POLICY);
+  if(before===null) return null;
+  let best=null;
+  for(const act of candidates){
+    const after=await simTry(p,async()=>{
+      await POLICY.runAction(p,act);
+      await simSettle(); // 주문 체인을 닫은 뒤 simTry의 후속 정리에서 전투까지 비교
+    },POLICY);
+    if(after!==null && after>before+Math.max(0,BOT_W.moveNeed||0) && (!best || after>best.value))
+      best={act,value:after};
+  }
+  if(best) polSay('showdown',card(best.act.n).ko,'맹공: 공격 전투 개선·사용 비용 확인',{delta:best.value-before});
+  return best?.act||null;
+}
+
 // 실제 엔진으로 카드를 한 번 사용한 결과와 현재 상태(=사용 안 함)를 비교한다.
 // simTry가 결전까지 해결하고 원본 G를 복원하므로, 대상 없음·헛이동·통제 약화가 모두
 // 같은 evalState 잣대로 걸러진다. 샌드박스 안에서는 재진입하지 않는다.
@@ -859,6 +912,7 @@ POLICY.pickPlay = async function(p, blocked){
   P.hand.forEach((n,i)=>{
     if(blocked && blocked.has('h'+n)) return;
     const c = card(n);
+    if(polAssaultBonus(n)) return; // 공격 결전의 전용 평가까지 보류
     if(POLICY.ab.canpay ? !polCanPlay(p, c) : polCost(c) > readyRunes(p).length) return;
     if(POLICY.ab.reserve && polCost(c) > Math.max(0, budget)) return;  // 상대 턴 응수분은 남긴다
     if(polMfNeutralCardBlocked(p,n)) return;
@@ -1241,6 +1295,7 @@ POLICY.hiddenPlan = function(p, ctx, wantTrick){
       if(h.turn === G.turnCount && G.turn === p) continue;                    // 숨긴 턴에는 못 낸다
       if(ctx && ctx.tried.has('v' + i + ':' + h.n)) continue;
       const c = card(h.n), fx = FX[h.n] || {kw:{}};
+      if(polAssaultBonus(h.n)) continue;
       if(polMfTimelineBlocked(p,h.n)) continue;
       const trick = !!(fx.kw.action || fx.kw.reaction);
       if(wantTrick && polIsReturnSpell(h.n)) continue; // 전용 결전 평가가 사용/보류를 결정한다
@@ -1271,7 +1326,7 @@ function polSdTried(){
 function polSdSnap(p, sd){
   const us = unitsAt(sd.bfIdx);
   const role = u => u.ctrl === sd.attacker ? 'attacker' : 'defender';
-  const mk = u => ({ m: might(u, role(u)), lethal: Math.max(1, might(u, role(u), {forKill:true}) - u.dmg),
+  const mk = u => ({ uid:u.uid, m: might(u, role(u)), lethal: Math.max(1, might(u, role(u), {forKill:true}) - u.dmg),
                      stun: !!u.stunned, might: might(u) });
   return { mine: us.filter(u=>u.ctrl===p).map(mk), theirs: us.filter(u=>u.ctrl!==p).map(mk) };
 }
@@ -1326,7 +1381,9 @@ function polSdApplyOps(p, sd, snap, ops){
     else if(op.op==='grantKw' && op.kws){
       const t=myBest();
       if(t) for(const kv of op.kws){ const kw=kv[0], v=kv[1]||1;
-        if(/^(Assault|Shield)/.test(kw)){ t.m+=v; t.lethal+=v; touched=true; } }
+        if((kw==='Assault' && sd.attacker===p) || (kw==='Shield' && sd.defender===p)){
+          t.m+=v; t.lethal+=v; touched=true;
+        } }
     }
   }
   return touched;
@@ -1344,6 +1401,8 @@ function polSdTrickGain(p, sd, snap0, base, n){
 POLICY.showdownAction = async function(p){
   const sd = G.showdown;
   if(!sd) return null;
+  const assault=await polAssaultShowdownAction(p);
+  if(assault) return assault;
   if(polSmart()){
     const bounce=await polReturnShowdownAction(p);
     if(bounce) return bounce;
@@ -1359,6 +1418,7 @@ POLICY.showdownAction = async function(p){
   const P = G.players[p];
   // 이 결전에서 낼 수 있는 트릭인가 (자금 문제는 따로 본다)
   const usable = n => {
+    if(polAssaultBonus(n)) return false; // 전용 평가가 거절한 주문을 일반 트릭으로 재선택하지 않는다
     if(polIsReturnSpell(n)) return false; // 위의 실제 엔진 평가에서 이미 검사했다
     const fx = FX[n] || {kw:{}};
     if(!(fx.kw.action || fx.kw.reaction)) return false;
@@ -1541,6 +1601,7 @@ function polActionCandidates(p, ctx){
   P.hand.forEach((n, i) => {
     if(blocked && blocked.has('h'+n)) return;
     if(seen.has(n)) return; seen.add(n);
+    if(polAssaultBonus(n)) return;
     if(!polCanPlay(p, card(n))) return;
     if(polMfNeutralCardBlocked(p,n)) return;
     out.push({ kind:'play', n, label:'플레이 '+card(n).ko,

@@ -5,7 +5,7 @@
 
 UI.fx = {
   on: (localStorage.getItem('rb_fx') !== 'off'),
-  setOn(v){ UI.fx.on = !!v; localStorage.setItem('rb_fx', v ? 'on' : 'off'); },
+  setOn(v){ UI.fx.on = !!v; localStorage.setItem('rb_fx', v ? 'on' : 'off'); updateTurnGlow(); },
 };
 
 function fxLayer(){

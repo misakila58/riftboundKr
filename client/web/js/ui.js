@@ -89,6 +89,32 @@ UI.promptShowdown = function(){
 };
 
 // ---------- 선택 프리미티브 (Promise 기반) ----------
+// 한 전장 효과의 연속 선택이 끝날 때까지 출처를 유지한다. 게임 상태/선택값에는 포함하지 않는다.
+let _battlefieldSource=null;
+async function withBattlefieldSource(source,run){
+  if(typeof SIM!=='undefined' && SIM.active) return run();
+  const previous=_battlefieldSource;
+  _battlefieldSource=source;
+  try { return await run(); }
+  finally { _battlefieldSource=previous; }
+};
+function appendBattlefieldSource(parent){
+  if(!_battlefieldSource) return;
+  const c=card(_battlefieldSource.n);
+  const timing={onConquerHere:'점령 시',onHoldHere:'유지 시',onConquerEndTurn:'점령 효과 · 턴 종료 시',onFirstBeginning:'첫 개시 단계',
+    onMoveFromHere:'이 전장에서 이동 시',onDefendHere:'방어 시'}[_battlefieldSource.event]||'전장 효과';
+  const panel=document.createElement('div'); panel.className='battlefield-source';
+  const preview=document.createElement('button'); preview.type='button'; preview.className='battlefield-source-card';
+  preview.setAttribute('aria-label',c.ko+' 카드 확대');
+  const img=document.createElement('img'); img.src=cardImgUrl(c.img,480); img.alt=c.ko;
+  preview.appendChild(img); preview.onclick=()=>UI.showZoom(c);
+  attachCardHover(preview,c);
+  const info=document.createElement('div'); info.className='battlefield-source-info';
+  const name=document.createElement('strong'); name.textContent=`「${c.ko}」 · ${timing}`;
+  const effect=document.createElement('div'); effect.className='battlefield-source-text';
+  effect.innerHTML=renderIcons(esc(c.tko||c.text||''));
+  info.append(name,effect); panel.append(preview,info); parent.appendChild(panel);
+}
 let _resolver = null;
 function settle(v){ if(_resolver){ const r=_resolver; _resolver=null; clearPicking(); r(v); } }
 function clearPicking(){
@@ -101,9 +127,18 @@ function clearPicking(){
 
 // ── 온라인 라우팅 래퍼 ──
 // 내 좌석이면 인터랙티브, 상대 좌석이면 대기. 결과는 서버 에코로 양측 동시 해결.
-function routedPick(p, interactiveFn, serialize, deserialize){
-  if(!NET.online) return interactiveFn();
-  return NET.choice(p, interactiveFn, serialize, deserialize);
+let _turnGlowPick=null;
+async function routedPick(p, interactiveFn, serialize, deserialize){
+  const previous=_turnGlowPick;
+  _turnGlowPick={game:G,p};
+  updateTurnGlow();
+  try{
+    if(!NET.online) return await interactiveFn();
+    return await NET.choice(p, interactiveFn, serialize, deserialize);
+  } finally {
+    _turnGlowPick=previous;
+    updateTurnGlow();
+  }
 }
 
 // 유닛 선택 (보드에서 클릭)
@@ -123,6 +158,7 @@ function _pickUnitLocal(p, candidates, promptText, optional){
     UI.render();
     const pa=document.getElementById('prompt-area');
     pa.innerHTML=`<div class="prompt-title">👉 ${esc(promptText||'대상 선택')}</div>`;
+    appendBattlefieldSource(pa);
     const btns=document.createElement('div'); btns.className='prompt-btns';
     if(optional){
       const skip=document.createElement('button'); skip.textContent='선택 안 함';
@@ -155,9 +191,17 @@ function cardifyInto(el, text){
 }
 
 // 옵션 선택 (인덱스 기반 동기화)
-UI.pickOption = function(p, title, options){
+UI.pickOption = function(p, title, options, boardPick=false){
   return routedPick(p,
-    ()=>_pickOptionLocal(p,title,options),
+    async()=>{
+      if(!boardPick) return _pickOptionLocal(p,title,options);
+      // 목적지가 고정된 이동은 보드에서 유닛만 선택한다.
+      // 기존 옵션 인덱스를 반환해 온라인 동기화와 봇의 이동 평가를 유지한다.
+      const candidates=everyUnit().filter(u=>options.some(o=>o.movement?.uid===u.uid));
+      if(!candidates.length) return null;
+      const unit=await _pickUnitLocal(p,candidates,title,options.some(o=>o.v===null));
+      return unit ? options.findIndex(o=>o.movement?.uid===unit.uid) : null;
+    },
     v=>v, v=>v
   ).then(idx=>idx===null?null:options[idx].v);
 };
@@ -167,13 +211,44 @@ function _pickOptionLocal(p, title, options, cancelLabel){
     const box=document.getElementById('modal-box');
     box.innerHTML='';
     const h=document.createElement('h3');
-    cardifyInto(h, `👉 ${pname(p)}: ${title}`);   // 제목 속 「카드명」도 호버로 확인 가능
+    cardifyInto(h, `👉 ${p===null?'':pname(p)+': '}${title}`);
     box.appendChild(h);
+    appendBattlefieldSource(box);
     const btns=document.createElement('div'); btns.className='modal-btns';
+    if(options.some(o=>optionCard(o))) btns.classList.add('card-options');
+    const units=options.map(optionUnit);
+    const unitSides=new Set(units.filter(Boolean).map(u=>u.ctrl));
+    const unitOwners=new Set(units.filter(Boolean).map(u=>u.owner??u.ctrl));
+    const showOwners=unitSides.size>1 || unitOwners.size>1 || units.some(u=>u && (u.owner??u.ctrl)!==u.ctrl);
     options.forEach((o,i)=>{
-      const b=document.createElement('button'); b.className='primary'; b.textContent=o.label;
+      const b=document.createElement('button'); b.className='primary'; b.type='button';
+      const c=optionCard(o);
+      if(c){
+        b.classList.add('card-option');
+        const art=document.createElement('span'); art.className='option-art';
+        if(c.type==='Battlefield') art.classList.add('landscape');
+        if(c.img){
+          const img=document.createElement('img');
+          img.src=cardImgUrl(c.img,280); img.alt=c.ko; img.draggable=false;
+          img.onerror=()=>{ art.textContent=c.ko; };
+          art.appendChild(img);
+        } else art.textContent=c.ko;
+        b.appendChild(art);
+        const label=document.createElement('span'); label.className='option-label'; label.textContent=o.label;
+        b.appendChild(label);
+        b.setAttribute('aria-label',o.label);
+      } else b.textContent=o.label;
+      if(showOwners && units[i]){
+        const u=units[i];
+        const ownerText=unitChoiceOwner(u,p);
+        const badge=document.createElement('span');
+        badge.className='option-unit-owner '+(u.ctrl===p?'mine':'opponent');
+        badge.textContent=ownerText;
+        b.prepend(badge);
+        b.setAttribute('aria-label',ownerText+' · '+o.label);
+      }
       b.onclick=()=>{ closeModal(); res(i); };
-      attachCardHover(b, optionCard(o));   // 카드가 걸린 선택지는 올려 보면 효과가 뜬다
+      attachCardHover(b, c);
       btns.appendChild(b);
     });
     const cancel=document.createElement('button'); cancel.textContent=cancelLabel||'취소';
@@ -201,14 +276,16 @@ function _confirmLocal(p, text, previewCard){
   return new Promise(res=>{
     const box=document.getElementById('modal-box');
     box.innerHTML=`<h3>👉 ${esc(pname(p))}</h3>`;
+    appendBattlefieldSource(box);
     const body=document.createElement('div');
     body.style.cssText='font-size:15px;line-height:1.65;max-width:420px;margin-bottom:8px';
     cardifyInto(body, text);                      // 확인 창의 「카드명」도 호버로 확인 가능
     box.appendChild(body);
     if(previewCard){
-      UI.inspect(previewCard);
+      const cards=Array.isArray(previewCard)?previewCard:[previewCard];
+      UI.inspect(cards[0]);
       const wrap=document.createElement('div'); wrap.className='modal-cards';
-      wrap.appendChild(cardMiniEl(previewCard));
+      cards.forEach(c=>wrap.appendChild(attachCardHover(cardMiniEl(c),c)));
       box.appendChild(wrap);
     }
     const btns=document.createElement('div'); btns.className='modal-btns';
@@ -230,6 +307,7 @@ function _pickNumberLocal(p, text, min, max){
   return new Promise(res=>{
     const box=document.getElementById('modal-box');
     box.innerHTML=`<h3>👉 ${esc(pname(p))}: ${esc(text)}</h3>`;
+    appendBattlefieldSource(box);
     const btns=document.createElement('div'); btns.className='modal-btns';
     for(let i=min;i<=max;i++){
       const b=document.createElement('button'); b.className='primary'; b.textContent=i;
@@ -270,6 +348,7 @@ function _pickHandLocal(p, title){
     if(!P.hand.length){ res(null); return; }
     const box=document.getElementById('modal-box');
     box.innerHTML=`<h3>${esc(pname(p))}: ${esc(title)}</h3>`;
+    appendBattlefieldSource(box);
     const wrap=document.createElement('div'); wrap.className='modal-cards';
     P.hand.forEach((n,i)=>{
       const el=cardMiniEl(card(n));
@@ -282,13 +361,60 @@ function _pickHandLocal(p, title){
   });
 }
 
+function setModalPeeking(peeking){
+  const ov=document.getElementById('modal-overlay');
+  const box=document.getElementById('modal-box');
+  const toggle=document.getElementById('modal-visibility-toggle');
+  ov.classList.toggle('modal-peeking',peeking);
+  document.body.classList.toggle('modal-peeking',peeking);
+  box.inert=peeking;
+  if(peeking) box.setAttribute('aria-hidden','true'); else box.removeAttribute('aria-hidden');
+  toggle.setAttribute('aria-pressed',String(peeking));
+  toggle.title=peeking?'선택창 다시 보기':'선택창 숨기기';
+  toggle.setAttribute('aria-label',toggle.title);
+  UI.hideHover();
+}
+function modalPeeking(){ return document.getElementById('modal-overlay').classList.contains('modal-peeking'); }
+// 투명한 오버레이는 그대로 입력을 차단한다. 뒤의 공개 카드 데이터만 상세보기로 전달한다.
+function peekCardAt(x,y){
+  return document.elementsFromPoint(x,y).find(el=>el._card && el.closest('#game-screen'))?._card||null;
+}
+document.addEventListener('click',e=>{
+  if(!modalPeeking() || e.target.closest('#modal-visibility-toggle, #card-zoom')) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  const c=peekCardAt(e.clientX,e.clientY); if(c) UI.showZoom(c);
+},true);
+document.addEventListener('contextmenu',e=>{
+  if(!modalPeeking() || e.target.closest('#card-zoom')) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  const c=peekCardAt(e.clientX,e.clientY); if(c) UI.showZoom(c);
+},true);
+document.addEventListener('pointermove',e=>{
+  if(!modalPeeking() || e.target.closest('#modal-visibility-toggle, #card-zoom')) return;
+  const c=peekCardAt(e.clientX,e.clientY); if(c) UI.inspect(c);
+});
+document.addEventListener('keydown',e=>{
+  if(!modalPeeking() || e.target.closest('#card-zoom')) return;
+  if(e.target.closest('#modal-visibility-toggle') && ['Enter',' '].includes(e.key)) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if(e.key==='Escape') UI.hideZoom();
+  document.getElementById('modal-visibility-toggle').focus();
+},true);
+document.addEventListener('focusin',e=>{
+  if(modalPeeking() && !e.target.closest('#modal-visibility-toggle, #card-zoom'))
+    document.getElementById('modal-visibility-toggle').focus();
+});
 function openModal(){
   const ov=document.getElementById('modal-overlay');
+  setModalPeeking(false);
+  const toggle=document.getElementById('modal-visibility-toggle');
+  toggle.hidden=!document.getElementById('game-screen').offsetParent;
+  toggle.onclick=()=>{ setModalPeeking(!modalPeeking()); toggle.focus(); };
   ov.style.display='flex'; delete ov.dataset.dismiss;   // 기본: 닫기 불가(선택 대기 모달 보호)
   document.body.classList.add('modal-open');
   hideMenu();                                          // 열려 있던 선택 메뉴가 모달 위에 남지 않게
 }
-function closeModal(){ UI.hideHover(); document.getElementById('modal-overlay').style.display='none'; document.body.classList.remove('modal-open'); }
+function closeModal(){ setModalPeeking(false); UI.hideHover(); document.getElementById('modal-overlay').style.display='none'; document.body.classList.remove('modal-open'); }
 // 정보성 모달(도움말/밴 리스트/대회 덱 등): 모바일 뒤로 가기로 닫아도 안전함을 표시
 function markModalDismissable(){ document.getElementById('modal-overlay').dataset.dismiss='1'; }
 
@@ -486,7 +612,7 @@ UI.cardInfoHTML = function(c, owner){
     .map(k=>KEYWORDS_KO[k]?`<div style="font-size:11px;color:#9aa4bd">· <b>[${KEYWORDS_KO[k].ko}]</b> ${KEYWORDS_KO[k].desc}</div>`:'')
     .join('');
   return `
-    ${artImg(c,owner)?`<img src="${cardImgUrl(artImg(c,owner),280)}" alt="">`:''}
+    ${artImg(c,owner)?`<img class="${c.type==='Battlefield'?'landscape':''}" src="${cardImgUrl(artImg(c,owner),280)}" alt="">`:''}
     <div class="insp-name">${esc(c.ko)}</div>
     <div class="insp-name-en">${esc(c.name)} · #${c.n}</div>
     ${isBanned(c.n)?`<div class="ban-flag" style="font-size:12px">🚫 밴 카드 (${esc(BANLIST.region)})</div>`:''}
@@ -570,6 +696,17 @@ function optionCard(o){
   if(o.card) return o.card;
   if(o.n !== undefined && o.n !== null){ try { return card(o.n) || null; } catch(e){ return null; } }
   return null;
+}
+// 카드 번호/이름은 같은 유닛끼리 중복된다. 선택지가 가리키는 실제 유닛 UID로 구분한다.
+function optionUnit(o){
+  const uid=o.movement?.uid ?? o.returnHand?.uid ?? o.v?.u?.uid ?? o.v?.uid;
+  if(uid===undefined || typeof G==='undefined' || !G) return null;
+  return everyUnit().find(u=>u.uid===uid)||null;
+}
+function unitChoiceOwner(u,p){
+  const side=u.ctrl===p?'내 유닛':'상대 유닛';
+  const owner=u.owner??u.ctrl;
+  return side+' · '+pname(u.ctrl)+(owner!==u.ctrl?' (원 소유자: '+pname(owner)+')':'');
 }
 
 // ---------- 폐기장 목록 ----------
@@ -853,12 +990,15 @@ function showUnitMenu(u, e){
   // 하이머딩거: 모든 아군 전설/유닛/도구의 탈진 능력 사용 가능
   if(fx.copyAllExhaust && (!NET.online || u.ctrl===NET.seat)){
     const seen=new Set();
-    const addCopied=(srcFx, srcName)=>{
+    const addCopied=(srcFx, srcName, srcCard)=>{
       (srcFx.activated||[]).forEach(ab=>{
         if(!ab.cost || !ab.cost.exhaustSelf) return;
         const key=srcName+':'+ab.label; if(seen.has(key)) return; seen.add(key);
         const item=document.createElement('div'); item.className='ctx-item';
         item.textContent='🔧 '+srcName+': '+ab.label;
+        item.classList.add('ctx-card-choice');
+        item.prepend(cardMiniEl(srcCard));
+        attachCardHover(item,srcCard);
         item.onclick=()=>{ hideMenu();
           NET.dispatch({k:'ability',p:u.ctrl,src:{kind:'unit',uid:u.uid},copy:{srcName,label:ab.label}},
             ()=>activateAbility(u.ctrl,{kind:'unit',u},ab)); };
@@ -866,9 +1006,9 @@ function showUnitMenu(u, e){
       });
     };
     const P=G.players[u.ctrl];
-    addCopied(FX[P.legendN]||{}, card(P.legendN).ko);
-    everyUnit().filter(x=>x.ctrl===u.ctrl&&x!==u&&!x.isToken).forEach(x=>addCopied(unitFx(x), unitName(x)));
-    P.gear.forEach(g=>addCopied(FX[g.n]||{}, card(g.n).ko));
+    addCopied(FX[P.legendN]||{}, card(P.legendN).ko, card(P.legendN));
+    everyUnit().filter(x=>x.ctrl===u.ctrl&&x!==u&&!x.isToken).forEach(x=>addCopied(unitFx(x), unitName(x), unitCard(x)));
+    P.gear.forEach(g=>addCopied(FX[g.n]||{}, card(g.n).ko, card(g.n)));
   }
   if(fx.manual&&fx.manual.length){
     const mi=document.createElement('div'); mi.className='ctx-item'; mi.textContent='📖 효과 텍스트 보기';
@@ -1074,14 +1214,66 @@ function orientBoard(){
   UI._orient = bottom;
 }
 
+// 최대 10개까지 묶되, 1/2 겹침으로도 폭을 넘으면 다음 줄로 옮긴다.
+function updateRuneOverlap(zone){
+  if(!zone.clientWidth) return;
+  const style=getComputedStyle(zone);
+  const available=zone.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
+  const slots=[...zone.querySelectorAll('.rune-slot')];
+  const groups=[];
+  let group=[], halfWidth=0, previousWidth=0;
+  for(const slot of slots){
+    const width=slot.offsetWidth;
+    const nextWidth=group.length ? halfWidth-previousWidth/2+width : width;
+    if(group.length && (group.length===10 || nextWidth>available)){
+      groups.push(group); group=[]; halfWidth=0;
+    }
+    halfWidth=group.length ? halfWidth-previousWidth/2+width : width;
+    group.push({slot,width}); previousWidth=width;
+  }
+  if(group.length) groups.push(group);
+  const focused=document.activeElement;
+  groups.forEach((items,i)=>{
+    let row=zone.children[i];
+    if(!row){ row=document.createElement('div'); row.className='rune-row'; zone.appendChild(row); }
+    items.forEach(({slot},j)=>{
+      if(row.children[j]!==slot) row.insertBefore(slot,row.children[j]||null);
+    });
+    const normalWidth=items.reduce((total,{width},j)=>total+width*(j===items.length-1?1:2/3),0);
+    row.classList.toggle('compact-runes',normalWidth>available);
+  });
+  while(zone.children.length>groups.length) zone.lastElementChild.remove();
+  // 기존 카드 노드를 옮겨 클릭 핸들러와 원래 룬 인덱스를 그대로 유지한다.
+  if(focused && zone.contains(focused) && document.activeElement!==focused) focused.focus({preventScroll:true});
+}
+window.addEventListener('DOMContentLoaded',()=>{
+  const observer=new ResizeObserver(entries=>entries.forEach(entry=>updateRuneOverlap(entry.target)));
+  for(const p of [0,1]) observer.observe(document.getElementById('runes-'+p));
+});
+
+// 계속 일렁이는 가장자리 표시. 일반 턴·결전 우선권·효과 선택의 실제 행동 주체를 따른다.
+function updateTurnGlow(){
+  const el=document.getElementById('turn-glow');
+  let side='';
+  if(G && G.winner===null && UI.fx.on && !(typeof REPLAY!=='undefined' && REPLAY.viewing)){
+    const mine=NET.online ? NET.seat : (typeof BOT!=='undefined' && BOT.active) ? 1-BOT.seat : 0;
+    const pick=_turnGlowPick?.game===G ? _turnGlowPick.p : null;
+    const actor=(pick===0 || pick===1) ? pick : G.state==='showdown' ? G.actingPlayer
+      : G.phase==='setup' ? null : G.turn;
+    if(actor===0 || actor===1) side=actor===mine?'mine':'opponent';
+  }
+  if(el.dataset.side!==side) el.dataset.side=side;
+}
 UI.render = function(){
+  updateTurnGlow();
   if(!G) return;
   orientBoard();
+  PLAYMAT.apply();
   // 튜토리얼: 상태가 변할 때마다 진행 체크 (백그라운드 인터벌 스로틀 대비)
   if(typeof TUT!=='undefined' && TUT.active && TUT.tickSoon) TUT.tickSoon();
   // 상단바
   document.getElementById('turn-info').textContent=`${pname(G.turn)}의 턴`;
-  const phaseKo={setup:'준비',awaken:'각성',beginning:'시작',channel:'전개',draw:'드로우',action:'행동'}[G.phase]||G.phase;
+  const phaseKo={setup:'준비',awaken:'각성',beginning:'시작',channel:'전개',draw:'드로우',action:'행동',ending:'종료'}[G.phase]||G.phase;
   document.getElementById('phase-info').textContent=
     `${phaseKo} 단계` + (G.state==='showdown'?' · ⚔️결전 중':'');
   announcePhase();
@@ -1149,10 +1341,17 @@ UI.render = function(){
     // 룬
     const rz=document.getElementById('runes-'+p);
     rz.innerHTML='';
-    Pl.runes.forEach(r=>{
+    let runeRow;
+    // 표시 순서만 정렬한다. 전송·엔진에서 쓰는 원래 룬 인덱스는 보존한다.
+    Pl.runes.map((r,ri)=>({r,ri})).sort((a,b)=>Number(!!a.r.ex)-Number(!!b.r.ex)).forEach(({r,ri})=>{
       const rc=card(r.n);
+      const slot=document.createElement('div');
+      slot.className='rune-slot'+(r.ex?' exhausted':'');
       const rel=document.createElement('div');
       rel.className='rune-mini'+(r.ex?' exhausted':'');
+      rel.dataset.runeIndex=String(ri);
+      rel.setAttribute('role','button'); rel.tabIndex=0;
+      rel.setAttribute('aria-label',rc.ko+(r.ex?' (탈진)':' (준비)')+' — 자원 띄우기');
       const dom=runeDomain(r.n);
       // 실제 룬 카드 이미지 + 영역 색 테두리, 작은 화면에서도 알아보게 영역 아이콘 배지를 겹친다
       const _ri=artImg(rc, p);
@@ -1165,7 +1364,6 @@ UI.render = function(){
       rel.onmouseenter=()=>UI.inspect(rc);
       rel._card=rc; attachZoom(rel);           // 꾹 누르기/우클릭/Alt+클릭으로 확대
       // 룬 플로팅(룰 745): 클릭 → 탈진해 에너지 +1 / 재활용해 힘 +1 을 미리 풀에 올린다
-      const ri=Pl.runes.indexOf(r);
       rel.onclick=(e)=>{
         if(replayLock() || G.winner!==null) return;
         if(e.altKey) return;                    // 확대 제스처와 충돌 방지
@@ -1186,28 +1384,25 @@ UI.render = function(){
         menu.appendChild(pw);
         openMenuAt(menu, e);
       };
-      rz.appendChild(rel);
+      rel.onkeydown=e=>{
+        if(e.key==='Enter' || e.key===' '){ e.preventDefault(); rel.click(); }
+      };
+      if(!runeRow || runeRow.children.length===10){
+        runeRow=document.createElement('div'); runeRow.className='rune-row'; rz.appendChild(runeRow);
+      }
+      slot.appendChild(rel); runeRow.appendChild(slot);
     });
+    updateRuneOverlap(rz);
     // 더미
     document.querySelector('#deck-'+p+' .pile-count').textContent=Pl.deck.length;
     document.querySelector('#runedeck-'+p+' .pile-count').textContent=Pl.runeDeck.length;
-    document.querySelector('#trash-'+p+' .pile-count').textContent=Pl.trash.length;
-    const cd=document.getElementById('counts-'+p);
-    cd.innerHTML=`덱: ${Pl.deck.length}<br>손패: ${Pl.hand.length}`;
-    // BOT 대전에서만 봇 손패 옆에 '손패 확인' 토글을 붙인다.
-    // counts는 매 렌더마다 innerHTML로 다시 그려지므로 버튼도 여기서 다시 만든다.
-    // (CSP가 script-src 'self'라 인라인 onclick은 막히므로 addEventListener로 붙인다)
-    if(botHandHidable(p)){
-      const btn=document.createElement('button');
-      btn.type='button';
-      btn.className='peek-btn'+(UI.peekBotHand?' on':'');
-      btn.textContent=(UI.peekBotHand?'☑':'☐')+' 손패 확인';
-      btn.title=UI.peekBotHand
-        ? '봇의 손패를 보고 있습니다 (보기 전용) — 다시 누르면 가립니다'
-        : '봇의 손패를 확인합니다 (연습용)';
-      btn.addEventListener('click', ()=>{ UI.peekBotHand=!UI.peekBotHand; UI.render(); });
-      cd.appendChild(btn);
-    }
+    const trashPile=document.getElementById('trash-'+p);
+    trashPile.querySelector('.pile-count').textContent=Pl.trash.length;
+    // 폐기장은 들어온 순서대로 저장된다. 남아 있는 마지막 카드를 매 렌더마다 갱신한다.
+    const trashTop=Pl.trash.length ? card(Pl.trash[Pl.trash.length-1]) : null;
+    const trashImage=trashTop ? artImg(trashTop,p) : null;
+    trashPile.style.backgroundImage=trashImage ? `url("${cardImgUrl(trashImage,280)}")` : '';
+    trashPile.classList.toggle('has-card-image',!!trashImage);
     // 기지
     const bz=document.getElementById('base-'+p);
     bz.innerHTML='<div class="zone-label">기지</div>';
@@ -1230,6 +1425,19 @@ UI.render = function(){
     // 손패
     const hz=document.getElementById('hand-'+p);
     hz.innerHTML='';
+    // 봇 손패 확인은 손패 칸 안에 둔다. 공개해도 카드는 보기 전용이다.
+    if(botHandHidable(p)){
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.className='peek-btn'+(UI.peekBotHand?' on':'');
+      btn.setAttribute('aria-pressed',String(!!UI.peekBotHand));
+      btn.textContent=(UI.peekBotHand?'☑':'☐')+' 손패 확인';
+      btn.title=UI.peekBotHand
+        ? '봇의 손패를 보고 있습니다 (보기 전용) — 다시 누르면 가립니다'
+        : '봇의 손패를 확인합니다 (연습용)';
+      btn.addEventListener('click', ()=>{ UI.peekBotHand=!UI.peekBotHand; UI.render(); });
+      hz.appendChild(btn);
+    }
     const faceUp = handFaceUp(p);          // 공개 규칙은 handFaceUp 한 곳에만 있다
     const peeked = faceUp && botHandHidable(p);
     Pl.hand.forEach((n,i)=>{
@@ -1314,7 +1522,12 @@ function updateButtons(){
   const btnMove=document.getElementById('btn-move');
   btnMove.className='act-btn'+(_moveArmed?' armed':'');
   btnMove.textContent=_moveArmed?`🚶 이동: 목적지 클릭 (${_moveSel.size}개 선택)`:'🚶 이동';
-  document.getElementById('btn-endturn').disabled = G.state==='showdown' || G.winner!==null;
+  const btnEnd=document.getElementById('btn-endturn');
+  const mySeat=NET.online ? NET.seat : (typeof BOT!=='undefined' && BOT.active) ? 1-BOT.seat : 0;
+  btnEnd.classList.toggle('primary',G.turn===mySeat && G.state!=='showdown' && G.winner===null);
+  btnEnd.disabled = G.state==='showdown' || G.winner!==null;
+  document.getElementById('btn-pass').classList.toggle('primary',
+    G.state==='showdown' && G.actingPlayer===mySeat && G.winner===null);
 }
 
 // 이동 실행
@@ -1412,6 +1625,7 @@ function showGearMenu(p, g, e){
 
 // ---------- 승리 ----------
 UI.showVictory = function(p){
+  updateTurnGlow();
   const box=document.getElementById('modal-box');
   const isBot = typeof BOT!=='undefined' && BOT.active && !NET.online;
   box.innerHTML=`<div class="victory-box">

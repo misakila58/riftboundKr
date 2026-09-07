@@ -122,6 +122,11 @@ NET.sendAction = function(action){
   NET.send({t:'act', action});
 };
 NET._enqueueAction = function(m){
+  // 외형 정보는 선택 대기로 멈춘 액션 큐와 게임/리플레이 기록을 거치지 않는다.
+  if(m.action?.k==='playmat'){
+    PLAYMAT.receive(m.action,m.seat);
+    return;
+  }
   // 서버가 확정한 발신 좌석을 함께 큐잉 (위장 방지 검증에 사용)
   NET.actionQueue.push({ a:m.action, seat:m.seat });
   NET._pump();

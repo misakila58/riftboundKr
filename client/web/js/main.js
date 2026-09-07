@@ -970,6 +970,7 @@ function edCardCount(c){
 }
 
 function renderEditor(){
+  ['ed-legend','ed-champ-select'].forEach(id=>document.getElementById(id)._refreshCardPicker?.());
   const legend=edLegend();
   const doms=legend?legend.dom:null;   // 나만의 덱: 영역 제한 없음
   const typeF=document.getElementById('ed-type-filter').value;
@@ -1101,6 +1102,28 @@ function renderEditor(){
                 : '(해당 챔피언 유닛 없음)');
 }
 
+// 카드 선택은 이미지 목록으로 열고, 기존 select 값/변경 이벤트 계약은 유지한다.
+function initCardSelect(sel, title){
+  const button=document.createElement('button');
+  button.type='button'; button.className='card-select-button';
+  button.id=sel.id+'-picker'; button.setAttribute('aria-haspopup','dialog');
+  sel.style.display='none'; sel.after(button);
+  sel._refreshCardPicker=()=>{
+    button.textContent=(sel.selectedOptions[0]?.textContent||title)+' ▾';
+    button.setAttribute('aria-label',title+': '+button.textContent);
+  };
+  sel.addEventListener('change',sel._refreshCardPicker);
+  button.onclick=async()=>{
+    const options=[...sel.options].filter(o=>!o.disabled).map(o=>({
+      v:o.value,label:o.textContent,card:/^\d+$/.test(o.value)?card(+o.value):null
+    }));
+    const idx=await _pickOptionLocal(null,title,options);
+    if(idx!==null){ sel.value=options[idx].v; sel.dispatchEvent(new Event('change',{bubbles:true})); }
+    button.focus();
+  };
+  sel._refreshCardPicker();
+}
+
 function initEditor(){
   const sel=document.getElementById('ed-legend');
   // 최상단: 아무것도 지정되지 않은 나만의 덱 (전체 카드 풀, 챔피언 직접 선택)
@@ -1141,6 +1164,8 @@ function initEditor(){
     }
     renderEditor();
   };
+  initCardSelect(sel,'전설 선택');
+  initCardSelect(champSel,'선발 챔피언 선택');
   ['ed-type-filter','ed-search','ed-dom-only','ed-sort'].forEach(id=>{
     document.getElementById(id).addEventListener('input',()=>renderEditor());
   });
@@ -1730,6 +1755,8 @@ function openSystemMenu(){
   add(UI.fx.on?'✨ 이펙트 끄기':'✨ 이펙트 켜기', ()=>{ UI.fx.setOn(!UI.fx.on); closeModal();
     UI.toast(UI.fx.on?'이펙트를 켰습니다':'이펙트를 껐습니다'); });
   add(`🔍 화면 배율 (${Math.round(uiScale()*100)}%)`, ()=>{ closeModal(); showScalePicker(false); });
+  if(PLAYMAT.available()) add('🖼️ 내 플레이매트', ()=>PLAYMAT.open());
+  if(PLAYMAT.botAvailable()) add('🖼️ 봇 플레이매트', ()=>PLAYMAT.open(true));
   add('계속하기', closeModal);
   box.appendChild(btns);
   openModal(); markModalDismissable();
@@ -1756,6 +1783,7 @@ function startOnlineGame(m){
     bfs,
   });
   showScreen('game-screen');
+  PLAYMAT.startOnline(m.seed);
   const modeLabel = G.manual ? '수동' : '자동';
   document.getElementById('net-info').textContent=`🌐 온라인(${modeLabel}${m.banRule?' · 🚫밴':''}) — 나: ${m.players[NET.seat].id} (${NET.seat===0?'선공':'후공'})`;
   UI.log(`온라인 대전 시작! ${m.players[0].id} vs ${m.players[1].id} · 규칙 처리: ${modeLabel} 모드`, 'sys');
@@ -1803,6 +1831,7 @@ function initHotseat(){
         `<img src="${cardImgUrl(l.img,480)}" alt=""><div class="lp-text">${renderIcons(esc(l.tko||l.text))}</div>`;
     };
     sel.onchange=preview; preview();
+    initCardSelect(sel,`플레이어 ${pi+1} 전설 선택`);
   });
   document.getElementById('btn-start').onclick=startHotseat;
   document.getElementById('btn-setup-back').onclick=()=>{
