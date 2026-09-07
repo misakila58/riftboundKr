@@ -565,18 +565,116 @@ function unitEl(u){
       try{ ev.dataTransfer.setData('text/plain', String(u.uid)); ev.dataTransfer.effectAllowed='move'; }catch(e){}
     };
     el.ondragend=()=>{ _dragUid=null; clearDropHints(); };
+    attachTouchDrag(el,
+      ()=>G.winner===null && G.state==='neutral' && G.phase==='action' && G.turn===u.ctrl
+        && !u.ex && !u.stunned && !_resolver && !_pickableUids
+        && !(typeof REPLAY!=='undefined' && REPLAY.viewing)
+        && !(typeof botIs==='function' && botIs(u.ctrl)) && (!NET.online || NET.seat===u.ctrl),
+      zone=>zone && zone._dropDest!==u.loc && (zone._dropDest!=='base' || zone.id==='base-'+u.ctrl),
+      zone=>dropMove(u.uid,zone._dropDest));
   }
   return el;
 }
 
 // ---------- 드래그 앤 드롭 이동 ----------
 let _dragUid=null;
+let _dragHand=null;
+function canDragHand(p,idx,n,champZone=false){
+  return G && G.winner===null && !_resolver
+    && (champZone ? G.players[p].champInZone && G.players[p].champN===n : G.players[p].hand[idx]===n)
+    && !(typeof REPLAY!=='undefined' && REPLAY.viewing)
+    && !(typeof botIs==='function' && botIs(p)) && (!NET.online || NET.seat===p)
+    && (G.state!=='showdown' || G.actingPlayer===p) && !playRestriction(card(n),p,false);
+}
+function handDropAllowed(el,hand){
+  return el && (el._dropDest!=='base' || el.id==='base-'+hand.p)
+    && canPlayCardAt(hand.p,hand.n,el._dropDest);
+}
+function dropHandCard(hand,el){
+  if(!canDragHand(hand.p,hand.idx,hand.n,hand.champZone)) return;
+  if(!handDropAllowed(el,hand)){ UI.toast('이 카드는 그 위치에 플레이할 수 없습니다','warn'); return; }
+  const opts={playLoc:el._dropDest};
+  if(hand.champZone) opts.champZone=true;
+  NET.dispatch({k:'play',p:hand.p,handIdx:hand.idx,opts},()=>playCardFromHand(hand.p,hand.idx,opts));
+}
+function attachHandDrag(el,p,idx,n,champZone=false){
+  if(!['Unit','Gear'].includes(card(n).type) || !canDragHand(p,idx,n,champZone)) return;
+  const hand={p,idx,n,champZone};
+  el.draggable=true;
+  el.classList.add('hand-draggable');
+  el.ondragstart=e=>{
+    if(!canDragHand(p,idx,n,champZone)){ e.preventDefault(); return; }
+    clearTimeout(_lpTimer); hideMenu(); _dragHand=hand;
+    e.dataTransfer.setData('text/plain','hand:'+idx); e.dataTransfer.effectAllowed='move';
+  };
+  el.ondragend=()=>{ _dragHand=null; clearDropHints(); };
+  attachTouchDrag(el,()=>canDragHand(p,idx,n,champZone),zone=>handDropAllowed(zone,hand),zone=>dropHandCard(hand,zone));
+}
+
+// 보드 이동·손패 플레이 모두 터치 즉시 이동을 추적한다. 멈춰서 꾹 누르면 기존 확대를 사용한다.
+function attachTouchDrag(el,canStart,allowed,drop){
+  el.classList.add('touch-draggable');
+  // 터치에서도 같은 플레이 경로를 사용하며, 짧은 탭과 꾹 누르기 확대는 유지한다.
+  let touch=null;
+  let ghost=null;
+  const clear=()=>{
+    touch=null; ghost?.remove(); ghost=null;
+    el.classList.remove('hand-dragging'); clearDropHints(); clearTimeout(_lpTimer);
+  };
+  const finish=e=>{
+    if(!touch) return;
+    const point=[...e.changedTouches].find(t=>t.identifier===touch.id);
+    if(!point) return;
+    const active=touch.active;
+    const zone=document.elementFromPoint(point.clientX,point.clientY)?.closest('.base-zone,.battlefield');
+    clear();
+    if(active){
+      e.preventDefault();
+      if(e.type==='touchend' && zone && canStart() && allowed(zone)) drop(zone);
+    }
+  };
+  el.addEventListener('touchstart',e=>{
+    if(e.touches.length!==1){ clear(); return; }
+    if(!canStart()) return;
+    const point=e.touches[0];
+    const rect=el.getBoundingClientRect();
+    touch={id:point.identifier,x:point.clientX,y:point.clientY,dx:point.clientX-rect.left,dy:point.clientY-rect.top,active:false};
+  },{passive:true});
+  el.addEventListener('touchmove',e=>{
+    if(!touch) return;
+    const point=[...e.touches].find(t=>t.identifier===touch.id);
+    if(!point || (!touch.active && Math.hypot(point.clientX-touch.x,point.clientY-touch.y)<6)) return;
+    if(!canStart() || document.getElementById('card-zoom')?.style.display==='flex'){ clear(); return; }
+    touch.active=true; clearTimeout(_lpTimer); hideMenu(); e.preventDefault();
+    if(!ghost){
+      ghost=el.cloneNode(true); ghost.removeAttribute('data-uid'); ghost.removeAttribute('draggable');
+      ghost.className='card-mini touch-drag-preview'; ghost.setAttribute('aria-hidden','true');
+      ghost.style.width=el.offsetWidth+'px'; ghost.style.height=el.offsetHeight+'px';
+      document.body.appendChild(ghost);
+    }
+    const pos=fixedLayoutSpace(point.clientX-touch.dx,point.clientY-touch.dy);
+    ghost.style.left=pos.x+'px'; ghost.style.top=pos.y+'px';
+    el.classList.add('hand-dragging'); clearDropHints();
+    const zone=document.elementFromPoint(point.clientX,point.clientY)?.closest('.base-zone,.battlefield');
+    if(allowed(zone)) zone.classList.add('drop-hint');
+  },{passive:false});
+  el.addEventListener('touchend',finish,{passive:false});
+  el.addEventListener('touchcancel',finish,{passive:false});
+}
 function clearDropHints(){ document.querySelectorAll('.drop-hint').forEach(e=>e.classList.remove('drop-hint')); }
 function attachDropZone(el, dest){
-  el.ondragover=(ev)=>{ if(_dragUid!=null){ ev.preventDefault(); ev.dataTransfer.dropEffect='move'; el.classList.add('drop-hint'); } };
+  el._dropDest=dest;
+  el.ondragover=(ev)=>{
+    if(_dragHand){
+      ev.preventDefault();
+      const allowed=handDropAllowed(el,_dragHand);
+      ev.dataTransfer.dropEffect=allowed?'move':'none'; el.classList.toggle('drop-hint',!!allowed);
+    }else if(_dragUid!=null){ ev.preventDefault(); ev.dataTransfer.dropEffect='move'; el.classList.add('drop-hint'); }
+  };
   el.ondragleave=()=>el.classList.remove('drop-hint');
   el.ondrop=(ev)=>{
     ev.preventDefault(); el.classList.remove('drop-hint');
+    if(_dragHand){ const hand=_dragHand; _dragHand=null; clearDropHints(); dropHandCard(hand,el); return; }
     const uid=_dragUid ?? Number(ev.dataTransfer.getData('text/plain'));
     _dragUid=null; clearDropHints();
     if(uid==null||isNaN(uid)) return;
@@ -1334,6 +1432,7 @@ UI.render = function(){
         }
         openMenuAt(menu, e);
       };
+      attachHandDrag(cel,p,-1,Pl.champN,true);
       cslot.appendChild(cel);
     }
     const ccap=document.createElement('div'); ccap.className='slot-caption'; ccap.textContent='챔피언 존';
@@ -1448,7 +1547,7 @@ UI.render = function(){
         // (확대·정보 표시는 cardMiniEl에 그대로 남아 있어 '확인'에는 지장이 없다)
         el = cardMiniEl(card(n)); el.classList.add('peeked');
       }
-      else { el = cardMiniEl(card(n)); el.onclick=(e)=>onHandClick(p,i,e); }
+      else { el = cardMiniEl(card(n)); el.onclick=(e)=>onHandClick(p,i,e); attachHandDrag(el,p,i,n); }
       hz.appendChild(el);
     });
   }
@@ -1684,7 +1783,8 @@ window.addEventListener('DOMContentLoaded', ()=>{
     if(NET.online && G.actingPlayer!==NET.seat){ UI.toast('상대의 응답 차례입니다','warn'); return; }
     NET.dispatch({k:'pass'}, ()=>showdownPass());
   };
-  document.getElementById('btn-help').onclick=()=>{
+  document.getElementById('btn-settings').onclick=openSystemMenu;
+  UI.showHelp=()=>{
     const box=document.getElementById('modal-box');
     box.innerHTML=`<h3>도움말</h3>
     <div style="font-size:13px;line-height:1.9">
@@ -1698,7 +1798,8 @@ window.addEventListener('DOMContentLoaded', ()=>{
       양측이 모두 패스하면 <b>마지막에 낸 것부터 하나씩</b> 해결됩니다. 각 해결 사이에 [반응]으로 다시 응수할 수 있습니다.
       빈 체인에서 양측이 패스하면 전투가 벌어집니다.<br>
     · <b>전투</b>: 양측 위력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 기지 귀환.<br>
-    · <b>손패 카드 클릭</b> → 플레이/숨기기. <b>유닛 클릭/우클릭</b> → 능력 발동.<br>
+    · <b>손패 카드 클릭</b> → 플레이/숨기기. 손패의 <b>유닛·도구는 드래그</b>하여 배치 가능한 위치에 플레이할 수 있습니다 (도구는 자기 기지). 등장 효과는 배치 후 이어서 처리합니다.<br>
+    · <b>유닛 클릭/우클릭</b> → 능력 발동.<br>
     · <b>선택 창·선택 메뉴는 바깥을 클릭해도 닫히지 않습니다</b> (실수로 선택을 잃지 않도록). 닫으려면 메뉴의 <b>[✖ 닫기]</b>나 <b>Esc</b>를 쓰세요.<br>
     · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>우클릭</b>, <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 바깥 클릭/Esc). 유닛은 우클릭이 능력 메뉴라 꾹 누르기/Alt+클릭.<br>
     · 자동화가 안 되는 효과는 ⚙️ 알림이 뜹니다.<br>
@@ -1706,8 +1807,8 @@ window.addEventListener('DOMContentLoaded', ()=>{
     · 기지은 안전지대이며 유닛은 기지↔전장으로 이동합니다. [개입]은 전장 간 이동 가능.<br>
     </div>`;
     const hbtns=document.createElement('div'); hbtns.className='modal-btns';
-    const hclose=document.createElement('button'); hclose.className='primary'; hclose.textContent='닫기';
-    hclose.onclick=closeModal;                    // CSP(script-src 'self')가 인라인 onclick을 차단하므로 프로퍼티로 연결
+    const hclose=document.createElement('button'); hclose.className='primary'; hclose.textContent='설정으로 돌아가기';
+    hclose.onclick=openSystemMenu;
     hbtns.appendChild(hclose); box.appendChild(hbtns);
     openModal(); markModalDismissable();
   };

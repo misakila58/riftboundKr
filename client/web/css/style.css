@@ -195,10 +195,12 @@ button { cursor:pointer; font-family:inherit; }
 #turn-info { font-weight:bold; color:#fff; font-size:16px; }
 #phase-info { color:#9fd8ff; font-size:14px; }
 #score-info { font-weight:bold; font-size:13px; }
-#btn-help {
+#turn-panel #turn-info, #turn-panel #phase-info { padding-right:40px; }
+#btn-settings {
   position:absolute; top:8px; right:8px;
   background:none; border:1px solid #3a4a70; border-radius:50%;
-  width:24px; height:24px; color:#aab; font-size:12px;
+  width:34px; height:34px; padding:0; color:#cbd5e8; font-size:24px;
+  display:flex; align-items:center; justify-content:center; line-height:1;
 }
 
 /* 덱/손패 카운트 (스크린샷의 Deck/Hand 텍스트) */
@@ -303,6 +305,10 @@ button { cursor:pointer; font-family:inherit; }
 }
 .peek-btn:hover { color:#e8e6e0; border-color:#5a6a90; }
 .peek-btn.on { color:#ffd98a; border-color:#8a7a4a; background:#231d12; }
+/* iOS 전체 화면에서 위쪽 버튼이 잘 눌리지 않아 조금 내린다 (데스크톱은 그대로) */
+@media (pointer:coarse) {
+  .player-area.top .peek-btn { top:12px; }
+}
 
 /* 전장 */
 #battlefields { flex:0 0 210px; display:flex; gap:12px; align-items:stretch; justify-content:center; }
@@ -756,6 +762,10 @@ body.modal-peeking #inspector { z-index:auto; }
 
 /* 드래그 앤 드롭 이동 */
 .drop-hint { outline:3px dashed #7fe07f; outline-offset:-3px; background:rgba(30,80,45,.35) !important; }
+.hand-draggable { cursor:grab; }
+.touch-draggable { touch-action:none; -webkit-touch-callout:none; }
+.hand-dragging { opacity:.5; outline:2px solid #7fe07f; }
+.touch-drag-preview { position:fixed; z-index:1000; pointer-events:none; margin:0; transform:none; opacity:.9; box-shadow:0 5px 18px #0009; }
 .card-mini[draggable="true"] { cursor:grab; }
 
 /* ══════════ P2P 직접 대전 화면 ══════════ */

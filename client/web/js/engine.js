@@ -929,15 +929,31 @@ async function pickUnitPlayLocation(p, n){
   return locs.length===1 ? 'base' : await UI.pickOption(p,'유닛을 배치할 위치',locs);
 }
 
+// 드롭 목적지도 일반 플레이의 배치 규칙으로 확인한다. 도구는 손패에서 기지에만 낸다.
+function canPlayCardAt(p, n, loc){
+  const c=card(n);
+  return c?.type==='Unit' ? unitPlayLocationOptions(p,n).some(x=>x.v===loc)
+    : c?.type==='Gear' && loc==='base';
+}
+
 async function playCardFromHand(p, handIdx, opts={}){
   const P=G.players[p];
+  if(opts.champZone && !P.champInZone){ UI.toast('챔피언이 챔피언 존에 없습니다','warn'); return false; }
   const n = opts.champZone ? P.champN : P.hand[handIdx];
   const c = card(n);
   const fx = FX[n]||{kw:{},triggers:{},activated:[],manual:[],playOps:[]};
   const sdAtStart = G.showdown;   // 이 카드로 결전이 새로 열린 경우와 구분하기 위해 시작 시점을 기억
 
-  const restr = playRestriction(c, p, !!opts.fromHidden);
+  // 효과가 "플레이하라"고 시키는 경우(「눈부신 오로라」·폐기장 회수 등)는 그 효과 자체가 허가다.
+  // 평소의 타이밍 제한(내 턴·행동 단계)에 걸리면 안 된다 — 종료 단계에 발동하는 오로라가
+  // 여기서 막혀 실패했고, 그래서 위치 선택도 없이 기지 폴백으로만 나왔다.
+  const byEffect = !!(opts.fromDeck || opts.fromTrash);
+  const restr = byEffect ? null : playRestriction(c, p, !!opts.fromHidden);
   if(restr){ UI.toast(restr,'warn'); return false; }
+  const hasPlayLoc=Object.prototype.hasOwnProperty.call(opts,'playLoc');
+  if(hasPlayLoc && !canPlayCardAt(p,n,opts.playLoc)){
+    UI.toast('이 카드는 그 위치에 플레이할 수 없습니다','warn'); return false;
+  }
 
   // ── 수동 모드: 규칙 자동 처리 없이 카드만 배치, 효과는 로그로 안내 ──
   if(G.manual){
@@ -949,7 +965,7 @@ async function playCardFromHand(p, handIdx, opts={}){
       const locs=[{v:'base',label:'기지'}];
       G.bfs.forEach((bf,i)=>{ if(bf.controller===p) locs.push({v:i,n:bf.n,label:`전장: ${card(bf.n).ko}`}); });
       G.bfs.forEach((bf,i)=>{ if(bf.controller!==p) locs.push({v:i,n:bf.n,label:`⚠ ${card(bf.n).ko} — 미통제 (배치 허용 효과가 있을 때만)`}); });
-      loc = await UI.pickOption(p,'유닛을 배치할 위치 — 기본 규칙: 기지 또는 통제 중인 전장', locs);
+      loc = hasPlayLoc ? opts.playLoc : await UI.pickOption(p,'유닛을 배치할 위치 — 기본 규칙: 기지 또는 통제 중인 전장', locs);
       if(loc===null) return false;
       if(loc!=='base' && G.bfs[loc].controller!==p)
         UI.log(`⚠ ${pname(p)} 미통제 전장에 배치 (수동) — 카드 효과가 허용하는 경우인지 확인하세요`, 'sys');
@@ -1069,7 +1085,7 @@ async function playCardFromHand(p, handIdx, opts={}){
   if(c.type==='Unit'){
     if(opts.fromHidden) loc=opts.bfIdx;
     else {
-      loc = await pickUnitPlayLocation(p, n);
+      loc = hasPlayLoc ? opts.playLoc : await pickUnitPlayLocation(p, n);
       if(loc===null) return false;
     }
   }

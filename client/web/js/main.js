@@ -1757,6 +1757,8 @@ function openSystemMenu(){
   add(`🔍 화면 배율 (${Math.round(uiScale()*100)}%)`, ()=>{ closeModal(); showScalePicker(false); });
   if(PLAYMAT.available()) add('🖼️ 내 플레이매트', ()=>PLAYMAT.open());
   if(PLAYMAT.botAvailable()) add('🖼️ 봇 플레이매트', ()=>PLAYMAT.open(true));
+  // 도움말은 예전에 사이드바의 ❓ 버튼이었다. 톱니바퀴 하나로 합치면서 이 안으로 들어왔다.
+  if(typeof UI.showHelp==='function') add('❓ 도움말', UI.showHelp);
   add('계속하기', closeModal);
   box.appendChild(btns);
   openModal(); markModalDismissable();
