@@ -474,8 +474,14 @@ const server = http.createServer(async (req, res) => {
       }
       res.writeHead(404, CORS); return res.end();
     }
-    let rel = (p === '/' || p === '') ? 'index.html' : decodeURIComponent(p).replace(/^\/+/, '');
-    if (!/^(index\.html|manifest\.webmanifest|(css|js|assets)\/[\w\-./]+)$/.test(rel) || rel.includes('..')) {
+    let rel;
+    if (p === '/' || p === '') rel = 'index.html';
+    else { try { rel = decodeURIComponent(p).replace(/^\/+/, ''); } catch (e) { rel = null; } }  // '%zz' 같은 입력
+    // 파일명에 한글이 들어가는 자산이 있다 (assets/playmat/아리.png).
+    // \w는 ASCII만 매치하므로 문자 종류로 거르면 그런 파일이 통째로 404가 된다.
+    // 역슬래시·제어문자·'..'만 막고, 경로 이탈 판정은 아래 WEB_ROOT 검사에 맡긴다.
+    if (rel === null || !/^(index\.html|manifest\.webmanifest|(css|js|assets)\/[^\\\x00-\x1f]+)$/.test(rel)
+        || rel.split('/').includes('..')) {
       res.writeHead(404, CORS); return res.end();
     }
     const full = path.join(WEB_ROOT, rel);
