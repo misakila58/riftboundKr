@@ -1569,13 +1569,18 @@ function releaseEmptyBattlefields(){
 // ---------- 클린업: 사망 처리 & 경합 확인 ----------
 async function cleanup(actor){
   if(G.manual) return; // 수동 모드: 자동 사망·결전·전투 없음 (플레이어가 직접 처리)
-  // 치명 피해 사망 (+ 황제의 칙령 표식)
-  for(const u of everyUnit()){
-    // 전투 결전 중에는 공/방 지정 위력([맹공]·[보호막] 등)을 치명 판정에도 반영 (룰 704/727)
-    let m=might(u);
-    if(G.showdown && G.showdown.hasCombat && u.loc===G.showdown.bfIdx)
-      m=might(u, u.ctrl===G.showdown.attacker?'attacker':'defender', {forKill:true});
-    if((u.dmg>0 && u.dmg>=m) || u._decree) await killUnit(u);
+  // 치명 피해 사망 (+ 황제의 칙령 표식) — 클린업의 사망은 한 번의 게임 행동이므로
+  // 먼저 전부 추려 놓고 한 배치로 처리한다 (룰 322 2b · 376.3.b)
+  {
+    const lethal=[];
+    for(const u of everyUnit()){
+      // 전투 결전 중에는 공/방 지정 위력([맹공]·[보호막] 등)을 치명 판정에도 반영 (룰 704/727)
+      let m=might(u);
+      if(G.showdown && G.showdown.hasCombat && u.loc===G.showdown.bfIdx)
+        m=might(u, u.ctrl===G.showdown.attacker?'attacker':'defender', {forKill:true});
+      if((u.dmg>0 && u.dmg>=m) || u._decree) lethal.push(u);
+    }
+    await killUnitsTogether(lethal);
   }
   if(G.winner!==null) return;
   // 빈 전장 통제 해제 (결전 중 상호 전멸 등도 이후 클린업에서 처리됨)
@@ -1736,7 +1741,7 @@ async function resolveShowdown(){
       UI.log(`「솔라리의 상징」: 무승부 — 모든 유닛이 기지으로 귀환합니다`, 'combat');
       [...bf.units].forEach(u=>{ u.dmg=0; u._decree=false; removeUnit(u); placeUnit(u,'base'); });
     } else {
-      for(const u of dead) await killUnit(u);
+      await killUnitsTogether(dead);      // 전투 피해로 함께 죽는다 — 서로의 죽음을 보지 못한다
     }
   }
 
@@ -1836,6 +1841,20 @@ async function assignDamage(assigner, total, targets, role){
   return result;
 }
 
+// 같은 게임 행동으로 함께 죽는 유닛들. 이 안의 유닛은 서로의 죽음을 볼 수 없다 (룰 376.3.b).
+let _dyingBatch = null;
+let _dkTwiceBatch = null;   // 배치가 시작될 때의 [죽음의 종소리 2회] 여부 (카서스)
+async function killUnitsTogether(list){
+  const batch = (list||[]).filter(u=>u && !u._dead);
+  if(!batch.length) return;
+  const prev = _dyingBatch, prevDk = _dkTwiceBatch;
+  _dyingBatch = new Set(batch);
+  // 종소리는 사망 전에 예약된다 (룰 322 2a) — 카서스가 함께 죽어도 그 시점엔 보드에 있다
+  _dkTwiceBatch = [0,1].map(pi=>allUnits(pi).some(x=>unitFx(x).deathknellTwice));
+  try { for(const u of batch) await killUnit(u); }
+  finally { _dyingBatch = prev; _dkTwiceBatch = prevDk; }
+}
+
 // ---------- 사망 ----------
 async function killUnit(u){
   if(u._dead) return; u._dead=true;
@@ -1913,7 +1932,8 @@ async function killUnit(u){
   // 죽음의 종소리 (카서스: 추가 1회)
   const ctxD={p:u.ctrl, unit:u, bfIdx:(deathLoc!=='base'?deathLoc:null), dead:true};
   await runTriggerList(fx.triggers?.onDeath, ctxD);
-  if(fx.triggers?.onDeath && allUnits(u.ctrl).some(x=>unitFx(x).deathknellTwice)){
+  const dkTwice = _dkTwiceBatch ? _dkTwiceBatch[u.ctrl] : allUnits(u.ctrl).some(x=>unitFx(x).deathknellTwice);
+  if(fx.triggers?.onDeath && dkTwice){
     UI.log(`[카서스] 죽음의 종소리 효과 1회 추가 발동!`, 'p'+u.ctrl);
     await runTriggerList(fx.triggers?.onDeath, ctxD);
   }
@@ -1950,7 +1970,8 @@ async function fireEvent(ev, ctx){
     const srcs=[];
     const lfx=FX[G.players[pi].legendN];
     if(lfx && lfx.triggers && lfx.triggers[ev]) srcs.push({list:lfx.triggers[ev]});
-    for(const u of [...everyUnit()].filter(u=>u.ctrl===pi)){
+    // 같은 행동으로 함께 죽는 중인 유닛은 그 사건을 볼 수 없다 (룰 376.3.b)
+    for(const u of [...everyUnit()].filter(u=>u.ctrl===pi && !(_dyingBatch && _dyingBatch.has(u)))){
       const fx=unitFx(u);
       if(fx.triggers && fx.triggers[ev]) srcs.push({list:fx.triggers[ev], unit:u});
     }
