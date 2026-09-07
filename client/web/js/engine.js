@@ -2132,7 +2132,14 @@ async function execOps(ops, ctx){
           // 계산해 고정한다. (뒤에 +버프가 들어와도 감소분은 그대로 -1로 남아야 함 — 룰 457: 증가 먼저·감소 나중)
           // 예: 2⚔에 -3(min1) → 실효 -1로 고정 → 이후 +2면 2-1+2 = 3 (합산 후 clamp면 1이 되어 틀림)
           if(op.n < 0 && op.min !== undefined){
-            const cur = might(u);
+            // 기준은 '적용 시점의 실제 위력'이다. 전투 중이라면 공격자/방어자 지정 보정
+            // ([맹공]·[보호막] 등)이 이미 붙어 있으므로 그 값에서 재야 한다
+            // (룰 477.3.d — 증가 먼저, 감소 나중).
+            // 기절은 전투 피해 기여만 0으로 만들 뿐 위력 자체를 없애지 않으므로 forKill로 실제 값을 쓴다.
+            const sd = G.showdown;
+            const role = (sd && sd.hasCombat && u.loc === sd.bfIdx)
+              ? (u.ctrl === sd.attacker ? 'attacker' : 'defender') : undefined;
+            const cur = might(u, role, {forKill:true});
             const eff = Math.max(op.min, cur + op.n) - cur;   // 최소값 밑으로는 내리지 않는 실효 감소분
             u.tempM.push({ v: eff, dur:'turn', snap:true });
           } else {
