@@ -1092,7 +1092,7 @@ UI.render = function(){
   const P=G.players[G.actingPlayer];
   const powStr=Object.entries(P.power).filter(([,v])=>v>0).map(([d,v])=>`${DOMAIN_ICON[d]}${v}`).join(' ');
   document.getElementById('pool-display').innerHTML=
-    `<b>${esc(pname(G.actingPlayer))}</b> 풀<br>에너지 ${P.energy}${P.energySpell?` (+주문 전용 ${P.energySpell})`:''} ${powStr?'· '+powStr:''}<br>준비 룬 ${readyRunes(G.actingPlayer).length}/${P.runes.length}`;
+    `<b>${esc(pname(G.actingPlayer))}</b> 풀<br>에너지 ${P.energy}${P.energySpell?` (+주문 전용 ${P.energySpell})`:''} ${powStr?'· '+powStr:''}${P.powerSpell?` · 주문 전용 ✳${P.powerSpell}`:''}<br>준비 룬 ${readyRunes(G.actingPlayer).length}/${P.runes.length}`;
 
   if(G.state!=='showdown'){
     document.getElementById('showdown-banner').style.display='none';

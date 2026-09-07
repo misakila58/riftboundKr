@@ -79,7 +79,7 @@ function parseOp(s){
   // 룬 준비/재활용
   if((m = s.match(/^[Rr]eady up to (\d+) runes?/)))
     return { op:'readyRunes', n:+m[1] };
-  if(/^[Yy]ou must recycle one of your runes$/.test(s))
+  if(/^(?:[Yy]ou must )?[Rr]ecycle one of your runes$/.test(s))
     return { op:'recycleRune' };
 
   // 드로우

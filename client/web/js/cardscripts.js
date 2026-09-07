@@ -904,3 +904,13 @@ Object.assign(EXTRA_OPS, {
     const P=G.players[ctx.p]; P.energySpell=(P.energySpell||0)+op.n;
     UI.log(`${pname(ctx.p)} 주문 전용 에너지 +${op.n}`, 'p'+ctx.p); },
 });
+
+// 카이사 - 공허의 딸 전설(247): [Add] 무지개 힘 1 — '주문 플레이에만' (전용 풀 powerSpell)
+Object.assign(SCRIPTS, {
+  247: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},reaction:true,label:'✳ 주문 전용 힘 1 추가',ops:[OPX('addSpellPower',{n:1})]}]; return fx; },
+});
+Object.assign(EXTRA_OPS, {
+  async addSpellPower(op, ctx, h){
+    const P=G.players[ctx.p]; P.powerSpell=(P.powerSpell||0)+op.n;
+    UI.log(`${pname(ctx.p)} 주문 전용 힘 +${op.n}`, 'p'+ctx.p); },
+});

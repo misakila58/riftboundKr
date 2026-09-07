@@ -1099,7 +1099,7 @@ const POL_AB_HARDCOST = ['discard','killFriendlyOrGear','killSelfGear','spendBuf
 // 자기 파괴·아군 희생 op — 이득이 분명하지 않으면 손대지 않는다
 const POL_AB_BADOPS   = new Set(['killThisGear','luredHook']);
 // [추가] 자원 능력 — 중립 턴에 쓰면 턴 종료 시 풀이 비워져 그냥 버리는 셈이 된다. 결전용으로 아낀다.
-const POL_AB_RESOURCE = new Set(['addEnergy','addPower']);
+const POL_AB_RESOURCE = new Set(['addEnergy','addPower','addSpellEnergy','addSpellPower']);
 
 // 전설·도구·유닛의 활성화 능력을 한 목록으로
 function polAbList(p){

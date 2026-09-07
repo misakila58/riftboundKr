@@ -52,7 +52,7 @@ function newGame(cfg){
       deck, hand:[], trash:[], banish:[],
       runeDeck:shuffle([...pc.runes]), runes:[],
       base:[], gear:[],
-      points:0, energy:0, energySpell:0, power:{Fury:0,Calm:0,Mind:0,Body:0,Order:0,Chaos:0,Any:0},
+      points:0, energy:0, energySpell:0, powerSpell:0, power:{Fury:0,Calm:0,Mind:0,Body:0,Order:0,Chaos:0,Any:0},
       playedCards:0, scoredBf:{}, drewFromEmpty:false,
       };
     }),
@@ -330,8 +330,11 @@ function canPay(p, energy, pips){
   const P=G.players[p];
   const poolP = {...P.power};
   const used = new Set();
+  // 주문 전용 힘(카이사 전설 247, 무지개) — 주문 지불(spellOK)일 때만 어느 핍이든 충당
+  let spellAny = arguments[3] ? (P.powerSpell||0) : 0;
   // 힘 핍: 풀 → 영역 일치 룬 (준비/탈진 무관, 핍당 서로 다른 룬)
   for(const pip of pips){
+    if(spellAny>0){ spellAny--; continue; }
     if(pip==='Any'){
       const anyDom = Object.keys(poolP).find(d=>poolP[d]>0);
       if(anyDom){ poolP[anyDom]--; continue; }
@@ -382,9 +385,10 @@ function payCost(p, energy, pips, silent){
     for(const r of ready) if(!order.includes(r)) order.push(r);   // 남는 건 기존 순서대로
     for(const r of order){ if(need<=0) break; r.ex=true; need--; }
   }
-  // ② 힘 핍: 풀 → 탈진 룬 재활용(룬 덱 반환) → 준비 룬 재활용
+  // ② 힘 핍: 주문 전용 힘(spellOK) → 풀 → 탈진 룬 재활용(룬 덱 반환) → 준비 룬 재활용
   const recycled=[];
   for(const pip of pips){
+    if(arguments[4] && (P.powerSpell||0)>0){ P.powerSpell--; continue; }
     if(pip!=='Any' && P.power[pip]>0){ P.power[pip]--; continue; }
     if(pip==='Any'){
       const d=Object.keys(P.power).find(d=>P.power[d]>0);
@@ -582,9 +586,9 @@ async function finishEndTurn(p){
       if(got) UI.log(`${pname(pi)} 「타곤의 정상」: 룬 ${got}개 준비`, 'p'+pi);
     }
   }
-  P.energy=0; P.energySpell=0; Object.keys(P.power).forEach(k=>P.power[k]=0);
+  P.energy=0; P.energySpell=0; P.powerSpell=0; Object.keys(P.power).forEach(k=>P.power[k]=0);
   const O=G.players[opp(p)];
-  O.energy=0; O.energySpell=0; Object.keys(O.power).forEach(k=>O.power[k]=0);
+  O.energy=0; O.energySpell=0; O.powerSpell=0; Object.keys(O.power).forEach(k=>O.power[k]=0);
   UI.fx.turnEnd(p);
   UI.log(`${pname(p)} 턴 종료`, 'sys');
   // 추가 턴 (시간 왜곡)
@@ -971,7 +975,23 @@ async function playCardFromHand(p, handIdx, opts={}){
       if(accel){ energy+=1; pips=[...pips,...accPips]; }
     }
   }
-  const spellOK = c.type==='Spell';   // 주문 전용 에너지(럭스 314)는 주문에만 쓸 수 있다
+  const spellOK = c.type==='Spell';   // 주문 전용 자원(럭스 314·카이사 전설 247)은 주문에만 쓸 수 있다
+  // 룰 357.1.a: 비용 지불 단계에서 [반응] 태그의 자원 추가 능력을 발동해 비용을 충당할 수 있다
+  // (카이사·다리우스 전설, 인장 등 — 부족하면 후보를 제시하고, 발동 후 다시 지불을 시도한다)
+  for(let guard=0; guard<8 && !canPay(p, energy, pips, spellOK); guard++){
+    let funds=[];
+    if(typeof polAbList==='function' && typeof polAbLegal==='function' && typeof polAbIsResource==='function'){
+      try{
+        funds=polAbList(p).filter(cd=>cd.ab && cd.ab.reaction && polAbIsResource(cd) && polAbLegal(p,cd)
+          && !(!spellOK && polAbOps(cd).some(o=>/^addSpell/.test(o))));   // 주문 전용 자원은 주문 지불에만
+      }catch(e){ funds=[]; }
+    }
+    if(!funds.length){ UI.toast('자원이 부족합니다','warn'); return false; }
+    const sel=await UI.pickOption(p, `「${c.ko}」 자원이 부족합니다 — [반응] 자원 능력으로 충당할까요? (룰 357.1.a)`,
+      [...funds.map((cd,i)=>({v:i, label:`⚡ ${cd.name} — ${cd.ab.label}`})), {v:'stop', label:'취소 (플레이 포기)'}]);
+    if(sel===null || sel==='stop'){ UI.toast('자원이 부족합니다','warn'); return false; }
+    await activateAbility(p, funds[sel].src, funds[sel].ab);
+  }
   if(!canPay(p, energy, pips, spellOK)){ UI.toast('자원이 부족합니다','warn'); return false; }
 
   // 위치 선택 (유닛)
@@ -2289,7 +2309,14 @@ async function execOps(ops, ctx){
       case 'recycleRune': {
         const P=G.players[p];
         if(P.runes.length){
-          const r=P.runes.pop(); P.runeDeck.push(r.n);
+          // 어느 룬을 돌릴지는 플레이어 선택 (색이 섞여 있을 때만 물어본다)
+          let ri=P.runes.length-1;
+          if(new Set(P.runes.map(r=>runeDomain(r.n))).size>1){
+            const sel=await UI.pickOption(p,'재활용할 룬 선택 (강제)',
+              P.runes.map((r,i)=>({v:i, label:(DOMAIN_KO[runeDomain(r.n)]||runeDomain(r.n)||'룬')+(r.ex?' (탈진)':'')})));
+            if(sel!=null) ri=sel;
+          }
+          const r=P.runes.splice(ri,1)[0]; P.runeDeck.push(r.n);
           UI.log(`${pname(p)} 룬 1개 재활용 (강제)`, 'p'+p);
         }
         break; }
