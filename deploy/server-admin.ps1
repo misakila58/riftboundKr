@@ -57,6 +57,7 @@ function Get-ServerStatus {
     Commit  = $null
     Playing = $null      # 지금 진행 중인 대전 수 (배포하면 끊긴다)
     Waiting = $null      # 대기 중인 방 수
+    Live    = @()        # 진행 중인 대전 한 줄씩 - '3분째 · 아●● vs 뿌●● · v1.0.54'
   }
   try {
     $raw = Invoke-RestMethod -Uri "https://$HostName/api/status" -TimeoutSec 6 -ErrorAction Stop
@@ -70,6 +71,8 @@ function Get-ServerStatus {
         'COMMIT'  { $s.Commit  = $val }
         'PLAYING' { $s.Playing = [int]$val }
         'WAITING' { $s.Waiting = [int]$val }
+        # GAME|3분째|아●● vs 뿌●●|v1.0.54  - 아이디는 서버가 가려서 준다
+        'GAME'    { $s.Live += ,(($val -split '\|') -join ' · ') }
       }
     }
   } catch { }
@@ -102,17 +105,31 @@ function Need-Node {
 
 # ══════════════════════════ 각 기능 ══════════════════════════
 
-function Do-Deploy($st) {
+function Do-Deploy {
   Write-Host ''
   # 배포는 서버를 재시작한다. 로그인은 유지되지만 진행 중이던 대전은 끊긴다
   # (방은 서버 메모리에만 있어 재시작으로 사라진다).
-  if ($st -and $st.Playing -gt 0) {
-    Write-Host "  [!] 지금 대전 $($st.Playing)판이 진행 중입니다." -ForegroundColor Yellow
-    Write-Host '      배포하면 서버가 재시작되어 그 대전들이 끊깁니다.'
+  # 메뉴에 표시된 값은 화면을 그린 시점의 것이라, 다른 메뉴를 보다 왔으면 낡아 있다.
+  # 실제로 끊는 건 지금이므로 여기서 다시 물어본다.
+  Write-Host '  진행 중인 대전을 확인하는 중...' -ForegroundColor DarkGray
+  $now = Get-ServerStatus
+  if ($null -eq $now.Playing) {
+    Write-Host '  [!] 서버 상태를 읽지 못했습니다 - 진행 중인 대전이 있는지 알 수 없습니다.' -ForegroundColor Yellow
+    $go = Read-Host '      그래도 배포할까요? (y/N)'
+    if ($go -ne 'y' -and $go -ne 'Y') { Write-Host '  배포를 취소했습니다.'; return }
+  }
+  elseif ($now.Playing -gt 0) {
+    Write-Host "  [!] 지금 대전 $($now.Playing)판이 진행 중입니다." -ForegroundColor Yellow
+    foreach ($g in $now.Live) { Write-Host "        - $g" -ForegroundColor Yellow }
+    Write-Host '      배포하면 서버가 재시작되어 이 대전들이 끊깁니다.'
     Write-Host '      (로그인은 유지되지만, 두던 게임은 이어서 둘 수 없습니다)'
     Write-Host ''
     $go = Read-Host '      그래도 지금 배포할까요? (y/N)'
     if ($go -ne 'y' -and $go -ne 'Y') { Write-Host '  배포를 취소했습니다.'; return }
+    Write-Host ''
+  }
+  else {
+    Write-Host '  진행 중인 대전이 없습니다 - 끊길 게임 없이 배포합니다.' -ForegroundColor Green
     Write-Host ''
   }
   Write-Host '  == 최신 버전 배포 중 (2~4분) ==' -ForegroundColor Cyan
@@ -232,6 +249,8 @@ while ($true) {
           elseif ($st.Playing -gt 0) { "대전 $($st.Playing)판 진행 중  <- 배포하면 끊깁니다" }
           else { '진행 중인 대전 없음 (배포해도 안전)' }
   Write-Host "    지금        : $live"
+  # 몇 판인지만으로는 배포해도 되는지 판단이 안 된다 — 얼마나 두고 있는지 같이 본다
+  foreach ($g in $st.Live) { Write-Host "                  - $g" }
   Write-Host "    최근 24시간: $($st.Games)"
   Write-Host "    서버 빌드  : $($st.Build)"
   Write-Host "    내 로컬    : $local"
@@ -251,7 +270,7 @@ while ($true) {
   if ($sel -eq '') { $sel = '1' }
 
   switch ($sel) {
-    '1' { Do-Deploy $st; Pause-Return }
+    '1' { Do-Deploy;    Pause-Return }
     '2' { Do-Status $st; Pause-Return }
     '3' { Do-Logs;     Pause-Return }
     '4' { Do-Restart;  Pause-Return }

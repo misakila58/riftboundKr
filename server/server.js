@@ -443,11 +443,17 @@ const server = http.createServer(async (req, res) => {
     // KEY|값 한 줄씩 — 배치 파일이 delims=| 로 그대로 나눠 읽는다
     // 지금 실제로 진행 중인 대전 — 서버를 재시작하면 이 게임들이 끊긴다.
     // 방은 메모리에만 있어 재시작으로 사라지고, 클라이언트에는 이어 붙일 방법이 없다.
-    const playing = [...rooms.values()].filter(r => r.started).length;
-    const waiting = [...rooms.values()].filter(r => !r.started).length;
+    const live = [...rooms.values()].filter(r => r.started);
+    const playing = live.length;
+    const waiting = rooms.size - playing;
+    // 배포해도 되는 상황인지 판단하려면 숫자만으로는 부족하다 — 누가 얼마나 두고 있는지 같이 준다.
+    // 다만 이 응답은 인증이 없는 공개 정보이므로 아이디는 첫 글자만 남기고 가린다.
+    const mask = id => { const t = String(id || '?'); return t.slice(0, 1) + '●'.repeat(Math.max(1, t.length - 1)); };
+    const mins = t => t ? Math.max(0, Math.round((Date.now() - t) / 60000)) : 0;
     const lines = [
       `PLAYING|${playing}`,
       `WAITING|${waiting}`,
+      ...live.map(r => `GAME|${mins(r.startedAt)}분째|${r.players.map(pl => mask(pl.id)).join(' vs ')}|v${r.players[0]?.ver || '?'}`),
       `GAMES|${s.total}판${parts.length ? ' (' + parts.join(' · ') + ')' : ''}`,
       `BUILD|${BUILD.commit}${BUILD.date ? ' (' + BUILD.date + ')' : ''}${BUILD.subject ? ' ' + BUILD.subject : ''}`,
       `COMMIT|${BUILD.commit}`,
@@ -699,6 +705,7 @@ wss.on('connection', (ws, req) => {
         r.players.push({ ws, id: ws._userId, deck, seat: 1, ver: joinVer });
         ws._room = r;
         r.started = true;
+        r.startedAt = Date.now();   // 배포 전 '몇 분째 두는 중인지' 보여주는 데 쓴다
         const seed = crypto.randomBytes(4).readUInt32LE(0);
         r.players.forEach(pl => wsSend(pl.ws, {
           t: 'start', seed, yourSeat: pl.seat, manual: r.manual !== false, banRule: banActive,
