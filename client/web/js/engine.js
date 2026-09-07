@@ -2123,7 +2123,19 @@ async function execOps(ops, ctx){
         else if(op.it && (it||ctx.it)) targets=[it||ctx.it];
         else if(op.all){ targets=await pickBySpec(p,{...op.spec,count:'all'}); }
         else { const u=await pickBySpec(p, op.spec, `위력 ${op.n>0?'+':''}${op.n} 대상 선택`); if(u){targets=[u]; it=u;} }
-        targets.forEach(u=>{ u.tempM.push({v:op.n, dur:'turn', min:op.min}); UI.log(`${unitName(u)} 위력 ${op.n>0?'+':''}${op.n} (이번 턴)`, 'p'+p); });
+        targets.forEach(u=>{
+          // 위력 감소에 최소값 제한이 있으면, 룰 454.3.d.2 '스냅샷'대로 적용 시점의 실효 감소분을
+          // 계산해 고정한다. (뒤에 +버프가 들어와도 감소분은 그대로 -1로 남아야 함 — 룰 457: 증가 먼저·감소 나중)
+          // 예: 2⚔에 -3(min1) → 실효 -1로 고정 → 이후 +2면 2-1+2 = 3 (합산 후 clamp면 1이 되어 틀림)
+          if(op.n < 0 && op.min !== undefined){
+            const cur = might(u);
+            const eff = Math.max(op.min, cur + op.n) - cur;   // 최소값 밑으로는 내리지 않는 실효 감소분
+            u.tempM.push({ v: eff, dur:'turn', snap:true });
+          } else {
+            u.tempM.push({ v: op.n, dur:'turn', min: op.min });
+          }
+          UI.log(`${unitName(u)} 위력 ${op.n>0?'+':''}${op.n} (이번 턴)`, 'p'+p);
+        });
         break; }
       case 'grantKw': {
         let u=null;
