@@ -1766,8 +1766,33 @@ window.addEventListener('DOMContentLoaded', ()=>{
     if(G.state==='showdown'||G.winner!==null) return;
     if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
     if(NET.online && G.turn!==NET.seat){ UI.toast('자신의 턴이 아닙니다','warn'); return; }
+    // 아직 쓸 수 있는 자원이 남아 있으면 한 번 물어본다 (실수로 턴을 넘기는 일이 잦다)
+    const P=G.players[G.turn];
+    const readyRunes=P.runes.filter(r=>!r.ex).length;
+    const pool=(P.energy||0)+(P.energySpell||0)+(P.powerSpell||0)
+             + Object.values(P.power||{}).reduce((s,v)=>s+v,0);
+    if(readyRunes||pool){ confirmEndTurn(readyRunes, pool); return; }
     NET.dispatch({k:'endTurn'}, ()=>endTurn());
   };
+  // 로컬 확인창 — 게임 상태를 건드리지 않으므로 온라인 선택 동기화를 타지 않는다
+  function confirmEndTurn(readyRunes, pool){
+    const box=document.getElementById('modal-box');
+    box.innerHTML='<h3>턴을 끝낼까요?</h3>';
+    const t=document.createElement('div');
+    t.style.cssText='font-size:14px;line-height:1.8;margin-bottom:6px';
+    const lines=[];
+    if(readyRunes) lines.push(`· 준비된 룬이 ${readyRunes}개 남아 있습니다 — 이번 턴에는 더 쓸 수 없게 됩니다.`);
+    if(pool) lines.push(`· 풀에 남은 에너지·힘 ${pool}은 턴이 끝나면 사라집니다.`);
+    t.textContent=lines.join('\n');
+    t.style.whiteSpace='pre-line';
+    box.appendChild(t);
+    const btns=document.createElement('div'); btns.className='modal-btns';
+    const y=document.createElement('button'); y.className='primary'; y.textContent='턴 종료';
+    y.onclick=()=>{ closeModal(); NET.dispatch({k:'endTurn'}, ()=>endTurn()); };
+    const n=document.createElement('button'); n.textContent='더 플레이하기'; n.onclick=closeModal;
+    btns.appendChild(y); btns.appendChild(n); box.appendChild(btns);
+    openModal(); markModalDismissable();
+  }
   document.getElementById('btn-move').onclick=()=>{
     if(G.state==='showdown'){ UI.toast('결전 중에는 이동할 수 없습니다','warn'); return; }
     if(G.turn!==G.actingPlayer){ return; }

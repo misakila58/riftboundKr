@@ -543,7 +543,7 @@ const EXTRA_OPS = {
     if(u){ u.grants.temporary=true; UI.log(`${unitName(u)}에게 [일시적] 부여`,'p'+ctx.p); } },
   async wonderBundle(op, ctx, h){ const P=G.players[ctx.p];
     const opts=[];
-    everyUnit().filter(u=>u.ctrl===ctx.p&&!u.isToken).forEach(u=>opts.push({v:{t:'unit',u},label:'유닛: '+unitName(u),card:unitCard(u)}));
+    everyUnit().filter(u=>u.ctrl===ctx.p&&!u.isToken).forEach(u=>opts.push({v:{t:'unit',u},label:'유닛: '+unitLabel(u),card:unitCard(u)}));
     P.gear.forEach((g,i)=>{ if(card(g.n).n!==181) opts.push({v:{t:'gear',i},label:'도구: '+card(g.n).ko,n:g.n}); });
     // 숨김 카드도 n을 실어 미리보기를 붙인다 — hc.by===ctx.p 필터라 내가 숨긴 것만 후보다(정보 노출 아님)
     G.bfs.forEach((bf,bi)=>bf.hiddenCards.forEach((hc,hi)=>{ if(hc.by===ctx.p) opts.push({v:{t:'hidden',bi,hi},label:'숨김 카드',n:hc.n}); }));
@@ -583,7 +583,7 @@ const EXTRA_OPS = {
     if(ctx.unit) await buffUnit(ctx.unit, ctx.p); },
   async readySomething(op, ctx, h){
     const opts=[];
-    everyUnit().filter(u=>u.ctrl===ctx.p&&u.ex&&u!==ctx.unit).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitName(u),card:unitCard(u)}));
+    everyUnit().filter(u=>u.ctrl===ctx.p&&u.ex&&u!==ctx.unit).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitLabel(u),card:unitCard(u)}));
     G.players[ctx.p].gear.forEach((g,i)=>{ if(g.ex) opts.push({v:{t:'g',g},label:'도구: '+card(g.n).ko,n:g.n}); });
     G.players[ctx.p].runes.forEach(r=>{ if(r.ex) opts.push({v:{t:'r',r},label:'룬: '+card(r.n).ko,n:r.n}); });
     if(G.players[ctx.p].legendEx) opts.push({v:{t:'l'},label:'전설: '+card(G.players[ctx.p].legendN).ko,n:G.players[ctx.p].legendN});

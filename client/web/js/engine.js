@@ -47,6 +47,9 @@ function installHiddenTargetGuard(){
 // ---------- 게임 생성 ----------
 function newGame(cfg){
   UID = 1;
+  // 선공은 무작위로 정한다 (룰 116 "공정한 무작위 방법"). 넘겨받지 않으면 0번.
+  // 온라인은 양쪽이 같은 값을 써야 하므로 호출자가 시드 난수로 뽑아 넘긴다.
+  const first = (cfg.first===0 || cfg.first===1) ? cfg.first : 0;
   if(typeof UI!=="undefined" && UI.resetHiddenAsk) UI.resetHiddenAsk();   // 새 판에는 "그만 묻기"도 초기화
   installHiddenTargetGuard();
   seedRng(cfg.seed || (Date.now()&0xffffffff));
@@ -81,13 +84,14 @@ function newGame(cfg){
       };
     }),
     bfs: cfg.bfs.map((n,i)=>({ n, owner:i, controller:null, contestedBy:null, units:[], hiddenCards:[], scored:{} })),
-    turn:0, turnCount:0, phase:'setup', state:'neutral',
-    showdown:null, winner:null, actingPlayer:0,
+    turn:first, turnCount:0, phase:'setup', state:'neutral',
+    showdown:null, winner:null, actingPlayer:first,
   };
   // 전장 상시: 승리 점수 +1
   G.victory = VICTORY + G.bfs.filter(bf=>bf.n===BF_STATIC.VICTORY_PLUS).length;
   // 규칙 처리 모드: manual(수동, 기본) — 카드 효과·전투·득점을 자동 처리하지 않음
   G.manual = (cfg.manual===undefined) ? true : !!cfg.manual;
+  UI.log(`선공: ${pname(first)} — 후공은 첫 전개 단계에 룬을 1개 더 전개합니다`, 'sys');
   // 시작 손패 4장
   G.players.forEach(p=>{ for(let i=0;i<4;i++) drawCard(p.idx, true); });
 }
@@ -108,6 +112,11 @@ function makeUnit(n, ctrl, opts={}){
 }
 function unitCard(u){ return u.isToken ? {n:0,name:u.tokenName,ko:u.tokenName,type:'Unit',m:u.tokenMight,dom:[],tags:[],text:'',tko:'',img:''} : card(u.n); }
 function unitName(u){ return u.isToken ? (u.tokenName==='Recruit'?'신병 토큰':u.tokenName+' 토큰') : card(u.n).ko; }
+// 목록에서 유닛을 고를 때 어디에 있는 유닛인지 함께 보여준다 —
+// 같은 이름이 기지와 전장에 하나씩 있으면 이름만으로는 구분할 수 없다.
+function unitWhere(u){ return u.loc==='base' ? '기지' : card(G.bfs[u.loc].n).ko; }
+function unitLabel(u){ return unitName(u) + ' (' + unitWhere(u) + ')'; }
+
 function unitFx(u){ return u.isToken ? {kw:{},triggers:{},activated:[],manual:[]} : (FX[u.n]||{kw:{},triggers:{},activated:[],manual:[]}); }
 
 // ---------- 턴 플래그 (매 턴 초기화) ----------
@@ -507,8 +516,8 @@ async function mulliganPhase(){
     UI.render();
     return;
   }
-  // 핫시트/봇: 한 화면을 번갈아 쓰므로 순서대로
-  for(const p of [0,1]){
+  // 핫시트/봇: 한 화면을 번갈아 쓰므로 순서대로 — 룰 118 "턴 순서대로 멀리건"
+  for(const p of [G.turn, opp(G.turn)]){
     if(!G.players[p].hand.length) continue;
     applyMulligan(p, await UI.pickMulligan(p));
     UI.render();
@@ -752,7 +761,7 @@ async function chooseEffectMove(p, spec, to, extra={}, boardPick=false){
         if(!me || dest!==me.loc || !canEffectMove(me, u.loc)) continue;
       }
       options.push({ v:options.length,
-        label:`${unitName(u)} → ${dest==='base'?'기지':card(G.bfs[dest].n).ko}`,
+        label:`${unitLabel(u)} → ${dest==='base'?'기지':card(G.bfs[dest].n).ko}`,
         card:unitCard(u), movement:{ uid:u.uid, dest, ...extra } });
     }
   }
@@ -798,7 +807,7 @@ async function resolveEffectMove(p, choice){
 async function chooseReturnToHand(p, spec, extra={}){
   if(extra.energy && !canPay(p, extra.energy, [])) return null;
   const options = unitsBySpec(spec, p).map((u,i)=>({
-    v:i, label:unitName(u), card:unitCard(u), returnHand:{ uid:u.uid, ...extra } }));
+    v:i, label:unitLabel(u), card:unitCard(u), returnHand:{ uid:u.uid, ...extra } }));
   if(!options.length) return null;
   if(spec.optional) options.push({ v:null, label:'되돌리지 않음', returnHand:null });
   const sel = await UI.pickOption(p, '소유자의 손패로 되돌릴 대상', options);
@@ -2087,7 +2096,7 @@ async function activateAbility(p, source, ab){
   if(cost.killFriendlyOrGear){
     // 아군 유닛 또는 도구 하나 처치 (말자하)
     const opts=[];
-    everyUnit().filter(u=>u.ctrl===p).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitName(u),card:unitCard(u)}));
+    everyUnit().filter(u=>u.ctrl===p).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitLabel(u),card:unitCard(u)}));
     P.gear.forEach((g,i)=>opts.push({v:{t:'g',i},label:'도구: '+card(g.n).ko,n:g.n}));
     const sel=await UI.pickOption(p,'처치할 아군 유닛/도구 (비용)',opts);
     if(!sel) return;
@@ -2476,7 +2485,7 @@ async function execOps(ops, ctx){
         const P=G.players[p];
         const opts=[];
         if(P.champInZone && card(P.champN).tags.includes('Teemo')) opts.push({v:'zone',label:'챔피언 존의 '+card(P.champN).ko,n:P.champN});
-        everyUnit().filter(u=>u.ctrl===p&&!u.isToken&&card(u.n).tags.includes('Teemo')).forEach(u=>opts.push({v:u,label:unitName(u),card:unitCard(u)}));
+        everyUnit().filter(u=>u.ctrl===p&&!u.isToken&&card(u.n).tags.includes('Teemo')).forEach(u=>opts.push({v:u,label:unitLabel(u),card:unitCard(u)}));
         if(!opts.length){ UI.toast('티모 유닛이 없습니다','warn'); break; }
         const sel=await UI.pickOption(p,'손패로 가져올 티모 유닛',opts);
         if(sel==='zone'){ P.champInZone=false; P.hand.push(P.champN); }
