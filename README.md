@@ -17,6 +17,8 @@
 > Riot Games or anyone officially involved in producing or managing Riot Games properties.
 > Riftbound and League of Legends are trademarks or registered trademarks of Riot Games, Inc._
 >
+> 📧 저작권 등 문의사항: **misakila58@gmail.com** / For copyright or any other inquiries: misakila58@gmail.com
+>
 > 카드 데이터/이미지는 실행 시 [Riftcodex API](https://riftcodex.com)와 Riot CDN에서 가져옵니다.
 
 ## 저장소 구조
