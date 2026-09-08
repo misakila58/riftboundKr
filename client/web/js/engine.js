@@ -233,6 +233,21 @@ function removeUnit(u){
 // 경합(Contested) 적용자 추적 — 공식 규칙: "그 전장을 통제하지 않는 플레이어의 유닛이
 // 이동/존재하게 될 때" 경합이 적용되며, 그 적용자가 결전의 공격자(Focus)가 된다.
 // (강제 이동 효과로 '상대 유닛'이 끌려온 경우, 공격자는 시전자가 아니라 그 유닛의 통제자)
+// 유닛이 전장에 '들어가는' 모든 경로가 공유하는 공격 판정 (룰 184.3.b · 351.1).
+// 이동이든 플레이든, 그 전장을 통제하지 않는 쪽의 유닛이 들어가면 경합이 걸리고 그쪽이 공격자다.
+// 공격자 지정을 받는 것은 이동을 일으킨 사람이 아니라 '그 유닛의 통제자'다 (룰 428).
+async function fireAttackTriggers(u, dest){
+  if(dest==='base' || dest===null || dest===undefined) return;
+  const bf=G.bfs[dest]; if(!bf) return;
+  const owner=u.ctrl;
+  const isAttack = (bf.controller!==null && bf.controller!==owner) || bf.units.some(x=>x.ctrl!==owner);
+  if(!isAttack) return;
+  await runTriggerList(unitFx(u).triggers?.onAttack, {p:owner, unit:u, bfIdx:dest});
+  await runTriggerList(unitFx(u).triggers?.onAttackOrDefend, {p:owner, unit:u, bfIdx:dest});
+  const defender = (bf.controller!==null && bf.controller!==owner) ? bf.controller : opp(owner);
+  await legendHookTarget(defender,'hookEnemyAttackMyBf',{p:defender, it:u, bfIdx:dest});
+}
+
 function markContested(u, loc){
   if(loc==='base') return;
   const bf=G.bfs[loc]; if(!bf) return;
@@ -711,20 +726,9 @@ async function effectMove(p, u, dest){
   if(from!=='base') await fireBfTrigger(from,'onMoveFromHere',{p, it:u, bfIdx:from});
   await runTriggerList(unitFx(u).triggers?.onMoveSelf, {p:u.ctrl, unit:u, it:u, bfIdx:(dest!=='base'?dest:null), dest});
   if(dest!=='base') await fireEvent('onMoveToBf', {p:u.ctrl, bfIdx:dest});
-  // 공격 판정 — 효과로 옮겨진 이동도 이동이다 (룰 427). 경합을 적용하는 주체는
-  // 이동을 일으킨 사람이 아니라 '움직인 유닛의 통제자'이고(428), 그 사람이 공격자가 된다(442.1.a.1).
-  // 「매혹」으로 상대 유닛을 내 전장에 끌어오면 상대가 공격자이고 그 유닛이 공격자 지정을 받는다.
-  if(dest!=='base'){
-    const bf=G.bfs[dest];
-    const owner=u.ctrl;
-    const isAttack = (bf.controller!==null && bf.controller!==owner) || bf.units.some(x=>x.ctrl!==owner);
-    if(isAttack){
-      await runTriggerList(unitFx(u).triggers?.onAttack, {p:owner, unit:u, bfIdx:dest});
-      await runTriggerList(unitFx(u).triggers?.onAttackOrDefend, {p:owner, unit:u, bfIdx:dest});
-      const defender = (bf.controller!==null && bf.controller!==owner) ? bf.controller : opp(owner);
-      await legendHookTarget(defender,'hookEnemyAttackMyBf',{p:defender, it:u, bfIdx:dest});
-    }
-  }
+  // 효과로 옮겨진 이동도 이동이다 (룰 427). 「매혹」으로 상대 유닛을 내 전장에 끌어오면
+  // 상대가 공격자이고 그 유닛이 공격자 지정을 받는다 (룰 428).
+  await fireAttackTriggers(u, dest);
   return true;
 }
 
@@ -1150,6 +1154,9 @@ async function playCardFromHand(p, handIdx, opts={}){
       hiddenBf: (opts.fromHidden && !fx.hiddenFreeTarget) ? opts.bfIdx : null});
     // 위력적 유닛 훅 (볼리베어)
     if(isMighty(u)) await legendHook(p,'hookMightyPlay',{p, unit:u});
+    // 적 전장에 '플레이해서' 들어가는 것도 공격이다 (룰 184.3.b — 이동하거나 플레이되면 경합).
+    // 「죽음꽃 포식자」를 유지된 적 전장에 내면 상대의 「아리 - 구미호」가 반응해야 한다.
+    await fireAttackTriggers(u, loc);
     if(fx.manual.length) UI.manualNotice(c);
   }
   else if(c.type==='Spell'){
@@ -1526,20 +1533,8 @@ async function moveUnits(p, units, dest){
       if(yes){ removeUnit(t); placeUnit(t,dest); t.turnMoves=(t.turnMoves||0)+1; UI.log(`${unitName(t)} 동행 이동`, 'p'+p); }
     }
   }
-  // 공격 트리거
-  if(dest!=='base'){
-    const bf=G.bfs[dest];
-    const isAttack = bf.controller!==null && bf.controller!==p || bf.units.some(u=>u.ctrl!==p);
-    if(isAttack){
-      for(const u of units){
-        await runTriggerList(unitFx(u).triggers?.onAttack, {p, unit:u, bfIdx:dest});
-        await runTriggerList(unitFx(u).triggers?.onAttackOrDefend, {p, unit:u, bfIdx:dest});
-        // 아리 전설 훅 (방어측)
-        const defender = bf.controller!==null&&bf.controller!==p ? bf.controller : opp(p);
-        await legendHookTarget(defender,'hookEnemyAttackMyBf',{p:defender, it:u, bfIdx:dest});
-      }
-    }
-  }
+  // 공격 트리거 — 이동·플레이가 같은 판정을 쓴다
+  for(const u of units) await fireAttackTriggers(u, dest);
   await cleanup(p, units[0]?.loc);
   UI.render();
   return true;
@@ -2384,11 +2379,14 @@ async function execOps(ops, ctx){
           const sel=await UI.pickOption(p,'토큰을 배치할 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko,n:bf.n})).concat([{v:'base',label:'기지'}]));
           if(sel!==null) loc=sel;
         }
+        const madeTokens=[];
         for(let i=0;i<op.count;i++){
           const u=makeUnit(0,p,{loc,isToken:true,tokenMight:op.might,tokenName:op.name,ready:op.ready});
           if(op.temp) u.grants.temporary=true;
           placeUnit(u,loc);
+          madeTokens.push(u);
         }
+        for(const u of madeTokens) await fireAttackTriggers(u, loc);   // 토큰도 플레이된 유닛이다
         UI.log(`${pname(p)} ${op.might}⚔ ${op.name==='Recruit'?'신병':op.name} 토큰 ${op.count}개 플레이`, 'p'+p);
         break; }
       case 'recallSelf': if(ctx.unit){ removeUnit(ctx.unit); placeUnit(ctx.unit,'base'); UI.log(`${unitName(ctx.unit)} 기지으로 귀환`, 'p'+p); } break;
