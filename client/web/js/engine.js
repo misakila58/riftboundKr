@@ -471,9 +471,12 @@ async function runeFloat(p, idx, mode){
 function powerPips(c){
   const n = c.p||0;
   if(n<=0) return [];
-  const doms = (c.dom&&c.dom.length)?c.dom:['Any'];
+  // 룰 136.3: 속성이 없거나 둘 이상인 카드의 자기 속성 힘 [C]는 [A](아무 속성)로 처리한다.
+  // 이중 속성 시그니처(힘 착취 등)는 인쇄 핍도 두 속성 반반 하이브리드 — 둘 중 어느 룬으로도 지불 가능.
+  // (예전엔 doms[i%len]로 첫 속성만 배정해, 정신/질서 카드 1핍을 정신 룬으로만 낼 수 있었다)
+  const doms = (c.dom&&c.dom.length===1)?c.dom:['Any'];
   const pips=[];
-  for(let i=0;i<n;i++) pips.push(doms[i%doms.length]);
+  for(let i=0;i<n;i++) pips.push(doms[0]);
   return pips;
 }
 
