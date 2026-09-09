@@ -187,8 +187,7 @@ function startBotGame(level, myDeck, oppDeck){
   if(typeof STATS!=='undefined') STATS.gameStart('bot');
   NET.online=false; NET.seat=null;
   newGame({
-    manual: false, // BOT 대전은 규칙 자동 처리 필요
-    first: Math.floor(Math.random()*2),   // 룰 116: 턴 순서는 무작위로 정한다
+    manual: false, // BOT 대전은 규칙 자동 처리 필요 (선후공은 주사위 — decideFirstPlayer)
     players:[
       { name:'나', legendN:myDeck.legendN, champN:myDeck.champN, deck:myDeck.main, runes:myDeck.runes },
       { name:`봇(${level.name.replace(/^\S+ /,'')})`, legendN:oppDeck.legendN, champN:oppDeck.champN, deck:oppDeck.main, runes:oppDeck.runes },

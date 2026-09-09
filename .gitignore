@@ -44,3 +44,7 @@ Thumbs.db
 
 # 접근 코드(입장 통제) — 절대 커밋 금지
 **/access-code.txt
+tools/data/riftjudge.jsonl
+tools/data/riftjudge-digest/
+tools/data/riftjudge-by-card.json
+tools/data/riftjudge-audit/

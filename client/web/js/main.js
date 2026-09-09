@@ -1775,11 +1775,9 @@ function startOnlineGame(m){
   // 결정론: 시드 → 전장 선택(각자 3개 중 1개 무작위)도 rng 사용
   seedRng(m.seed);
   const bfs = m.players.map(pl=>pl.deck.bfs[Math.floor(rng()*pl.deck.bfs.length)]);
-  // 선공도 같은 시드 난수열에서 뽑는다 — 양쪽 클라이언트가 반드시 같은 값을 얻는다 (룰 116)
-  const first = Math.floor(rng()*2);
+  // 선후공은 mulliganPhase 앞의 decideFirstPlayer가 시드 주사위로 정한다 (양쪽 동일)
   newGame({
     seed: m.seed,
-    first,
     manual: m.manual,
     players: m.players.map(pl=>({
       name: pl.id, legendN: pl.deck.legendN, champN: pl.deck.champN,
@@ -1790,7 +1788,9 @@ function startOnlineGame(m){
   showScreen('game-screen');
   PLAYMAT.startOnline(m.seed);
   const modeLabel = G.manual ? '수동' : '자동';
-  document.getElementById('net-info').textContent=`🌐 온라인(${modeLabel}${m.banRule?' · 🚫밴':''}) — 나: ${m.players[NET.seat].id} (${G.turn===NET.seat?'선공':'후공'})`;
+  const netInfo=()=>{ document.getElementById('net-info').textContent=`🌐 온라인(${modeLabel}${m.banRule?' · 🚫밴':''}) — 나: ${m.players[NET.seat].id} (${G.phase==='setup'&&!G.turnOrderDone?'선후공 결정 중':(G.turn===NET.seat?'선공':'후공')})`; };
+  UI.turnOrderDecided=()=>{ G.turnOrderDone=true; netInfo(); };
+  netInfo();
   UI.log(`온라인 대전 시작! ${m.players[0].id} vs ${m.players[1].id} · 규칙 처리: ${modeLabel} 모드`, 'sys');
   if(m.banRule) UI.log(`🚫 밴 리스트 적용 대전입니다 (${BANLIST.region}, 기준일 ${BANLIST.updated})`, 'sys');
   UI.log('승리 조건: '+G.victory+'점 선취!', 'sys');
@@ -1807,8 +1807,7 @@ function startHotseat(){
   const bf1=d1.bfs[Math.floor(Math.random()*3)];
   const autoHs=document.getElementById('hs-auto')?.checked;
   newGame({
-    manual: !autoHs,
-    first: Math.floor(Math.random()*2),   // 룬 116: 턴 순서는 무작위로 정한다
+    manual: !autoHs,   // 선후공은 주사위(decideFirstPlayer)로 정한다
     players:[
       { name:document.getElementById('p0-name').value||'플레이어 1', legendN:p0legend, champN:d0.champN, deck:d0.deck, runes:d0.runes, arts:d0.arts },
       { name:document.getElementById('p1-name').value||'플레이어 2', legendN:p1legend, champN:d1.champN, deck:d1.deck, runes:d1.runes, arts:d1.arts },

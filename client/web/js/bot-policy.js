@@ -466,6 +466,8 @@ async function polMovementOption(p,options){
 // 무작위였다. 배치 위치가 특히 치명적 — 유닛 1기를 적 전장에 떨구면 즉시 결전으로 죽는다.
 POLICY.option = function(p, title, options){
   if(!options || !options.length) return null;
+  // 선후공 선택(주사위 승리): 선공을 고른다
+  if(options.some(o=>o.v==='first') && options.some(o=>o.v==='second')){ polSay('option','선공','주사위 승리 — 선공 선택'); return 'first'; }
   if(options.some(o=>o.movement || o.returnHand)) return polMovementOption(p,options);
   const txt = String(title||'');
   if(polMfAuroraDeck(p)){

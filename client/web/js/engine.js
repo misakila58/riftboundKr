@@ -51,6 +51,7 @@ function newGame(cfg){
   // 온라인은 양쪽이 같은 값을 써야 하므로 호출자가 시드 난수로 뽑아 넘긴다.
   const first = (cfg.first===0 || cfg.first===1) ? cfg.first : 0;
   if(typeof UI!=="undefined" && UI.resetHiddenAsk) UI.resetHiddenAsk();   // 새 판에는 "그만 묻기"도 초기화
+  if(typeof UI!=="undefined") UI.turnOrderDecided=null;   // 온라인 상태표시 훅은 판마다 새로 건다 (다음 봇/핫시트 판에 남지 않게)
   installHiddenTargetGuard();
   seedRng(cfg.seed || (Date.now()&0xffffffff));
   G = {
@@ -91,7 +92,7 @@ function newGame(cfg){
   G.victory = VICTORY + G.bfs.filter(bf=>bf.n===BF_STATIC.VICTORY_PLUS).length;
   // 규칙 처리 모드: manual(수동, 기본) — 카드 효과·전투·득점을 자동 처리하지 않음
   G.manual = (cfg.manual===undefined) ? true : !!cfg.manual;
-  UI.log(`선공: ${pname(first)} — 후공은 첫 전개 단계에 룬을 1개 더 전개합니다`, 'sys');
+  // 선후공은 decideFirstPlayer(주사위)가 mulliganPhase 앞에서 확정하고 로그를 남긴다
   // 시작 손패 4장
   G.players.forEach(p=>{ for(let i=0;i<4;i++) drawCard(p.idx, true); });
 }
@@ -504,9 +505,32 @@ function powerPips(c){
   return pips;
 }
 
+// ---------- 선후공 결정 (룰 115.1.b "모든 플레이어가 합의한 공정한 무작위 방법") ----------
+// 각자 주사위(1~6)를 굴려 높은 쪽이 선공/후공을 고른다. 동점이면 다시 굴린다.
+// 시드 난수(rng)라 온라인 양쪽 결과가 같고, 승자의 선택은 UI.pickOption(routedPick)으로 동기화된다.
+async function decideFirstPlayer(){
+  let d0, d1, tries=0;
+  do{
+    d0=1+Math.floor(rng()*6); d1=1+Math.floor(rng()*6); tries++;
+    if(d0===d1) UI.log(`🎲 주사위: ${pname(0)} ${d0} vs ${pname(1)} ${d1} — 동점, 다시 굴립니다`, 'sys');
+  }while(d0===d1 && tries<50);
+  const w = d0>d1 ? 0 : 1;
+  UI.log(`🎲 주사위: ${pname(0)} ${d0} vs ${pname(1)} ${d1} → ${pname(w)}이(가) 선후공을 선택합니다`, 'sys');
+  UI.render();
+  const v = await UI.pickOption(w,
+    `🎲 주사위 ${Math.max(d0,d1)} : ${Math.min(d0,d1)} 승리! 선공과 후공 중 선택하세요 (후공은 첫 전개 단계에 룬을 1개 더 전개)`,
+    [{label:'⚔️ 선공', v:'first'}, {label:'🛡️ 후공 (첫 전개 룬 +1)', v:'second'}]);
+  const first = (v==='second') ? opp(w) : w;
+  G.turn=first; G.actingPlayer=first;
+  UI.log(`${pname(w)}: ${v==='second'?'후공':'선공'} 선택 → 선공: ${pname(first)} — 후공은 첫 전개 단계에 룬을 1개 더 전개합니다`, 'sys');
+  if(typeof UI.turnOrderDecided==='function') UI.turnOrderDecided();
+  UI.render();
+}
+
 // ---------- 멀리건 (공식 룰: 종합 규칙 110-118) ----------
 // 턴 순서대로: 손패에서 최대 2장을 따로 빼두고 → 그 수만큼 드로우 → 빼둔 카드를 덱 맨 아래로 재활용.
 async function mulliganPhase(){
+  await decideFirstPlayer();
   // 온라인: 양쪽이 동시에 고른다 (상대가 끝날 때까지 기다리지 않게).
   // 적용은 결과가 도착한 순서와 무관하게 항상 0번 → 1번 순으로 해서 양쪽 상태를 같게 유지한다.
   if(NET.online){
@@ -1194,6 +1218,8 @@ async function playCardFromHand(p, handIdx, opts={}){
           : await UI.pickOption(p, '대응할 주문 선택', targets.map(x=>({v:x, label:card(x.n).ko, n:x.n})));
         if(!item.target) item.target=targets[targets.length-1];
       }
+      // 대상 지정은 플레이 시점 (룰 352.8.a) — 해결 때 대상이 사라졌으면 그 지시만 불발 (356.3.e)
+      if(item.kind==='spell') item.pre = await preTargetSpell(p, c, fx, {legionOK, bfIdx:opts.bfIdx, hiddenBf:item.hiddenBf});
       sd.chain.push(item);
       if(sd.chain.length===1) sd.chainStarter=p;
       UI.fx.chainAdd(c, p, sd.chain.length);
@@ -1208,6 +1234,9 @@ async function playCardFromHand(p, handIdx, opts={}){
     }
     // ── 중립 상태: 기존 즉시 해결 + 대응 창 ──
     let execAs=p, countered=false;
+    // 대상 지정은 응수 창이 열리기 전(플레이 시점) — 응수로 대상이 사라지면 그 지시만 불발 (356.3.e)
+    const hiddenBf=(opts.fromHidden && !fx.hiddenFreeTarget) ? opts.bfIdx : null;
+    const pre=(fx.counter||fx.steal) ? null : await preTargetSpell(p, c, fx, {legionOK, bfIdx:opts.bfIdx, hiddenBf});
     // 숨김에서 플레이하는 것도 체인을 연다 (룰 737) — 예전에는 중립 상태에서 응수 창을 건너뛰어
     // 숨겨 둔 주문만 카운터가 통하지 않았다. 결전 중에는 원래대로 체인에 적재된다.
     if(!fx.counter && !fx.steal){
@@ -1216,8 +1245,7 @@ async function playCardFromHand(p, handIdx, opts={}){
       else if(cw && cw.steal!==undefined) execAs=cw.steal;
     }
     if(fx.counter||fx.steal){ UI.log(`「${c.ko}」 — 대응할 상대 주문이 없어 효과 없이 폐기됩니다`, 'sys'); }
-    if(!countered) await resolveSpellEffects(p, n, fx, {legionOK, addPaid, addCount, bfIdx:opts.bfIdx, execAs,
-      hiddenBf: (opts.fromHidden && !fx.hiddenFreeTarget) ? opts.bfIdx : null});
+    if(!countered) await resolveSpellEffects(p, n, fx, {legionOK, addPaid, addCount, bfIdx:opts.bfIdx, execAs, hiddenBf, pre});
     else trashCard(p, n);
   }
   else if(c.type==='Gear'){
@@ -1292,7 +1320,7 @@ async function resolveSpellEffects(p, n, fx, o){
     for(const po of fx.playOps){
       if(po.legion && !o.legionOK){ UI.log(`[군단] 조건 미충족 — 효과 생략`, 'sys'); continue; }
       await execOps(po.ops, {p:execAs, legionOK:o.legionOK, bfIdx:o.bfIdx, kind:'spell', paidAdd:o.addPaid, addCount:o.addCount,
-        hiddenBf:o.hiddenBf??null});
+        hiddenBf:o.hiddenBf??null, pre:o.pre||null});
     }
   }
   // 소모형 플래그 해제 (다음 주문 할인/보너스)
@@ -1692,7 +1720,7 @@ async function resolveChainItem(it){
   it.resolved=true;
   await resolveSpellEffects(it.p, it.n, it.fx,
     {legionOK:it.legionOK, addPaid:it.addPaid, addCount:it.addCount, bfIdx:it.bfIdx, execAs:it.execAs??it.p,
-     hiddenBf:it.hiddenBf??null});
+     hiddenBf:it.hiddenBf??null, pre:it.pre||null});
   await cleanup(it.p);
 }
 // 결전 중 행동(체인 적재) 처리 — 공식 규칙: 적재자가 '최신 항목의 컨트롤러'로서 우선권을 유지한다.
@@ -2186,7 +2214,49 @@ function unitsBySpec(spec, p){
   return cands;
 }
 
+// ---------- 플레이 시점 대상 지정 (룰 352.8.a · 356.3.e) ----------
+// 주문의 "유닛 하나를 고르는" 지시는 플레이할 때 대상을 정한다(352.8.a). 고른 대상(uid)은 체인 항목이
+// 들고 있다가 해결 때 pickBySpec이 꺼내 쓰는데, 그사이 보드를 떠났거나(존을 바꿔 돌아와도 다른 객체 =
+// 다른 uid) 조건을 더 이상 만족하지 않으면 그 지시만 생략되고 나머지는 정상 해결된다(356.3.e —
+// 보이드 시커 예시: 대상이 기지로 도망가면 피해는 없지만 드로우는 한다). 기지로 갔다가 돌아온 같은
+// 유닛은 다시 적법하다(356.3.e.5). 굴절 비용·「꿈꾸는 나무」 등 '대상으로 고를 때' 효과도 플레이 시점.
+const PRE_TARGET_OPS = new Set(['damage','kill','stun','might','recall','ready','chooseUnit','buff','dmgEqMyMight','mightDouble','itDealsTo']);
+function preTargetable(op){
+  if(!op || !PRE_TARGET_OPS.has(op.op) || !op.spec || typeof op.spec!=='object') return false;
+  if(op.spec.count==='all' || (typeof op.spec.count==='number' && op.spec.count>1)) return false;
+  if(op.all || op.self || op.it) return false;
+  if(op.op==='buff' && (op.count||1)!==1) return false;
+  return true;
+}
+let _preTarget;   // pickBySpec이 소비할 사전 지정 대상 uid(null=플레이 때 '선택 안 함') — undefined면 즉석 선택
+async function preTargetSpell(p, c, fx, o){
+  if(G.manual || !fx.playOps.length) return null;
+  const pre=new Map();
+  const saved=[_ctxBf,_hiddenBf,_ctxUnit,_curKind];
+  _ctxBf=o.bfIdx??null; _hiddenBf=o.hiddenBf??null; _ctxUnit=null; _curKind='spell';
+  try{
+    for(const po of fx.playOps){
+      if(po.legion && !o.legionOK) continue;
+      for(const op of po.ops){
+        if(!preTargetable(op) || !unitsBySpec(op.spec, p).length) continue;
+        let what=''; try{ what=describeOps([op]); }catch(e){}
+        const u=await pickBySpec(p, op.spec, `「${c.ko}」 대상 선택${what?' — '+what:''}`);
+        pre.set(op, u?u.uid:null);
+      }
+    }
+  } finally { [_ctxBf,_hiddenBf,_ctxUnit,_curKind]=saved; }
+  return pre.size?pre:null;
+}
+
 async function pickBySpec(p, spec, promptText){
+  if(_preTarget!==undefined){
+    const uid=_preTarget; _preTarget=undefined;
+    if(uid===null) return spec.count==='all'?[]:null;
+    const u=everyUnit().find(x=>x.uid===uid);
+    if(u && unitsBySpec(spec, p).includes(u)) return u;
+    UI.log(`대상${u?' 「'+unitName(u)+'」':''}이(가) 더 이상 유효하지 않아 이 지시는 생략됩니다 (룰 356.3.e)`, 'sys');
+    return null;
+  }
   const cands = unitsBySpec(spec, p);
   if(!cands.length) return spec.count==='all'?[]:null;
   if(spec.count==='all') return cands;
@@ -2232,8 +2302,10 @@ async function execOps(ops, ctx){
   _ctxUnit = ctx.unit??null;
   _curKind = ctx.kind||'effect';
   let it = ctx.it||null;
+  const pre = ctx.pre||null;   // 플레이 시점에 고른 대상 (Map op→uid) — preTargetSpell
   for(const op of ops){
     if(G.winner!==null) return;
+    _preTarget = (pre && pre.has(op)) ? pre.get(op) : undefined;
     switch(op.op){
       case 'draw': for(let i=0;i<op.n;i++) drawCard(p); break;
       case 'drawEach': for(let i=0;i<op.n;i++){ drawCard(0); drawCard(1); } break;
