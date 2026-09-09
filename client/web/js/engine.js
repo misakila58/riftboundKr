@@ -125,7 +125,7 @@ function freshTF(){ return {
   discarded:[false,false], nextSpellDisc:[0,0], nextSpellBonus:[0,0], nextUnitReady:[false,false],
   noPlay:[false,false], buffPlus:[0,0], preventSpellDmg:false, enterReady:[false,false],
   readyRunesAtEnd:[0,0],
-  enemyDied:[false,false], freeHide:[false,false], dmgKill:false, bf292:[false,false],
+  enemyDied:[false,false], freeHide:[false,false], dmgKill:false, bf292:[{},{}],   // bf292[p][bfIdx] — 전장별 '이번 턴 첫 선택'
   udyrUsed:{}, _once:{},
 }; }
 function TF(){ return (G && (G.tflags || (G.tflags=freshTF()))) || freshTF(); }
@@ -751,12 +751,13 @@ async function finishEndTurn(p){
 //  「불멸의 불사조」 처치 귀속에서 빠진다 (RiftJudge #8394 · #8166 · #8373). "Deal damage equal to my Might"처럼
 //  주어가 없는 능력 피해(야스오·폭풍을 부르는 자)는 그대로 능력/주문 피해다(#1999).
 function dealDamage(u, n, kind){
-  if(n<=0) return 0;
   kind=kind||'effect';
+  const casting = (G._casting!==undefined && G._casting!==null) ? G._casting : null;
+  // 「레이븐본 서적」의 +1은 피해 0인 인스턴스(힘 0을 낸 「쌍권총 난사」)에도 붙는다 (RiftJudge #5791) — 보너스를 더한 뒤 판정
+  if(kind==='spell' && casting!==null) n += TF().nextSpellBonus[casting]||0;
+  if(n<=0) return 0;
   if(unitFx(u).noDmgIfMoved2 && (u.turnMoves||0)>=2){ UI.log(`${unitName(u)} 피해 무시 (이번 턴 2회 이동)`, 'sys'); return 0; }
   if(TF().preventSpellDmg && kind!=='combat' && kind!=='unit'){ UI.log(`피해 방지됨 (효과)`, 'sys'); return 0; }
-  const casting = (G._casting!==undefined && G._casting!==null) ? G._casting : null;
-  if(kind==='spell' && casting!==null) n += TF().nextSpellBonus[casting]||0;
   u.dmg+=n;
   // 처치 귀속(룰 416): 클린업 사망은 "직전에 해결되어 피해를 준 주문"의 처치 — 마지막 피해의 출처(시전자)를 기억한다.
   // 전투·유닛 주체 피해가 마지막이면 어느 주문의 처치도 아니다.
@@ -835,19 +836,23 @@ async function chooseEffectMove(p, spec, to, extra={}, boardPick=false){
   if(preU) extra={...extra, alreadyPicked:true};
   const units = preU ? [preU] : unitsBySpec(spec, p), options=[];
   for(const u of units){
+    // 목적지가 정해진 주문(「점멸」 → 기지)은 이미 그곳에 있는 유닛도 대상으로 고를 수 있다 — 이동만 생략 (RiftJudge #10257)
+    if(extra.stayOK && to==='base' && u.loc==='base'){
+      options.push({ v:options.length, label:`${unitLabel(u)} — 이동 없음 (대상 지정만)`, card:unitCard(u), movement:{ uid:u.uid, dest:'base', stay:true } });
+      continue;
+    }
     const dests = to==='base' ? ['base']
       : to==='baseLink' ? (u.loc==='base' ? G.bfs.map((_,i)=>i) : ['base'])
       : to==='any' ? [...G.bfs.map((_,i)=>i), 'base']
       : to==='bf' ? G.bfs.map((_,i)=>i)
       : [to];
     for(const dest of dests){
-      if(!extra.swapUid && !canEffectMove(u, dest)) continue;
-      if(extra.swapUid){                       // 물결을 바꾸는 자: 교환은 두 개의 독립 이동 — 한쪽이 막혀도 가능한 쪽만 이동(부분 해결)
+      if(extra.swapUid){                       // 물결을 바꾸는 자: 교환은 두 이동의 묶음 — 한쪽만 가능해도 그쪽은 옮긴다
+        // ("가능한 만큼만 실행" 356.3.e · RiftJudge #7241: 둥지의 유닛은 기지로 못 가지만 물결을 바꾸는 자는 둥지로 간다)
         const me=everyUnit().find(x=>x.uid===extra.swapUid);
-        if(!me || dest!==me.loc) continue;
-        // 「후퇴 없는 전선」의 유닛은 기지로 못 나가지만 물결을 바꾸는 자는 그 전장으로 간다 (룰 100 · 356.3.e — RiftJudge #7241 · #8972)
-        if(!canEffectMove(me, u.loc) && !canEffectMove(u, dest)) continue;
+        if(!me || dest!==me.loc || !(canEffectMove(me, u.loc) || canEffectMove(u, dest))) continue;
       }
+      else if(!canEffectMove(u, dest)) continue;
       options.push({ v:options.length,
         label:`${unitLabel(u)} → ${dest==='base'?'기지':card(G.bfs[dest].n).ko}`,
         card:unitCard(u), movement:{ uid:u.uid, dest, ...extra } });
@@ -870,7 +875,16 @@ async function chooseEffectMove(p, spec, to, extra={}, boardPick=false){
 async function resolveEffectMove(p, choice){
   const u = everyUnit().find(x=>x.uid===choice.uid);
   if(!u || u._dead) return null;
-  if(!choice.swapUid && !canEffectMove(u, choice.dest)) return null;
+  if(choice.stay){                                   // 대상 지정만, 이동 없음 (점멸이 기지 유닛을 고른 경우 — #10257)
+    if(!u) return null;
+    if(!choice.alreadyPicked){ noteSpellPick(p, u); if(!(await payDeflect(p, u))) return null; }
+    UI.log(`${unitName(u)} — 이미 기지에 있어 이동 없음 (대상 지정만)`, 'sys');
+    return u;
+  }
+  const swapMe = choice.swapUid ? everyUnit().find(x=>x.uid===choice.swapUid) : null;
+  const uCan = canEffectMove(u, choice.dest);
+  // 교환은 두 이동 각각을 따로 판정 — 한쪽이 막혀도(바일마우의 둥지) 다른 쪽은 옮긴다(356.3.e · #7241)
+  if(!uCan && !(swapMe && canEffectMove(swapMe, u.loc))) return null;
   if(!choice.alreadyPicked){
     noteSpellPick(p, u);
     if(!(await payDeflect(p, u))) return null;
@@ -878,16 +892,10 @@ async function resolveEffectMove(p, choice){
   if(choice.buff) await buffUnit(u, p);
   // 「폭풍의 돌격」: 도착 전장의 적에게 이동 유닛의 위력만큼 피해
   if(choice.storm) for(const e of G.bfs[choice.dest].units.filter(x=>x.ctrl!==p)) dealDamage(e, might(u), 'spell');
-  if(choice.swapUid){
-    // 물결을 바꾸는 자: 두 이동은 각각 독립 — 막힌 쪽만 불발하고 나머지는 이동한다 (룰 100 · RiftJudge #7241 부분 해결)
-    const me=everyUnit().find(x=>x.uid===choice.swapUid);
-    const meDest=u.loc, uDest=choice.dest;
-    let moved=false;
-    if(me && canEffectMove(me, meDest)){ await effectMove(p, me, meDest); moved=true; }
-    else UI.log(`${me?unitName(me):'물결을 바꾸는 자'}: 그곳으로 이동할 수 없어 이동하지 않음`, 'sys');
-    if(canEffectMove(u, uDest)){ await effectMove(p, u, uDest); moved=true; }
-    else UI.log(`${unitName(u)}: 그곳으로 이동할 수 없어 이동하지 않음 (교환 부분 해결)`, 'sys');
-    return moved ? u : null;
+  if(swapMe){
+    if(canEffectMove(swapMe, u.loc)) await effectMove(p, swapMe, u.loc);
+    else UI.log(`${unitName(swapMe)}은(는) 그곳으로 이동할 수 없어 제자리 (교환 일부만 실행)`, 'sys');
+    if(!uCan){ UI.log(`${unitName(u)}은(는) 이동할 수 없어 제자리 (교환 일부만 실행)`, 'sys'); return u; }
   }
   await effectMove(p, u, choice.dest);
   if(choice.ready) await readyUnit(u, p);
@@ -992,7 +1000,9 @@ async function payDeflect(p, u, base){
   if(!canPayDeflect(p, u, base)){ UI.toast(`[굴절 ${defl}] 힘이 부족해 선택할 수 없습니다`,'warn'); return false; }
   const yes=await UI.confirmP(p,`[굴절 ${defl}] 힘 ${defl} 추가 지불이 필요합니다. 지불할까요?`, unitCard(u));
   if(!yes) return false;
-  payCost(p,0,pips);
+  // 플레이 시점(base 있음)의 굴절은 주문 자체의 추가 비용(353.2.b.1)이라 주문 전용 힘(카이사 전설 247)으로 낼 수 있다.
+  // 해결 시점 선택(반사 격발·능력)의 굴절은 주문 비용이 아니라 전용 힘을 못 쓴다 (RiftJudge #4616 · #7545).
+  payCost(p,0,pips,undefined, !!(base && base.spellOK));
   return true;
 }
 
@@ -1184,11 +1194,13 @@ async function playCardFromHand(p, handIdx, opts={}){
 
   // ── 비용 산정 ──
   let energy = c.e||0, pips = powerPips(c);
+  const killDiscPips=[];   // 처치 수만큼 깎은 힘 핍 — 실제로 죽지 않은 만큼 되갚는다 (레드로스 231)
   if(opts.fromHidden){ energy=0; pips=[]; }
   // 힘 할인(크라켄 사냥꾼 150 '버프당 힘 -1')은 [가속] 추가 비용까지 합한 '총비용'에서 뺀다 (룰 353 3단계
   // "additional costs ... then reductions" · RiftJudge #4836 · #7976 — 4E 3P가 되어 버프 3개면 힘 0) → 가속 결정 뒤에 적용
   const pipDisc = (AC && addPaid && AC.pipDiscountPer) ? addCount : 0;
-  const discPips = arr => { const a=[...arr]; for(let i=0;i<pipDisc && a.length;i++) a.pop(); return a; };
+  // record=true인 호출(실제 비용 확정)만 깎은 핍을 기록한다 — 가속 가능 여부 검사 호출은 기록하지 않는다
+  const discPips = (arr, record) => { const a=[...arr]; for(let i=0;i<pipDisc && a.length;i++){ const x=a.pop(); if(record) killDiscPips.push(x); } return a; };
   if(AC && addPaid){
     if(AC.discountE) energy=Math.max(0,energy-AC.discountE);
     if(AC.ignoreCost){ energy=0; pips=[]; }
@@ -1211,7 +1223,7 @@ async function playCardFromHand(p, handIdx, opts={}){
       if(accel){ energy+=1; pips=[...pips,...accPips]; }
     }
   }
-  pips = discPips(pips);
+  pips = discPips(pips, true);
   energy = Math.max(0, energy-discE);
   const spellOK = c.type==='Spell';   // 주문 전용 자원(럭스 314·카이사 전설 247)은 주문에만 쓸 수 있다
   // 룰 357.1.a: 비용 지불 단계에서 [반응] 태그의 자원 추가 능력을 발동해 비용을 충당할 수 있다
@@ -1284,7 +1296,19 @@ async function playCardFromHand(p, handIdx, opts={}){
     else if(AC.kind==='spendBuffs'){ let left=addCount;
       for(const u of everyUnit().filter(u=>u.ctrl===p&&u.buff>0)){ const t=Math.min(left,u.buff); u.buff-=t; left-=t; if(!left) break; } }
     else if(AC.kind==='killUnit' && addSel){ await killUnit(addSel); }
-    else if(AC.kind==='killUnits' && addSel){ for(const u of addSel) await killUnit(u); }
+    else if(AC.kind==='killUnits' && addSel){
+      // "이렇게 처치된 만큼" 할인 — 존야·무기고 등 대체 효과로 살아난 유닛은 처치가 아니다(415.5.c · RiftJudge #377).
+      // 비용은 이미 지불했으므로(355: 대체된 비용도 지불로 본다) 살아난 수만큼의 힘 핍을 추가로 낸다.
+      let died=0; for(const u of addSel){ if(await killUnit(u)) died++; }
+      const owe=killDiscPips.slice(0, Math.max(0, addCount-died));
+      if(owe.length){
+        if(canPay(p,0,owe)){ payCost(p,0,owe); UI.log(`${pname(p)} 처치되지 않은 유닛 ${owe.length}기만큼 힘 ${owe.length} 추가 지불 (할인 취소)`, 'p'+p); }
+        else UI.log(`⚠ 처치되지 않은 유닛 ${owe.length}기만큼의 힘을 낼 수 없어 할인이 유지됨`, 'sys');
+      }
+    }
+    // 추가 비용을 낸 직후의 클린업(319.6 — 대기 항목이 체인의 적법 항목이 될 때): 버프를 소모해 치명 피해가 된
+    // 유닛은 주문이 해결되기 전에 죽는다 (「영광의 부름」 207 — RiftJudge #10458 · #4473). 결전 중 적재 경로는 아래 cleanup(p)이 맡는다.
+    if(c.type==='Spell' && !(G.state==='showdown' && G.showdown)) await cleanupDeaths();
   }
 
   // 주문은 '해결'돼야 플레이한 것이다 (룰 351.3 "Played when it has finished this process in its entirety" ·
@@ -1474,16 +1498,21 @@ async function resolveSpellEffects(p, n, fx, o){
       cost:{energy:0,pips:[],spellOK:true,noDeflect:true}, byEffect:true});
     if(np!==PRE_CANCEL) pre=np;
   }
+  // 반사 격발 주문(떨어지는 별 29·이케시아 소나기 248): 'Deal 2' 하나하나가 별개의 체인 항목이라(383) 항목이 체인을
+  // 떠날 때마다 클린업이 돈다(319.7) — 4위력 유닛에 2개를 몰면 그 자리에서 죽고, 존야가 살려도 남은 격발로 다시
+  // 죽일 수 있다(RiftJudge #6282). 격발이 고르는 대상은 '주문이 고른' 것이 아니라 「꿈꾸는 나무」를 격발하지 않는다(#386).
+  G._reflexiveCast = !!fx.reflexive;
   if(fx.playOps.length){
     for(const po of fx.playOps){
       if(po.legion && !o.legionOK){ UI.log(`[군단] 조건 미충족 — 효과 생략`, 'sys'); continue; }
       await execOps(po.ops, {p:execAs, legionOK:o.legionOK, bfIdx:o.bfIdx, kind:'spell', paidAdd:o.addPaid, addCount:o.addCount,
         hiddenBf:o.hiddenBf??null, pre});
       // 반사 격발 주문("Do this N번" — 이케시아 소나기·떨어지는 별)은 격발 하나가 해결될 때마다 클린업이 끼어들어
-      // 그때 죽은 유닛의 [죽음의 종소리]가 남은 격발보다 먼저 해결된다 (룰 322 · RiftJudge #272)
-      if(fx.reflexive && fx.playOps.length>1) await cleanupDeaths();
+      // 그때 죽은 유닛의 [죽음의 종소리]가 남은 격발보다 먼저 해결된다 (룰 322·383 · RiftJudge #272 · #6282)
+      if(fx.reflexive) await cleanupDeaths();
     }
   }
+  G._reflexiveCast=false;
   // 소모형 플래그 해제 (다음 주문 할인/보너스) — 탈취됐으면 탈취자의 보너스가 쓰였다
   TF().nextSpellDisc[p]=0; TF().nextSpellBonus[p]=0; TF().nextSpellBonus[execAs]=0;
   G._casting=null;
@@ -1596,7 +1625,7 @@ async function reactionWindow(caster, c, context={}){
       // 재어 볼 때 쓴다. 이미 무효화된 뒤(result)라면 대기 중인 주문이 없다.
       opts.push({v:{hand:i}, label:`⚡ ${cc.ko} (비용 ${cost}${pips.length?' + 힘'+pips.length:''})`,
         isCounter:!!(fx.counter||fx.steal), card:cc,
-        pendingSpell: result ? null : {...context, p:caster, n:c.n}});
+        pendingSpell: (result || context.ability) ? null : {...context, p:caster, n:c.n}});   // 능력 응수 창엔 대기 주문이 없다
     });
     // [반응] 활성화 능력도 닫힌 상태 응수로 발동할 수 있다 (규칙 309.2)
     if(typeof polAbList==='function' && typeof polAbLegal==='function'){
@@ -1623,7 +1652,7 @@ async function reactionWindow(caster, c, context={}){
       });
     });
     if(!opts.length) return result;
-    const sel=await UI.pickReaction(o, `${pname(caster)}이(가) 「${c.ko}」 플레이 — [반응]으로 응수할까요?`, opts);
+    const sel=await UI.pickReaction(o, `${pname(caster)}이(가) 「${c.ko}」 ${context.ability?'발동':'플레이'} — [반응]으로 응수할까요?`, opts);
     if(sel===null||sel===undefined) return result;
     // [반응] 능력 발동 (즉시 해결)
     if(typeof sel==='object' && sel.ab){
@@ -1666,7 +1695,7 @@ async function reactionWindow(caster, c, context={}){
     // 일반 반응: 정식 플레이 경로로 — 먼저 해결되고(LIFO), 그 안에서 caster의 재응수 창이 열린다
     const prevRw=G._rwFor, prevPending=G._returnPending;
     G._rwFor=o;
-    G._returnPending = result ? null : {...context, p:caster, n:c.n};
+    G._returnPending = (result || context.ability) ? null : {...context, p:caster, n:c.n};
     try{ await playCardFromHand(o, idx, {}); }
     finally{ G._rwFor=prevRw; G._returnPending=prevPending; }
     if(G.winner!==null) return result;
@@ -1934,9 +1963,10 @@ async function startShowdown(bfIdx, attacker, hasCombat){
   // 지정(가면 스냅샷 포함) → 전장 [방어 시] → 방어측 유닛 격발 → 공격측 유닛 격발 순 (fireDesignationTriggers).
   if(hasCombat){
     const fresh = designateUnits(G.showdown, [...bf.units]);
-    // 전장 트리거: 방어 시 (방어자가 이 전장의 통제자일 때)
-    if(bf.controller===opp(attacker))
-      await fireBfTrigger(bfIdx,'onDefendHere',{p:opp(attacker), bfIdx});
+    // 전장 트리거: 방어 시 — 방어자는 '경합을 먼저 걸지 않은 쪽'이지 통제자가 아니다(전투 1단계 "The Defender is the player
+    // who did not apply the Contested status"). 무주공산 전장에 먼저 들어간 쪽이 공격자, 뒤에 합류한 쪽이 방어자로
+    // 「약탈자의 거리」를 쓴다 (RiftJudge #4985). 예전엔 통제자일 때만 격발했다.
+    await fireBfTrigger(bfIdx,'onDefendHere',{p:opp(attacker), bfIdx});
     await fireDesignationTriggers(G.showdown, fresh);
   }
   UI.render();
@@ -1975,7 +2005,7 @@ async function showdownPass(){
 async function resolveChainItem(it){
   if(it.kind==='ability'){
     UI.log(`🔗 해결: 능력 「${it.srcName}」`, 'p'+it.p);
-    await execOps(it.ab.ops, {p:it.p, unit:it.unit, gear:it.gear, kind:'ability',
+    await execOps(it.ab.ops, {p:it.p, unit:it.unit, gear:it.gear, kind:'ability', preAb:it.preAb,
       bfIdx:(it.unit&&it.unit.loc!=='base')?it.unit.loc:null, pre:it.pre||null});
     await cleanup(it.p);
     return;
@@ -2109,16 +2139,32 @@ async function resolveShowdown(){
     if(!bf.scored[remaining]){
       bf.scored[remaining]=true; P.scoredBf[G.bfs.indexOf(bf)]=true;
       addPoints(remaining,1,'conquer');
-      // 전장 정복 격발의 비용('버프를 소모해 드로우' — 히라나 수도원)은 체인 적재 시점에 내므로(룰 383.3.b · #8738)
-      // 유닛 정복 격발(세트 - 싸움꾼 buffSelf)이 준 버프로는 낼 수 없다 — 정복 순간의 버프 보유 유닛을 스냅샷해 넘긴다
-      const buffedAt=new Set(everyUnit().filter(u=>u.ctrl===remaining && u.buff>0).map(u=>u.uid));
-      // 정복 트리거
+      // 정복 트리거 — 여러 출처(정복한 유닛·전장·전설/도구/폐기장)가 동시에 격발하면 통제자가 해결 순서를 고른다
+      // (376.4.b.2.c · RiftJudge #8242 · #10196: 수도원의 버프 소모를 먼저 해결하고 세트/워모그로 새 버프). 비용이 있는
+      // 격발(수도원의 버프 소모)은 체인에 올릴 때 내는 것이라 정복 '시점'에 버프가 있어야 한다(#8738 · '4. Pay Costs') → buffAtTrigger.
+      const buffAtTrigger = allUnits(remaining).some(u=>u.buff>0);
+      const jobs=[];   // 기본 순서(선택이 없을 때)는 종전대로 유닛 → 전설/도구/폐기장 → 전장 → 전설 훅
       for(const u of bf.units.filter(u=>u.ctrl===remaining)){
-        await runTriggerList(unitFx(u).triggers?.onConquer, {p:remaining, unit:u, bfIdx:sd.bfIdx, excess:(remaining===sd.attacker?sd.excess:0)});
+        const tl=unitFx(u).triggers?.onConquer; if(!tl || !tl.length) continue;
+        jobs.push({label:`유닛 「${unitName(u)}」`, run:()=>runTriggerList(tl, {p:remaining, unit:u, bfIdx:sd.bfIdx, excess:(remaining===sd.attacker?sd.excess:0)})});
       }
-      await fireTriggers('onConquerYou', {p:remaining, bfIdx:sd.bfIdx});
-      await fireBfTrigger(sd.bfIdx,'onConquerHere',{p:remaining,bfIdx:sd.bfIdx,buffedAt});
-      await legendHook(remaining,'hookConquer',{p:remaining});
+      jobs.push({label:'전설·도구·폐기장의 [정복 시]', run:()=>fireTriggers('onConquerYou', {p:remaining, bfIdx:sd.bfIdx}), silent:!hasEventListeners('onConquerYou', remaining)});
+      const bfx=FX[bf.n], bfJob = (bfx && ((bfx.triggers && bfx.triggers.onConquerHere) || (bfx.manual && bfx.manual.length)))
+        ? {label:`전장 「${card(bf.n).ko}」`, run:()=>fireBfTrigger(sd.bfIdx,'onConquerHere',{p:remaining,bfIdx:sd.bfIdx,buffAtTrigger})} : null;
+      if(bfJob) jobs.push(bfJob);
+      { const lfx=FX[G.players[remaining].legendN]; if(lfx && lfx.hookConquer) jobs.push({label:`전설 「${card(G.players[remaining].legendN).ko}」`, run:()=>legendHook(remaining,'hookConquer',{p:remaining})}); }
+      // 선택지는 전장 격발을 맨 앞에 — 기본 선택(봇)이 수도원의 버프 소모를 먼저 해결하는 유리한 순서가 된다
+      let visible=jobs.filter(j=>!j.silent).sort((a,b)=>(a===bfJob?0:1)-(b===bfJob?0:1));
+      while(jobs.length){
+        let j=jobs[0];
+        if(visible.length>1){
+          const sel=await UI.pickOption(remaining,'정복 격발 해결 순서 — 먼저 해결할 것 (룰 376.4.b.2.c)', visible.map((x,i)=>({v:i,label:x.label})));
+          j=visible[(typeof sel==='number' && visible[sel]) ? sel : 0];
+        }
+        jobs.splice(jobs.indexOf(j),1); visible=visible.filter(x=>x!==j);
+        await j.run();
+        if(G.winner!==null) break;
+      }
     } else {
       UI.log(`이번 턴에 이미 득점한 전장 — 추가 득점 없음`, 'sys');
     }
@@ -2204,8 +2250,10 @@ async function killUnitsTogether(list, opts){
 // ---------- 사망 ----------
 // 사망 뒤 격발(종소리·사망 이벤트)을 미루는 큐 — 전투 사망은 전투 정리(치유·귀환) 뒤에 해결한다 (resolveShowdown)
 let _deferDeathFx = null;
+// 반환: 실제로 죽었으면 true, 대체 효과로 살아났거나 이미 죽어 있으면 false — "처치된 유닛"을 참조하는 효과
+// (미끼 바늘 242 '처치된 유닛의 위력'·레드로스 231 '이렇게 처치된 만큼')는 실제 사망만 센다 (415.5.c · RiftJudge #8203 · #377).
 async function killUnit(u, opts){
-  if(u._dead) return; u._dead=true;
+  if(u._dead) return false; u._dead=true;
   UI.fx.unit(u, 'die');          // 보드에서 사라지기 전에 위치를 잡아 연출
   const fx=unitFx(u);
   const P=G.players[u.ctrl];
@@ -2267,9 +2315,9 @@ async function killUnit(u, opts){
         // 막아도 칙령이 한 번 더 처치한다(#7440). 피해가 치명이 아니면 칙령 처치 하나뿐이라 대체로 살아남는다(#8420).
         if(wasLethal && hadDecree){
           UI.log(`「황제의 칙령」: ${unitName(u)} — 피해를 받았으므로 다시 처치`, 'combat');
-          u._decree=true; await killUnit(u);
+          u._decree=true; return await killUnit(u);
         }
-        return;
+        return false;
       }
     }
   }
@@ -2316,6 +2364,7 @@ async function killUnit(u, opts){
   };
   // 전투 사망의 격발은 보류 항목이라 전투 정리가 끝난 뒤에 해결된다 (룰 322 "Legal Items cannot be executed" · #7226)
   if(_deferDeathFx) _deferDeathFx.push(afterDeath); else await afterDeath();
+  return true;
 }
 
 // ---------- 트리거 실행 ----------
@@ -2352,8 +2401,9 @@ async function fireEvent(ev, ctx){
       if(gf && gf.triggers && gf.triggers[ev]) srcs.push({list:gf.triggers[ev], gear:g});
     }
     // 폐기장에서 스스로를 회수하는 카드(초강력 초토화 로켓 252 등)는 폐기장에 있을 때도 격발한다.
-    // 같은 카드가 여러 장이어도 한 번만 (회수 대상은 한 장이므로).
-    for(const tn of new Set(G.players[pi].trash)){
+    // 같은 카드가 여러 장이면 장마다 따로 격발한다(376.3 — 각 카드가 자기 능력을 가진다 · RiftJudge #6974: 로켓 3장이면
+    // 3회, 회수한 로켓을 다음 격발의 버림 비용으로 쓸 수 있다). 격발 목록은 실행 전 스냅샷(폐기장은 실행 중 바뀐다).
+    for(const tn of [...G.players[pi].trash]){
       const tf=FX[tn];
       if(tf && tf.trashTrigger && tf.triggers && tf.triggers[ev]) srcs.push({list:tf.triggers[ev]});
     }
@@ -2371,6 +2421,18 @@ async function fireEvent(ev, ctx){
       }
     }
   }
+}
+// 이 이벤트에 반응할 리스너(전설·유닛·도구·폐기장 격발)가 보드에 있는가 — 정복 격발 순서 선택지에서 빈 항목을 숨기는 용도
+function hasEventListeners(ev, p){
+  for(const pi of [0,1]){
+    const rel = pi===p ? 'self' : 'opp', P=G.players[pi], lists=[];
+    const lfx=FX[P.legendN]; if(lfx && lfx.triggers && lfx.triggers[ev]) lists.push(lfx.triggers[ev]);
+    for(const u of everyUnit().filter(u=>u.ctrl===pi)){ const f=unitFx(u); if(f.triggers && f.triggers[ev]) lists.push(f.triggers[ev]); }
+    for(const g of P.gear){ const gf=FX[g.n]; if(gf && gf.triggers && gf.triggers[ev]) lists.push(gf.triggers[ev]); }
+    for(const tn of new Set(P.trash)){ const tf=FX[tn]; if(tf && tf.trashTrigger && tf.triggers && tf.triggers[ev]) lists.push(tf.triggers[ev]); }
+    if(lists.some(l=>l.some(t=>(t.who||'self')===rel))) return true;
+  }
+  return false;
 }
 // (구 API 호환) ctx.p 본인 소스만 발화
 async function fireTriggers(ev, ctx){ await fireEvent(ev, ctx); }
@@ -2437,6 +2499,14 @@ async function activateAbility(p, source, ab){
   if(cost.killFriendlyOrGear && !everyUnit().some(u=>u.ctrl===p) && !P.gear.length){ UI.toast('처치할 아군 유닛/도구가 없습니다','warn'); return; }
   if(cost.recycleTrash && P.trash.length<cost.recycleTrash){ UI.toast('폐기장가 부족합니다','warn'); return; }
   if(cost.discard && P.hand.length<cost.discard){ UI.toast('손패가 부족합니다','warn'); return; }
+  // 대상 지정은 비용 지불 전(352.8.a → 353) — 「미래의 용광로」는 아직 보드에 있어 자기 자신을 재활용 대상으로 고를 수
+  // 없고(RiftJudge #11013), 「미끼 바늘」은 처치할 유닛을 발동 시점에 고정한다(#11249). ab.preTarget(p, source)는 cardscripts가
+  // 정의하며 null을 돌려주면 발동 취소(아직 낸 비용 없음). 결과는 ctx.preAb로 해결 시점에 전달된다.
+  let preAb;
+  if(typeof ab.preTarget==='function'){
+    preAb=await ab.preTarget(p, source);
+    if(preAb===null){ UI.toast('대상이 없어 발동할 수 없습니다 (룰 352.8)','warn'); return; }
+  }
 
   // 지불
   if(cost.exhaustSelf){
@@ -2499,7 +2569,7 @@ async function activateAbility(p, source, ab){
       UI.render(); UI.promptShowdown();
       return;
     }
-    sd.chain.push({kind:'ability', p, ab, unit:source.u, gear:source.g, srcName, pre});
+    sd.chain.push({kind:'ability', p, ab, unit:source.u, gear:source.g, srcName, pre, preAb});
     if(sd.chain.length===1) sd.chainStarter=p;
     UI.fx.chainAdd(source.kind==='legend'?card(P.legendN):source.u?unitCard(source.u):card(source.g.n), p, sd.chain.length);
     UI.log(`🔗 ${pname(p)} 능력 「${srcName}」 체인에 적재 (#${sd.chain.length})`, 'p'+p);
@@ -2509,7 +2579,14 @@ async function activateAbility(p, source, ab){
   }
   UI.fx.cast(source.kind==='legend'?card(P.legendN):source.u?unitCard(source.u):card(source.g.n), p, '능력');
   UI.log(`${pname(p)} 「${srcName}」 능력 발동`, 'p'+p);
-  await execOps(ab.ops, {p, unit:source.u, gear:source.g, kind:'ability', bfIdx:(source.u&&source.u.loc!=='base')?source.u.loc:null, pre});
+  // 발동 시점에 대상을 고정한 능력은 주문처럼 체인에 오르므로 상대가 [반응]으로 응수할 수 있다(369 "Opponents have an
+  // opportunity to respond... as if a card was played" · RiftJudge #5445 · #11232). 응수로 대상이 사라지면 그 지시만 불발.
+  if(preAb!==undefined && !G.manual && source.kind!=='legend'){
+    const srcC = source.kind==='unit' ? unitCard(source.u) : card(source.g.n);
+    await reactionWindow(p, {...srcC, ko:`${srcC.ko} 능력`}, {ability:true});
+    if(G.winner!==null) return;
+  }
+  await execOps(ab.ops, {p, unit:source.u, gear:source.g, kind:'ability', preAb, pre, bfIdx:(source.u&&source.u.loc!=='base')?source.u.loc:null});
   await cleanup(p);
   UI.render();
 }
@@ -2517,9 +2594,13 @@ async function activateAbility(p, source, ab){
 // ---------- 효과 op 실행기 ----------
 // 꿈꾸는 나무(292): 주문으로 이곳의 아군 유닛을 턴 첫 선택 시 드로우.
 // pickBySpec뿐 아니라 UI.pickUnitFrom을 직접 쓰는 커스텀 주문 op에서도 호출한다
+// '턴마다 처음'은 플레이어별·전장별 — 두 전장이 모두 꿈꾸는 나무면 각 전장에서 1장씩(RiftJudge #9241 "Per Location").
+// 반사 격발(떨어지는 별·이케시아 소나기)이 고르는 대상은 주문이 고른 것이 아니라 격발하지 않는다(#386 · #7545).
 function noteSpellPick(p, u){
-  if(_curKind==='spell' && u && u.ctrl===p && u.loc!=='base' && FX[G.bfs[u.loc].n] && FX[G.bfs[u.loc].n].dreamingTree && !TF().bf292[p]){
-    TF().bf292[p]=true; drawCard(p);
+  if(_curKind==='spell' && !G._reflexiveCast && u && u.ctrl===p && u.loc!=='base' && FX[G.bfs[u.loc].n] && FX[G.bfs[u.loc].n].dreamingTree){
+    const seen = TF().bf292[p] = (TF().bf292[p] && typeof TF().bf292[p]==='object') ? TF().bf292[p] : {};
+    if(seen[u.loc]) return;
+    seen[u.loc]=true; drawCard(p);
     UI.log(`「꿈꾸는 나무」: 카드 1장 드로우`, 'p'+p);
   }
 }
@@ -3005,8 +3086,10 @@ async function execOps(ops, ctx){
         if(yes){ payCost(p,op.energy,[]); await execOps([op.inner], {...ctx, it}); }
         break; }
       case 'spendBuffThen': {
-        // 격발 비용은 적재 시점 지불(383.3.b) — 정복 스냅샷(ctx.buffedAt)이 있으면 그때 버프가 있던 유닛만 (#8738)
-        const cands=everyUnit().filter(u=>u.ctrl===p&&u.buff>0&&(!ctx.buffedAt||ctx.buffedAt.has(u.uid)));
+        // 격발 능력의 비용은 체인에 올릴 때 낸다('4. Pay Costs') — 정복 시점에 버프가 없었으면 같은 정복으로 얻은 버프
+        // (세트 - 격투가 164)로는 낼 수 없다 (히라나 수도원 282 · RiftJudge #8738)
+        if(ctx.buffAtTrigger===false){ UI.log(`격발 시점에 버프가 없어 비용을 낼 수 없음 — 효과 없음`, 'sys'); break; }
+        const cands=everyUnit().filter(u=>u.ctrl===p&&u.buff>0);
         if(!cands.length) break;
         const yes=await UI.confirmP(p,'버프를 소모하고 효과를 실행할까요?');
         if(!yes) break;
@@ -3019,7 +3102,7 @@ async function execOps(ops, ctx){
         if(sel!==null) await execOps(op.branches[sel], {...ctx, it});
         break; }
       case 'chooseUnit': {
-        const u=await pickBySpec(p, op.spec, '유닛 선택');
+        const u=await pickBySpec(p, op.spec, op.spec._prompt||'유닛 선택');   // 문구는 봇 판단 근거(이로운 효과면 아군)
         if(u) it=u;
         break; }
       // ── 룬/득점 유틸 ──
@@ -3030,13 +3113,19 @@ async function execOps(ops, ctx){
       case 'recycleRune': {
         const P=G.players[p];
         if(P.runes.length){
-          // 어느 룬을 돌릴지는 플레이어 선택 (색이 섞여 있을 때만 물어본다)
-          let ri=P.runes.length-1;
-          if(new Set(P.runes.map(r=>runeDomain(r.n))).size>1){
+          // 어느 룬을 돌릴지는 항상 플레이어 선택(준비/탈진 표시) — 예전엔 색이 같으면 마지막 룬을 자동으로 돌려
+          // 탈진 룬을 두고 준비 룬이 사라졌다. 탈진 룬을 앞에 두어 기본 선택(봇)은 탈진 룬부터.
+          const ordered=P.runes.map((r,i)=>({r,i})).sort((a,b)=>(a.r.ex?0:1)-(b.r.ex?0:1) || a.i-b.i);
+          let ri=ordered[0].i;
+          if(P.runes.length>1){
             const sel=await UI.pickOption(p,'재활용할 룬 선택 (강제)',
-              P.runes.map((r,i)=>({v:i, label:(DOMAIN_KO[runeDomain(r.n)]||runeDomain(r.n)||'룬')+(r.ex?' (탈진)':'')})));
+              ordered.map(x=>({v:x.i, label:(DOMAIN_KO[runeDomain(x.r.n)]||runeDomain(x.r.n)||'룬')+(x.r.ex?' (탈진)':' (준비)')})));
             if(sel!=null) ri=sel;
           }
+          // 준비 룬을 돌리기 전에 룬을 탈진해(응수 불가 [추가] 능력) 에너지를 풀에 띄워 둘 수 있다 — 손해가 없는
+          // 선택이라 자동으로 띄운다. 풀의 에너지는 턴 종료까지 남는다 (RiftJudge #2810 · #5048).
+          const r0=P.runes[ri];
+          if(!r0.ex){ r0.ex=true; P.energy++; UI.log(`${pname(p)} 준비 룬을 먼저 탈진 → 에너지 1 풀에 유지 (재활용 전)`, 'p'+p); }
           const r=P.runes.splice(ri,1)[0]; P.runeDeck.push(r.n);
           UI.log(`${pname(p)} 룬 1개 재활용 (강제)`, 'p'+p);
         }
