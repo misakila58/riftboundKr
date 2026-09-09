@@ -126,6 +126,14 @@ const WEB_ROOT = fs.existsSync(path.join(BASE, 'web', 'index.html'))
   ? path.join(BASE, 'web')
   : path.join(__dirname, '..', 'client', 'web');
 const SERVE_WEB = fs.existsSync(path.join(WEB_ROOT, 'index.html'));
+// 지금 서비스 중인 웹 클라이언트의 버전. 데스크톱 exe와 이 값이 다르면 서로 방에 못 들어가므로
+// (입장 시 버전 검사) 배포가 밀렸는지 한눈에 보이도록 상태에 함께 싣는다.
+const WEB_VERSION = (() => {
+  try {
+    const m = fs.readFileSync(path.join(WEB_ROOT, 'js', 'buildinfo.js'), 'utf8').match(/version:"([^"]+)"/);
+    return m ? m[1] : null;
+  } catch (e) { return null; }
+})();
 
 // ---------- 접근 암호(입장 통제) ----------
 // 우선순위: 환경변수 ACCESS_CODE > access-code.txt 파일. 값이 있으면 '아는 사람만' 입장.
@@ -457,6 +465,7 @@ const server = http.createServer(async (req, res) => {
       `GAMES|${s.total}판${parts.length ? ' (' + parts.join(' · ') + ')' : ''}`,
       `BUILD|${BUILD.commit}${BUILD.date ? ' (' + BUILD.date + ')' : ''}${BUILD.subject ? ' ' + BUILD.subject : ''}`,
       `COMMIT|${BUILD.commit}`,
+      ...(WEB_VERSION ? [`WEBVER|${WEB_VERSION}`] : []),
     ];
     res.writeHead(200, { 'Content-Type':'text/plain; charset=utf-8', 'Cache-Control':'no-store' });
     return res.end(lines.join('\n') + '\n');

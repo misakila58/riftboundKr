@@ -58,6 +58,7 @@ function Get-ServerStatus {
     Playing = $null      # 지금 진행 중인 대전 수 (배포하면 끊긴다)
     Waiting = $null      # 대기 중인 방 수
     Live    = @()        # 진행 중인 대전 한 줄씩 - '3분째 · 아●● vs 뿌●● · v1.0.54'
+    WebVer  = $null      # 지금 서비스 중인 웹 클라이언트 버전 (exe와 달라지면 서로 입장 불가)
   }
   try {
     $raw = Invoke-RestMethod -Uri "https://$HostName/api/status" -TimeoutSec 6 -ErrorAction Stop
@@ -73,10 +74,29 @@ function Get-ServerStatus {
         'WAITING' { $s.Waiting = [int]$val }
         # GAME|3분째|아●● vs 뿌●●|v1.0.54  - 아이디는 서버가 가려서 준다
         'GAME'    { $s.Live += ,(($val -split '\|') -join ' · ') }
+        'WEBVER'  { $s.WebVer = $val }
       }
     }
   } catch { }
   return $s
+}
+
+# 내가 마지막으로 빌드한 클라이언트 버전 (배포된 웹과 이 값이 같아야 서로 입장할 수 있다)
+function Get-LocalBuildVersion {
+  $pkg = Join-Path $RepoRoot 'client\package.json'
+  if (-not (Test-Path $pkg)) { return $null }
+  # PowerShell 5.1은 BOM 없는 UTF-8을 ANSI로 읽어 한글이 깨지고 ConvertFrom-Json이 실패한다
+  try { return (Get-Content $pkg -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch { return $null }
+}
+
+# 웹과 exe 버전이 맞는지 한 줄로
+function Get-VersionLine($st) {
+  $mine = Get-LocalBuildVersion
+  if (-not $st.WebVer -and -not $mine) { return '알 수 없음' }
+  if (-not $st.WebVer) { return "내 빌드 v$mine / 웹 버전은 배포 후에 보입니다" }
+  if (-not $mine)      { return "웹 v$($st.WebVer)" }
+  if ($st.WebVer -eq $mine) { return "웹 v$($st.WebVer) = 내 빌드 v$mine  (서로 입장 가능)" }
+  return "웹 v$($st.WebVer) != 내 빌드 v$mine  <- 배포해야 서로 입장할 수 있습니다"
 }
 
 # 내 저장소가 서버보다 몇 커밋 앞서 있나
@@ -112,6 +132,10 @@ function Need-Node {
 function Confirm-Interrupt([string]$what) {
   Write-Host '  진행 중인 대전을 확인하는 중...' -ForegroundColor DarkGray
   $now = Get-ServerStatus
+  $mine = Get-LocalBuildVersion
+  if ($mine -and $now.WebVer -and $now.WebVer -ne $mine) {
+    Write-Host "  웹 v$($now.WebVer) / 내 빌드 v$mine — 배포하면 맞춰집니다." -ForegroundColor Cyan
+  }
   if ($null -eq $now.Playing) {
     Write-Host '  [!] 서버 상태를 읽지 못했습니다 - 진행 중인 대전이 있는지 알 수 없습니다.' -ForegroundColor Yellow
     $go = Read-Host "      그래도 $what 할까요? (y/N)"
@@ -285,6 +309,7 @@ while ($true) {
   foreach ($g in $st.Live) { Write-Host "                  - $g" }
   Write-Host "    최근 24시간: $($st.Games)"
   Write-Host "    서버 빌드  : $($st.Build)"
+  Write-Host "    클라 버전  : $(Get-VersionLine $st)"
   Write-Host "    내 로컬    : $local"
   Write-Host '  ================================================'
   Write-Host ''
