@@ -2289,14 +2289,29 @@ async function killUnit(u, opts){
     // 세트 - 대장 전설(269): "you may pay ✳ and exhaust me" — 선택 (예전엔 라벨이 '미스 포츈'으로 잘못 적혀 있었다)
     {
       const lfx=FX[P.legendN];
-      if(u.buff>0 && lfx && lfx.hookBuffedDeathSave && !P.legendEx && canPay(u.ctrl,0,['Any']))
-        cands.push({ label:'세트 - 대장 — ✳1 지불 + 전설 탈진 + 버프 소모', forced:false,
-          run: async () => {
-            const yes = await UI.confirmP(u.ctrl, `[세트 - 대장] ✳1 지불+전설 탈진+버프 소모로 「${unitName(u)}」을(를) 회수할까요?`, unitCard(u));
-            if(!yes) return false;
-            payCost(u.ctrl,0,['Any']); P.legendEx=true; u.buff=Math.max(0,u.buff-1);
-            recall('세트 - 대장'); return true;
-          } });
+      if(u.buff>0 && lfx && lfx.hookBuffedDeathSave){
+        if(P.legendEx)
+          // 전설 탈진이 비용이라 한 턴에 한 번뿐이다. 아무 말 없이 그냥 죽으면 버그로 보인다.
+          UI.log(`「세트 - 대장」: 전설이 이미 탈진되어 「${unitName(u)}」에는 쓸 수 없습니다`, 'sys');
+        else if(!canPay(u.ctrl,0,['Any']))
+          UI.log(`「세트 - 대장」: 힘(✳)이 부족해 「${unitName(u)}」에는 쓸 수 없습니다`, 'sys');
+        else
+          cands.push({ label:'세트 - 대장 — ✳1 지불 + 전설 탈진 + 버프 소모', forced:false,
+            run: async () => {
+              // 한 번뿐인 비용이므로, 지금 함께 죽는 다른 후보를 알려 주고 고르게 한다.
+              // (여기서 거절하면 다음 유닛에게 물어본다)
+              const others = _dyingBatch
+                ? [..._dyingBatch].filter(x => x!==u && !x._dead && x.ctrl===u.ctrl && x.buff>0)   // 아직 처리 안 된 것들
+                : [];
+              const alsoDying = others.length
+                ? `\n(지금 함께 죽는 버프 유닛: ${others.map(x=>unitName(x)).join(', ')} — 전설 탈진은 한 번뿐입니다)`
+                : '';
+              const yes = await UI.confirmP(u.ctrl, `[세트 - 대장] ✳1 지불+전설 탈진+버프 소모로 「${unitName(u)}」을(를) 회수할까요?${alsoDying}`, unitCard(u));
+              if(!yes) return false;
+              payCost(u.ctrl,0,['Any']); P.legendEx=true; u.buff=Math.max(0,u.buff-1);
+              recall('세트 - 대장'); return true;
+            } });
+      }
     }
 
     if(cands.length){
