@@ -60,7 +60,7 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await play(129,0);
   ok('과거에게 묻다: 상대 주문에 숨김 공개 → 2장 드로우, 숨김 슬롯 비움', G.players[1].hand.length===2 && G.bfs[0].hiddenCards.length===0 && G.players[1].trash.includes(83),
     'hand='+G.players[1].hand.length+' hidden='+G.bfs[0].hiddenCards.length);
-  ok('과거에게 묻다: 응수 선택지에 [숨김 공개] 항목', REACTS.length>=1 && REACTS[0].o.some(x=>/숨김 공개/.test(x.label)), JSON.stringify(REACTS.map(x=>x.o.map(y=>y.label))));
+  ok('과거에게 묻다: 응수 선택지에 숨김 카드 공개 항목', REACTS.length>=1 && REACTS[0].o.some(x=>/숨김 카드 공개/.test(x.label)), JSON.stringify(REACTS.map(x=>x.o.map(y=>y.label))));
   // 공개가 봉쇄된 전장(blockReveal 유닛)의 숨김 카드는 후보에 나오지 않는다
   fresh(); G.bfs[0].controller=1; G.bfs[0].hiddenCards.push({n:83,by:1,turn:1}); const blocker=unit(210,0,0); FX[210].blockReveal=true;
   REACT=(t,o)=>{ const h=o.find(x=>x.v&&x.v.hidden); return h?h.v:null; };
