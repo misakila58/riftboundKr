@@ -205,15 +205,21 @@ const EXTRA_OPS = {
   async ifPaid(op, ctx, h){ await execOps(ctx.paidAdd ? op.ops : (op.elseOps||[]), ctx); },
 
   // ── 피해/전투 ──
-  async dmgEqMyMight(op, ctx, h){ const u=await pickBySpec(ctx.p, op.spec, '피해를 줄 대상 선택'); if(u&&ctx.unit){ dealDamage(u, might(ctx.unit), ctx.kind||'ability'); h.setIt(u); UI.log(`${unitName(u)}에게 피해 ${might(ctx.unit)}`,'combat'); } },
-  async itDealsTo(op, ctx, h){ const it=h.it(); if(!it) return; const u=await pickBySpec(ctx.p, op.spec, '피해를 줄 적 유닛 선택'); if(u){ dealDamage(u, might(it), ctx.kind||'spell'); UI.log(`${unitName(it)} → ${unitName(u)}에게 위력만큼 피해`,'combat'); } },
+  // "위력만큼" 피해는 전투 중이면 공/방 지정 보정([맹공]·[보호막]·마스터 이)을 포함한 현재 위력(targetMight, #5261)
+  async dmgEqMyMight(op, ctx, h){ const u=await pickBySpec(ctx.p, op.spec, '피해를 줄 대상 선택'); if(u&&ctx.unit){ const m=targetMight(ctx.unit); dealDamage(u, m, ctx.kind||'ability'); h.setIt(u); UI.log(`${unitName(u)}에게 피해 ${m}`,'combat'); } },
+  // "It deals damage equal to its Might" — 유닛이 피해 주체(kind 'unit', 룰 405~406 · #8166): 주문/능력 피해 방지에 안 걸린다
+  async itDealsTo(op, ctx, h){ const it=h.it(); if(!it) return; const u=await pickBySpec(ctx.p, op.spec, '피해를 줄 적 유닛 선택'); if(u){ dealDamage(u, targetMight(it), 'unit'); UI.log(`${unitName(it)} → ${unitName(u)}에게 위력만큼 피해`,'combat'); } },
+  // "We deal damage ... to each other" — 유닛 주체 피해(#7331)
   async fightMutual(op, ctx, h){ const it=h.it(), me=ctx.unit; if(!it||!me) return;
-    dealDamage(it, might(me), 'effect'); dealDamage(me, might(it), 'effect');
+    const mm=targetMight(me), mi=targetMight(it);
+    dealDamage(it, mm, 'unit'); dealDamage(me, mi, 'unit');
     UI.log(`${unitName(me)} ⚔ ${unitName(it)} 상호 피해!`,'combat'); },
   // 두 대상 모두 플레이 시점 지정(PRE_TARGET_EXTRA) — 한쪽이 사라지면 양쪽 다 피해 없음(356.3.e, RiftJudge #7367)
+  // "They deal damage ... to each other" — 유닛 주체 피해(룰 406 Challenge 예시): 「불굴의 정신」이 못 막고 서적 보너스 없음(#8394)
   async challenge(op, ctx, h){ const a=await pickBySpec(ctx.p,{side:'friendly',count:1},'아군 유닛 선택'); if(!a) return;
     const b=await pickBySpec(ctx.p,{side:'enemy',count:1},'적 유닛 선택'); if(!b) return;
-    dealDamage(b, might(a), 'spell'); dealDamage(a, might(b), 'spell');
+    const ma=targetMight(a), mb=targetMight(b);
+    dealDamage(b, ma, 'unit'); dealDamage(a, mb, 'unit');
     UI.log(`${unitName(a)} ⚔ ${unitName(b)} 상호 피해!`,'combat'); },
   // 대상은 플레이 시점, 버릴 카드는 해결 시점(#9587) — 대상이 사라져도 버림은 한다(앞 discard op)
   async dmgLastDiscardCost(op, ctx, h){ const d=G._lastDiscard; if(!d||d.p!==ctx.p) return;
@@ -714,8 +720,9 @@ Object.assign(EXTRA_OPS, {
     UI.log(`${unitName(a)} 위력 +3 (이번 턴)`, 'p'+ctx.p);
     const b=await pickBySpec(ctx.p, {side:'enemy',count:1}, '결투할 적 유닛 선택');
     if(!b) return;
-    const ma=might(a), mb=might(b);
-    dealDamage(b, ma, 'effect'); dealDamage(a, mb, 'effect');
+    // "They deal damage ... to each other" — 유닛 주체 피해(kind 'unit', 룰 405~406 · #7331), 전투 중 지정 보정 포함
+    const ma=targetMight(a), mb=targetMight(b);
+    dealDamage(b, ma, 'unit'); dealDamage(a, mb, 'unit');
     UI.log(`⚔ 결투: ${unitName(a)}(${ma}) ↔ ${unitName(b)}(${mb})`, 'combat');
     await cleanup(ctx.p); },
   // 신병 토큰 N개 — 하나씩 기지/통제 전장 선택 (선봉대 소집)
@@ -876,7 +883,7 @@ Object.assign(EXTRA_OPS, {
   async guillotine(op, ctx, h){
     const u=await pickBySpec(ctx.p,{type:'unit',side:'any',where:'any',count:1},'단두대 대상 선택'); if(!u) return;
     if(ctx.legionOK){ UI.log(`[군단] 「녹서스의 단두대」: ${unitName(u)} 즉시 처치`,'p'+ctx.p); await killUnit(u); }
-    else { u._guillotine=true; UI.log(`「녹서스의 단두대」: ${unitName(u)} — 이번 턴 다음 피해를 받으면 처치`,'p'+ctx.p); } },
+    else { u._guillotine=true; u._guillotineBy=ctx.p; UI.log(`「녹서스의 단두대」: ${unitName(u)} — 이번 턴 다음 피해를 받으면 처치`,'p'+ctx.p); } },   // 지연 처치도 단두대 시전자의 '주문 처치'(#7364)
   // 여우불(256): 한 전장에서 총 위력 4 이하가 되도록 원하는 수만큼 처치
   async foxfire(op, ctx, h){
     let bf=null, total=0; const picked=[];

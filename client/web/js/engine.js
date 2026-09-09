@@ -251,19 +251,49 @@ function removeUnit(u){
 // 경합(Contested) 적용자 추적 — 공식 규칙: "그 전장을 통제하지 않는 플레이어의 유닛이
 // 이동/존재하게 될 때" 경합이 적용되며, 그 적용자가 결전의 공격자(Focus)가 된다.
 // (강제 이동 효과로 '상대 유닛'이 끌려온 경우, 공격자는 시전자가 아니라 그 유닛의 통제자)
-// 유닛이 전장에 '들어가는' 모든 경로가 공유하는 공격 판정 (룰 184.3.b · 351.1).
-// 이동이든 플레이든, 그 전장을 통제하지 않는 쪽의 유닛이 들어가면 경합이 걸리고 그쪽이 공격자다.
-// 공격자 지정을 받는 것은 이동을 일으킨 사람이 아니라 '그 유닛의 통제자'다 (룰 428).
+// 유닛이 전장에 '들어가는' 모든 경로가 공유하는 공격/방어 판정.
+// 공격·방어 지정은 '전투'가 있어야 생긴다 — 공격자는 경합을 먼저 건 쪽(351.1 · 전투 1단계), [공격 시]/[방어 시]는
+// 그 전투에서 지정을 '처음' 받을 때 한 번만 격발한다(378). 빈 전장의 무혈 결전에는 지정이 없고(#4707 · #278),
+// 진행 중인 전투에 나중에 들어온 유닛은 자기 통제자 쪽 지정을 받는다(전투 1단계 · 322 3 · #9303 · #9174).
+// 예전엔 '적이 있으면 공격'으로 판정해 무혈 결전에 바람 타기로 합류한 방어자의 [공격 시]가 났고, 진짜 공격자의
+// [공격 시]는 전투 전환 때 빠졌다. 전투가 없으면 여기서는 아무것도 하지 않는다 — 전투 결전이 열릴 때
+// startShowdown이 양측 유닛 전부를 지정한다. 지정을 받는 것은 이동을 일으킨 사람이 아니라 '그 유닛의 통제자'다.
 async function fireAttackTriggers(u, dest){
   if(dest==='base' || dest===null || dest===undefined) return;
-  const bf=G.bfs[dest]; if(!bf) return;
-  const owner=u.ctrl;
-  const isAttack = (bf.controller!==null && bf.controller!==owner) || bf.units.some(x=>x.ctrl!==owner);
-  if(!isAttack) return;
-  await runTriggerList(unitFx(u).triggers?.onAttack, {p:owner, unit:u, bfIdx:dest});
-  await runTriggerList(unitFx(u).triggers?.onAttackOrDefend, {p:owner, unit:u, bfIdx:dest});
-  const defender = (bf.controller!==null && bf.controller!==owner) ? bf.controller : opp(owner);
-  await legendHookTarget(defender,'hookEnemyAttackMyBf',{p:defender, it:u, bfIdx:dest});
+  const sd=G.showdown;
+  if(!sd || !sd.hasCombat || sd.bfIdx!==dest) return;
+  await fireDesignationTriggers(sd, designateUnits(sd, [u]));
+}
+// 전투에서 처음 지정을 받는 유닛을 표시하고 「예지의 가면」(60)을 적용한다. 반환: 새로 지정된 유닛들.
+// 가면의 '혼자'는 지정 순간의 스냅샷 — 같은 순간 격발한 「약탈자의 거리」가 먼저 하나를 되돌려도 안 붙는다(#8304).
+// 가면은 장착 수만큼 각각 격발한다(#6946). 같은 전투에서 나갔다 다시 들어와도 재격발하지 않는다(378 · #2091).
+function designateUnits(sd, units){
+  sd.designated = sd.designated || {};
+  const fresh = units.filter(u=>u.loc===sd.bfIdx && !sd.designated[u.uid]);
+  fresh.forEach(u=>{ sd.designated[u.uid]=true; });
+  const alone = fresh.filter(u=>aloneAt(u));   // 격발 전 스냅샷
+  for(const u of alone){
+    const masks=G.players[u.ctrl].gear.filter(g=>FX[g.n]&&FX[g.n].gearAloneCombat).length;
+    if(!masks) continue;
+    u.tempM.push({v:masks,dur:'turn'});
+    UI.log(`「예지의 가면」: ${unitName(u)} +${masks}⚔`, 'p'+u.ctrl);
+  }
+  return fresh;
+}
+// 지정 격발 해결 — 방어측이 먼저(초기 체인은 공격자가 먼저 얹고 LIFO로 방어자 것이 먼저 해결 — 절충 ①, #5266).
+async function fireDesignationTriggers(sd, fresh){
+  const defender=sd.defender;
+  for(const u of fresh.filter(u=>u.ctrl===defender)){
+    await runTriggerList(unitFx(u).triggers?.onDefend, {p:u.ctrl, unit:u, bfIdx:sd.bfIdx});
+    await runTriggerList(unitFx(u).triggers?.onAttackOrDefend, {p:u.ctrl, unit:u, bfIdx:sd.bfIdx});
+  }
+  for(const u of fresh.filter(u=>u.ctrl===sd.attacker)){
+    await runTriggerList(unitFx(u).triggers?.onAttack, {p:u.ctrl, unit:u, bfIdx:sd.bfIdx});
+    await runTriggerList(unitFx(u).triggers?.onAttackOrDefend, {p:u.ctrl, unit:u, bfIdx:sd.bfIdx});
+    // 「아리 - 구미호」 등 "적 유닛이 내가 통제하는 전장을 공격할 때" — 공격자 지정이 있을 때만(#8244)
+    if(G.bfs[sd.bfIdx].controller===defender)
+      await legendHookTarget(defender,'hookEnemyAttackMyBf',{p:defender, it:u, bfIdx:sd.bfIdx});
+  }
 }
 
 function markContested(u, loc){
@@ -706,17 +736,26 @@ async function finishEndTurn(p){
 }
 
 // ---------- 공용 헬퍼: 피해/버프/준비/이동/도구 폐기 ----------
-// 피해 적용 (치환·방지·칙령 처리). kind: 'spell'|'ability'|'effect'|'combat'
+// 피해 적용 (치환·방지·칙령 처리). kind: 'spell'|'ability'|'effect'|'combat'|'unit'
+//  'unit' = 카드가 유닛을 피해 주체로 지정한 경우("They/It/We deal damage" — 도전·최후의 숨결·육식 덩굴·신사의 결투·
+//  용의 분노). 룰 405~406: 주문이 유닛을 출처로 지정하면 그 피해는 유닛이 주는 것이지 주문·능력 피해가 아니다
+//  (Challenge 예시 "dealt by the chosen units, not by Challenge") → 「불굴의 정신」 방지·「레이븐본 서적」 보너스·
+//  「불멸의 불사조」 처치 귀속에서 빠진다 (RiftJudge #8394 · #8166 · #8373). "Deal damage equal to my Might"처럼
+//  주어가 없는 능력 피해(야스오·폭풍을 부르는 자)는 그대로 능력/주문 피해다(#1999).
 function dealDamage(u, n, kind){
   if(n<=0) return 0;
   kind=kind||'effect';
   if(unitFx(u).noDmgIfMoved2 && (u.turnMoves||0)>=2){ UI.log(`${unitName(u)} 피해 무시 (이번 턴 2회 이동)`, 'sys'); return 0; }
-  if(TF().preventSpellDmg && kind!=='combat'){ UI.log(`피해 방지됨 (효과)`, 'sys'); return 0; }
-  if(kind==='spell' && G._casting!==undefined && G._casting!==null) n += TF().nextSpellBonus[G._casting]||0;
+  if(TF().preventSpellDmg && kind!=='combat' && kind!=='unit'){ UI.log(`피해 방지됨 (효과)`, 'sys'); return 0; }
+  const casting = (G._casting!==undefined && G._casting!==null) ? G._casting : null;
+  if(kind==='spell' && casting!==null) n += TF().nextSpellBonus[casting]||0;
   u.dmg+=n;
+  // 처치 귀속(룰 416): 클린업 사망은 "직전에 해결되어 피해를 준 주문"의 처치 — 마지막 피해의 출처(시전자)를 기억한다.
+  // 전투·유닛 주체 피해가 마지막이면 어느 주문의 처치도 아니다.
+  u._spellDmgBy = (casting!==null && kind!=='combat' && kind!=='unit') ? casting : null;
   UI.fx.unit(u, 'hit', '-'+n);
-  if(TF().dmgKill) u._decree=true; // 황제의 칙령
-  if(u._guillotine && n>0){ u._guillotine=false; u._decree=true; UI.log(`「녹서스의 단두대」: ${unitName(u)} 처치 표식 발동`, 'combat'); }
+  if(TF().dmgKill){ u._decree=true; u._decreeBy=TF().dmgKillBy; } // 황제의 칙령 — 처치는 칙령 시전자의 주문 처치(#7364)
+  if(u._guillotine && n>0){ u._guillotine=false; u._decree=true; u._decreeBy=u._guillotineBy; UI.log(`「녹서스의 단두대」: ${unitName(u)} 처치 표식 발동`, 'combat'); }
   return n;
 }
 async function buffUnit(u, byP){
@@ -831,8 +870,9 @@ async function resolveEffectMove(p, choice){
     if(others.length){
       const t=await UI.pickUnitFrom(p, others, '상호 피해를 줄 다른 적 유닛');
       if(t && await payDeflect(p, t)){
-        const a=might(u), b=might(t);
-        dealDamage(t, a, 'spell'); dealDamage(u, b, 'spell');
+        // "They deal damage ... to each other" — 유닛 주체 피해(룰 405~406, #7331), 전투 중이면 지정 보정 포함(#5261)
+        const a=targetMight(u), b=targetMight(t);
+        dealDamage(t, a, 'unit'); dealDamage(u, b, 'unit');
         UI.log(`${unitName(u)} ⚔ ${unitName(t)} 상호 피해!`, 'combat');
       }
     }
@@ -1375,7 +1415,7 @@ async function resolveSpellEffects(p, n, fx, o){
   const c=card(n); const P=G.players[p];
   const execAs=o.execAs??p;
   UI.fx.cast(c, p);
-  G._casting=p; G._spellKilled=false; G._banishSpell=false;
+  G._casting=p; G._banishSpell=false;
   if(fx.playOps.length){
     for(const po of fx.playOps){
       if(po.legion && !o.legionOK){ UI.log(`[군단] 조건 미충족 — 효과 생략`, 'sys'); continue; }
@@ -1385,19 +1425,6 @@ async function resolveSpellEffects(p, n, fx, o){
   }
   // 소모형 플래그 해제 (다음 주문 할인/보너스)
   TF().nextSpellDisc[p]=0; TF().nextSpellBonus[p]=0;
-  // 주문으로 유닛 처치 시: 폐기장 반응 (불멸의 불사조 등)
-  if(G._spellKilled){
-    for(const tn of [...new Set(P.trash)]){
-      const tfx=FX[tn];
-      if(tfx && tfx.fromTrashOnSpellKill && canPay(p, tfx.fromTrashOnSpellKill.energy||0, tfx.fromTrashOnSpellKill.pips||[])){
-        const yes=await UI.confirmP(p, `「${card(tn).ko}」을(를) 폐기장에서 플레이할까요? (비용 지불)`, card(tn));
-        if(yes){ payCost(p, tfx.fromTrashOnSpellKill.energy||0, tfx.fromTrashOnSpellKill.pips||[]);
-          P.trash.splice(P.trash.indexOf(tn),1);
-          const uu=makeUnit(tn,p,{loc:'base'}); placeUnit(uu,'base');
-          UI.log(`「${card(tn).ko}」 폐기장에서 플레이!`, 'p'+p); }
-      }
-    }
-  }
   G._casting=null;
   if(fx.manual.length) UI.manualNotice(c);
   if(G._banishSpell){ P.banish.push(n); G._banishSpell=false; UI.log(`「${c.ko}」 추방됨`, 'sys'); }
@@ -1406,8 +1433,40 @@ async function resolveSpellEffects(p, n, fx, o){
   // '주문을 플레이할 때' 격발이 난다. 예전엔 격발이 효과보다 먼저 나서 「레이븐블룸 학생」이 자기 피해 주문에서
   // +1로 살아남고, 「돌풍」의 위력 3 이하 필터에서 빠졌다 (RiftJudge #4359 · #8306). 「빙의」로 뺏어온 다리우스도
   // 이제 '두 번째 카드'를 본다 (#245). 사망 처리만 하고 결전 개시 등은 호출자의 cleanup에 맡긴다.
+  // 「불멸의 불사조」의 '주문으로 처치' 반응(처치 지시·피해 사망 모두)은 cleanupDeaths 끝의 spellKillReactions가 연다.
   await cleanupDeaths();
   await fireSpellPlayEvents(execAs, n, !!o.fromHidden);
+}
+
+// 주문으로 유닛을 처치한 뒤의 폐기장 반응 (불멸의 불사조 37 fromTrashOnSpellKill). 귀속은 killUnit이
+// G._spellKilledBy[시전자]에 적는다 — 처치 지시, 피해 주문 뒤 클린업 사망(416), 칙령·단두대 표식 처치(#7364) 모두.
+// 예전엔 resolveSpellEffects 안에서 G._casting이 살아 있는 동안의 처치만 보아 「마법공학 광선」 같은 피해 주문이
+// 한 번도 불사조를 열지 못했고, 자기 유닛(불사조 자신 포함, 376.2.c 예시)을 처치해도 열리지 않았다.
+async function spellKillReactions(){
+  const by=G._spellKilledBy; if(!by) return;
+  G._spellKilledBy=null;
+  for(const p of [0,1]){
+    if(!by[p]) continue;
+    const P=G.players[p];
+    for(const tn of [...new Set(P.trash)]){
+      const tfx=FX[tn]; if(!tfx || !tfx.fromTrashOnSpellKill) continue;
+      const cost=tfx.fromTrashOnSpellKill;
+      // 폐기장의 같은 카드는 장마다 따로 격발한다(#6871) — 한 장씩 비용을 내고 플레이
+      for(let left=P.trash.filter(x=>x===tn).length; left>0; left--){
+        if(!canPay(p, cost.energy||0, cost.pips||[])) break;
+        const yes=await UI.confirmP(p, `「${card(tn).ko}」을(를) 폐기장에서 플레이할까요? (비용 지불)`, card(tn));
+        if(!yes) break;
+        payCost(p, cost.energy||0, cost.pips||[]);
+        // 정식 플레이 경로(playFromTrash와 동일): 기지 또는 통제 중인 전장 — 방어 중인 결전 전장 포함, 공격 중인
+        // 전장은 통제가 아니라 불가(#10688) — 위치 선택·등장 준비·플레이 격발이 모두 처리된다. 비용은 위에서 냈다.
+        const ti=P.trash.indexOf(tn);
+        P.trash.splice(ti,1); P.hand.unshift(tn);
+        const ok=await playCardFromHand(p,0,{fromTrash:true,ignoreEnergy:true,ignorePower:true});
+        if(ok===false){ if(P.hand[0]===tn) P.hand.shift(); P.trash.splice(ti,0,tn); }
+        else UI.log(`「${card(tn).ko}」 폐기장에서 플레이!`, 'p'+p);
+      }
+    }
+  }
 }
 
 // ---------- 대응 창 (카운터/탈취 주문 — 중립 상태 전용, 결전 중에는 체인이 담당) ----------
@@ -1688,15 +1747,20 @@ function releaseEmptyBattlefields(){
 // 주문이 체인을 떠난 직후(플레이 격발 전 — resolveSpellEffects)가 같이 쓴다.
 async function cleanupDeaths(){
   if(G.manual) return;
-  const lethal=[];
-  for(const u of everyUnit()){
-    // 전투 결전 중에는 공/방 지정 위력([맹공]·[보호막] 등)을 치명 판정에도 반영 (룰 704/727)
-    let m=might(u);
-    if(G.showdown && G.showdown.hasCombat && u.loc===G.showdown.bfIdx)
-      m=might(u, u.ctrl===G.showdown.attacker?'attacker':'defender', {forKill:true});
-    if((u.dmg>0 && u.dmg>=m) || u._decree) lethal.push(u);
+  // 사망으로 보드가 바뀌면(리 신 오라 소실 등) 치명 판정을 다시 한다 — "변화가 없을 때까지 반복"(룰 322 · #6390)
+  for(let pass=0; pass<8; pass++){
+    const lethal=[];
+    for(const u of everyUnit()){
+      // 전투 결전 중에는 공/방 지정 위력([맹공]·[보호막] 등)을 치명 판정에도 반영 (룰 704/727)
+      let m=might(u);
+      if(G.showdown && G.showdown.hasCombat && u.loc===G.showdown.bfIdx)
+        m=might(u, u.ctrl===G.showdown.attacker?'attacker':'defender', {forKill:true});
+      if((u.dmg>0 && u.dmg>=m) || u._decree) lethal.push(u);
+    }
+    if(!lethal.length) break;
+    await killUnitsTogether(lethal, {byDamage:true});
   }
-  await killUnitsTogether(lethal);
+  await spellKillReactions();
 }
 async function cleanup(actor){
   if(G.manual) return; // 수동 모드: 자동 사망·결전·전투 없음 (플레이어가 직접 처리)
@@ -1727,21 +1791,14 @@ async function startShowdown(bfIdx, attacker, hasCombat){
   G.showdown={ bfIdx, attacker, defender:opp(attacker), hasCombat, passes:0, chain:[], chainStarter:null };
   G.actingPlayer=attacker;
   UI.log(`⚔️ 결전 개시! 「${card(bf.n).ko}」 — 공격: ${pname(attacker)}`, 'combat');
-  // 전장 트리거: 방어 시 (방어자가 이 전장의 통제자일 때)
-  if(bf.controller===opp(attacker))
-    await fireBfTrigger(bfIdx,'onDefendHere',{p:opp(attacker), bfIdx});
-  // 방어측 유닛 트리거 (티모, 아리 등)
-  for(const u of [...bf.units].filter(u=>u.ctrl===opp(attacker))){
-    await runTriggerList(unitFx(u).triggers?.onDefend, {p:u.ctrl, unit:u, bfIdx});
-    await runTriggerList(unitFx(u).triggers?.onAttackOrDefend, {p:u.ctrl, unit:u, bfIdx});
-  }
-  // 예지의 가면: 혼자 공격/방어하는 아군 유닛 +1⚔ (이번 턴)
-  for(const pi of [attacker, opp(attacker)]){
-    const side=bf.units.filter(u=>u.ctrl===pi);
-    if(side.length===1 && G.players[pi].gear.some(g=>FX[g.n]&&FX[g.n].gearAloneCombat)){
-      side[0].tempM.push({v:1,dur:'turn'});
-      UI.log(`「예지의 가면」: ${unitName(side[0])} +1⚔`, 'p'+pi);
-    }
+  // 공격/방어 지정과 그 격발은 '전투'가 있을 때만 (전투 1단계 — 무혈 결전에는 공격자도 방어자도 없다 #4707).
+  // 지정(가면 스냅샷 포함) → 전장 [방어 시] → 방어측 유닛 격발 → 공격측 유닛 격발 순 (fireDesignationTriggers).
+  if(hasCombat){
+    const fresh = designateUnits(G.showdown, [...bf.units]);
+    // 전장 트리거: 방어 시 (방어자가 이 전장의 통제자일 때)
+    if(bf.controller===opp(attacker))
+      await fireBfTrigger(bfIdx,'onDefendHere',{p:opp(attacker), bfIdx});
+    await fireDesignationTriggers(G.showdown, fresh);
   }
   UI.render();
   UI.promptShowdown();
@@ -1822,6 +1879,7 @@ async function resolveShowdown(){
   const sd=G.showdown; const bf=G.bfs[sd.bfIdx];
   const atkUnits = ()=>bf.units.filter(u=>u.ctrl===sd.attacker);
   const defUnits = ()=>bf.units.filter(u=>u.ctrl===sd.defender);
+  let deferred=[];   // 전투 사망의 보류 격발 (종소리 등) — 전투 정리·통제 확립 뒤에 해결
 
   // 무혈 결전(전투 없이 열린 결전) 종료 시 양측 유닛이 남으면: 통제 확립 불가·경합 유지,
   // 새 '전투'가 개시된다 (규칙: Staged Combat — 공식 L1565~1571). 곧바로 피해를 주지 않고
@@ -1855,28 +1913,37 @@ async function resolveShowdown(){
       const role = u.ctrl===sd.attacker?'attacker':'defender';
       return (u.dmg>0 && u.dmg>=might(u,role,{forKill:true})) || u._decree;
     });
-    // 솔라리의 상징: 공격측 보유 + 무승부(모두 사망)면 모두 기지 귀환
-    if(dead.length===bf.units.length && dead.length>0 && G.players[sd.attacker].gear.some(g=>g.n===227)){
-      UI.log(`「솔라리의 상징」: 무승부 — 모든 유닛이 기지으로 귀환합니다`, 'combat');
-      [...bf.units].forEach(u=>{ u.dmg=0; u._decree=false; removeUnit(u); placeUnit(u,'base'); });
-    } else {
-      await killUnitsTogether(dead);      // 전투 피해로 함께 죽는다 — 서로의 죽음을 보지 못한다
-    }
+    // 전투 사망의 [죽음의 종소리]·사망 이벤트는 보류해 두고 전투 정리(치유·귀환) 뒤에 해결한다 — 정리 중엔 체인 항목이
+    // 해결되지 않는다(룰 322). 예전엔 종소리 피해가 바로 다음 줄의 치유에 지워져 아무도 죽이지 못했다(#7226 · #10750).
+    _deferDeathFx=[];
+    try { await killUnitsTogether(dead, {byDamage:true}); }   // 전투 피해로 함께 죽는다 — 서로의 죽음을 보지 못한다
+    finally { deferred=_deferDeathFx; _deferDeathFx=null; }
   }
 
-  // 해결 단계: 전투 정리 — 모든 유닛 치유 (공식: 전장 밖 유닛 포함), 방어자 잔존 시 공격자 본진 귀환
-  everyUnit().forEach(u=>u.dmg=0);
-  // "이번 전투" 한정으로 부여된 키워드([보호막] 등)를 되돌린다
-  for(const gr of (G._combatGrants||[])){
-    if(gr.numeric){
-      const left=(typeof gr.u.grants[gr.key]==='number'?gr.u.grants[gr.key]:0)-gr.v;
-      if(left>0) gr.u.grants[gr.key]=left; else delete gr.u.grants[gr.key];
-    } else delete gr.u.grants[gr.key];
-  }
-  G._combatGrants=[];
-  if(defUnits().length && atkUnits().length){
-    UI.log(`방어 성공 — 공격 유닛은 기지으로 귀환합니다`, 'combat');
-    atkUnits().forEach(u=>{ removeUnit(u); placeUnit(u,'base'); });
+  // 해결 단계: 전투 정리(Combat Cleanup 2c~2e)는 '전투'가 있었을 때만 — 치유는 턴 종료와 전투 정리에서만 일어나고
+  // (룰 142.4) 빈 전장의 무혈 결전은 전투가 아니다(437 · #9878 · #8342). 전투가 열린 뒤 한쪽이 빠져나갔어도 치유(#10674).
+  if(sd.hasCombat){
+    // 모든 유닛 치유 (공식: 전장 밖 유닛 포함)
+    everyUnit().forEach(u=>{ u.dmg=0; u._spellDmgBy=null; });
+    // "이번 전투" 한정으로 부여된 키워드([보호막] 등)를 되돌린다
+    for(const gr of (G._combatGrants||[])){
+      if(gr.numeric){
+        const left=(typeof gr.u.grants[gr.key]==='number'?gr.u.grants[gr.key]:0)-gr.v;
+        if(left>0) gr.u.grants[gr.key]=left; else delete gr.u.grants[gr.key];
+      } else delete gr.u.grants[gr.key];
+    }
+    G._combatGrants=[];
+    // 방어자 잔존 시 공격자 본진 귀환(2d). 양측 잔존 = 무승부 — 공격측이 「솔라리의 상징」(227)을 가졌으면
+    // 카드 원문대로 '모든 유닛'을 귀환시켜 결과 없음(통제 변경·득점 없음, #10142). 예전엔 '전원 사망'을 무승부로 잘못 봤다.
+    if(defUnits().length && atkUnits().length){
+      if(G.players[sd.attacker].gear.some(g=>g.n===227)){
+        UI.log(`「솔라리의 상징」: 무승부 — 모든 유닛이 기지으로 귀환합니다`, 'combat');
+        [...bf.units].forEach(u=>{ removeUnit(u); placeUnit(u,'base'); });
+      } else {
+        UI.log(`방어 성공 — 공격 유닛은 기지으로 귀환합니다`, 'combat');
+        atkUnits().forEach(u=>{ removeUnit(u); placeUnit(u,'base'); });
+      }
+    }
   }
 
   // 통제 확립 & 정복
@@ -1917,6 +1984,8 @@ async function resolveShowdown(){
   UI.render();
   UI.prompt(G._endingTurn ? '종료 단계 — 열린 결전 처리 중'
     : (G.turn===G.actingPlayer?`${pname(G.turn)}의 행동 단계`:''));
+  // 보류해 둔 전투 사망 격발 — 치유가 끝난 뒤라 종소리 피해는 지워지지 않고, 이어지는 cleanup이 치명 판정을 한다
+  for(const f of deferred) await f();
   await cleanup(G.turn);
   // 종료 단계에 열렸던 결전이 모두 끝났다면 보류해 둔 종료 절차를 마저 밟는다
   if(G._endingTurn && G.state==='neutral' && !G.showdown) await finishEndTurn(G._endingTurn.p);
@@ -1963,24 +2032,43 @@ async function assignDamage(assigner, total, targets, role){
 // 같은 게임 행동으로 함께 죽는 유닛들. 이 안의 유닛은 서로의 죽음을 볼 수 없다 (룰 376.3.b).
 let _dyingBatch = null;
 let _dkTwiceBatch = null;   // 배치가 시작될 때의 [죽음의 종소리 2회] 여부 (카서스)
-async function killUnitsTogether(list){
-  const batch = (list||[]).filter(u=>u && !u._dead);
+// opts.byDamage: 클린업의 치명 피해 사망(처치 귀속은 마지막 피해를 준 주문 — 룰 416)
+async function killUnitsTogether(list, opts){
+  let batch = (list||[]).filter(u=>u && !u._dead);
   if(!batch.length) return;
+  // 동시 사망에 「존야의 모래시계」가 죽는 아군보다 적으면 어느 죽음을 대체할지 통제자가 고른다 — "the next time"
+  // 조건이 동시에 여럿 충족되면 그 능력의 통제자가 하나를 고른다(룰 376.3 '[Nth] time' 원칙 · RiftJudge #10768 · #8618).
+  // 고른 유닛을 배치 앞으로 옮기면 killUnit의 강제 대체가 그 유닛부터 걸린다 (예전엔 배치 순서상 첫 유닛이 자동 구원).
+  for(const pi of [0,1]){
+    const mine=batch.filter(u=>u.ctrl===pi);
+    const saves=G.players[pi].gear.filter(g=>FX[g.n]&&FX[g.n].zhonya).length;
+    if(saves<1 || mine.length<=saves) continue;
+    const first=[];
+    for(let k=0;k<saves;k++){
+      const u=await UI.pickUnitFrom(pi, mine.filter(x=>!first.includes(x)), '「존야의 모래시계」 사망 방지 — 대신 회수할 유닛 선택');
+      if(!u) break;
+      first.push(u);
+    }
+    if(first.length) batch=[...first, ...batch.filter(u=>!first.includes(u))];
+  }
   const prev = _dyingBatch, prevDk = _dkTwiceBatch;
   _dyingBatch = new Set(batch);
   // 종소리는 사망 전에 예약된다 (룰 322 2a) — 카서스가 함께 죽어도 그 시점엔 보드에 있다
   _dkTwiceBatch = [0,1].map(pi=>allUnits(pi).some(x=>unitFx(x).deathknellTwice));
-  try { for(const u of batch) await killUnit(u); }
+  try { for(const u of batch) await killUnit(u, opts); }
   finally { _dyingBatch = prev; _dkTwiceBatch = prevDk; }
 }
 
 // ---------- 사망 ----------
-async function killUnit(u){
+// 사망 뒤 격발(종소리·사망 이벤트)을 미루는 큐 — 전투 사망은 전투 정리(치유·귀환) 뒤에 해결한다 (resolveShowdown)
+let _deferDeathFx = null;
+async function killUnit(u, opts){
   if(u._dead) return; u._dead=true;
   UI.fx.unit(u, 'die');          // 보드에서 사라지기 전에 위치를 잡아 연출
   const fx=unitFx(u);
   const P=G.players[u.ctrl];
   const wasBuffed=u.buff>0, wasStunned=u.stunned, deathLoc=u.loc;
+  const wasLethal = u.dmg>0 && u.dmg>=targetMight(u), hadDecree = !!u._decree;
 
   // ── 사망 대체 효과 (룰 366~368) ──
   // 대체 효과는 상시 능력이라(365.1) 'you may'가 없으면 고를 수 없는 강제 효과다.
@@ -1988,7 +2076,7 @@ async function killUnit(u){
   // 하나가 실제로 사망을 대체하면 그 유닛은 죽지 않으므로 나머지는 조건 자체가 사라진다.
   {
     const recall = (why) => {
-      u.dmg=0; u.ex=true; u._dead=false; u._decree=false;
+      u.dmg=0; u.ex=true; u._dead=false; u._decree=false; u._spellDmgBy=null;
       removeUnit(u); placeUnit(u,'base');
       UI.log(`「${unitName(u)}」 사망 대신 회수됨 (${why})`, 'p'+u.ctrl);
       UI.render();
@@ -2031,7 +2119,16 @@ async function killUnit(u){
         const first = (typeof sel === 'number' && cands[sel]) ? sel : 0;
         order = [cands[first], ...cands.filter((_,i)=>i!==first)];
       }
-      for(const c of order){ if(await c.run()) return; }   // 하나라도 대체하면 사망하지 않는다
+      for(const c of order){
+        if(!(await c.run())) continue;   // 하나라도 대체하면 사망하지 않는다
+        // 치명 피해 + 「황제의 칙령」: 클린업 사망(322 2b)과 칙령의 처치 격발은 별개의 사건이라 대체 효과가 앞의 것을
+        // 막아도 칙령이 한 번 더 처치한다(#7440). 피해가 치명이 아니면 칙령 처치 하나뿐이라 대체로 살아남는다(#8420).
+        if(wasLethal && hadDecree){
+          UI.log(`「황제의 칙령」: ${unitName(u)} — 피해를 받았으므로 다시 처치`, 'combat');
+          u._decree=true; await killUnit(u);
+        }
+        return;
+      }
     }
   }
   removeUnit(u);
@@ -2046,23 +2143,34 @@ async function killUnit(u){
   }
   // 턴 플래그: 상대 관점의 '적 유닛 사망'
   TF().enemyDied[opp(u.ctrl)]=true;
-  if(G._casting!==undefined && G._casting!==null && u.ctrl!==G._casting) G._spellKilled=true;
+  // 주문 처치 귀속(룰 416 · 376.2.c): 처치 지시는 시전 중인 주문(자기 유닛·불사조 자신이어도), 클린업의 피해 사망은
+  // 직전에 피해를 준 주문(_spellDmgBy — 전투·유닛 주체 피해면 없음), 칙령·단두대 표식은 그 주문의 시전자.
+  // 예전엔 '시전자와 다른 통제자의 유닛'만 세어 자기 「숨겨진 칼날」로 불사조를 죽이는 공식 콤보가 막혔다(#9024).
+  let killer=null;
+  if(opts && opts.byDamage) killer = (u._spellDmgBy!==undefined && u._spellDmgBy!==null) ? u._spellDmgBy : null;
+  else if(G._casting!==undefined && G._casting!==null) killer = G._casting;
+  if(killer===null && hadDecree && u._decreeBy!==undefined && u._decreeBy!==null) killer = u._decreeBy;
+  if(killer!==null) (G._spellKilledBy = G._spellKilledBy||{})[killer]=true;
   UI.render();
-  // 죽음의 종소리 (카서스: 추가 1회)
-  const ctxD={p:u.ctrl, unit:u, bfIdx:(deathLoc!=='base'?deathLoc:null), dead:true};
-  await runTriggerList(fx.triggers?.onDeath, ctxD);
   const dkTwice = _dkTwiceBatch ? _dkTwiceBatch[u.ctrl] : allUnits(u.ctrl).some(x=>unitFx(x).deathknellTwice);
-  if(fx.triggers?.onDeath && dkTwice){
-    UI.log(`[카서스] 죽음의 종소리 효과 1회 추가 발동!`, 'p'+u.ctrl);
+  const afterDeath = async () => {
+    // 죽음의 종소리 (카서스: 추가 1회)
+    const ctxD={p:u.ctrl, unit:u, bfIdx:(deathLoc!=='base'?deathLoc:null), dead:true};
     await runTriggerList(fx.triggers?.onDeath, ctxD);
-  }
-  // 전역 사망 이벤트 (메아리의 망령, 선봉대 투구, 빅토르 등)
-  await fireEvent('onUnitDeath', {p:u.ctrl, dead:u, buffed:wasBuffed, isToken:u.isToken, tokenName:u.tokenName});
-  // 기절 상태로 처치됨 → 처치자 이벤트 (솔라리 성소)
-  if(wasStunned){
-    const killer = u.ctrl===G.actingPlayer ? opp(u.ctrl) : G.actingPlayer;
-    await fireEvent('onYouKillStunned', {p:killer});
-  }
+    if(fx.triggers?.onDeath && dkTwice){
+      UI.log(`[카서스] 죽음의 종소리 효과 1회 추가 발동!`, 'p'+u.ctrl);
+      await runTriggerList(fx.triggers?.onDeath, ctxD);
+    }
+    // 전역 사망 이벤트 (메아리의 망령, 선봉대 투구, 빅토르 등)
+    await fireEvent('onUnitDeath', {p:u.ctrl, dead:u, buffed:wasBuffed, isToken:u.isToken, tokenName:u.tokenName});
+    // 기절 상태로 처치됨 → 처치자 이벤트 (솔라리 성소)
+    if(wasStunned){
+      const killer = u.ctrl===G.actingPlayer ? opp(u.ctrl) : G.actingPlayer;
+      await fireEvent('onYouKillStunned', {p:killer});
+    }
+  };
+  // 전투 사망의 격발은 보류 항목이라 전투 정리가 끝난 뒤에 해결된다 (룰 322 "Legal Items cannot be executed" · #7226)
+  if(_deferDeathFx) _deferDeathFx.push(afterDeath); else await afterDeath();
 }
 
 // ---------- 트리거 실행 ----------
@@ -2284,8 +2392,8 @@ function unitsBySpec(spec, p){
   if(_hiddenBf!==null) cands=cands.filter(u=>u.loc===_hiddenBf);
   if(spec.where==='bf') cands=cands.filter(u=>u.loc!=='base');
   if(spec.where==='base') cands=cands.filter(u=>u.loc==='base');
-  // 'in combat' = 진행 중인 전투 결전 전장의 유닛만 (전투가 없으면 대상 없음)
-  if(spec.where==='combat') cands=cands.filter(u=>G.showdown && u.loc===G.showdown.bfIdx);
+  // 'in combat' = 진행 중인 '전투' 결전 전장의 유닛만 — 빈 전장의 무혈 결전은 전투가 아니다(룰 437 · #11269)
+  if(spec.where==='combat') cands=cands.filter(u=>G.showdown && G.showdown.hasCombat && u.loc===G.showdown.bfIdx);
   if(spec.mightMax!==undefined) cands=cands.filter(u=>targetMight(u)<=spec.mightMax);
   if(spec.mightMin!==undefined) cands=cands.filter(u=>targetMight(u)>=spec.mightMin);
   if(spec.energyMax!==undefined) cands=cands.filter(u=>(unitCard(u).e||0)<=spec.energyMax);
@@ -2502,12 +2610,16 @@ async function execOps(ops, ctx){
       case 'killSelf': if(ctx.unit && !ctx.unit._dead) await killUnit(ctx.unit); break;
       case 'killIt': if(it && !it._dead) await killUnit(it); break;
       case 'eachPlayerKills': {
+        // 각자 고른 뒤 한 배치로 죽는다 — 서로의 죽음을 보지 못하고(376.3.b), 종소리는 턴 플레이어 것이 먼저 적재되어
+        // 비턴 플레이어 것부터 해결된다(LIFO — #9900). 예전엔 턴 플레이어 유닛이 먼저 따로 죽었다.
+        const picked=[];
         for(const pi of [G.turn, opp(G.turn)]){
           const mine=everyUnit().filter(u=>u.ctrl===pi);
           if(!mine.length) continue;
           const u=await UI.pickUnitFrom(pi,mine,`${pname(pi)}: 처치할 자신의 유닛 선택`);
-          if(u) await killUnit(u);
+          if(u) picked.push(u);
         }
+        await killUnitsTogether(picked.reverse());
         break; }
       case 'buffSelf': if(ctx.unit){ await buffUnit(ctx.unit, p); } break;
       case 'buffIt': if(it){ await buffUnit(it, p); } break;
@@ -2813,7 +2925,7 @@ async function execOps(ops, ctx){
       case 'setFlag': {
         const tf=TF();
         const tgt = op.side==='opp' ? opp(p) : p;
-        if(op.global) tf[op.flag]=op.val!==undefined?op.val:true;
+        if(op.global){ tf[op.flag]=op.val!==undefined?op.val:true; tf[op.flag+'By']=p; }   // 누가 걸었나(칙령 처치 귀속용)
         else if(op.add!==undefined) tf[op.flag][tgt]=(tf[op.flag][tgt]||0)+op.add;
         else tf[op.flag][tgt]=op.val!==undefined?op.val:true;
         break; }
