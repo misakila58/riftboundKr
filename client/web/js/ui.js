@@ -1158,7 +1158,7 @@ function myPlayableHidden(p){
     bf.hiddenCards.forEach(h => {
       if(h.by !== p) return;
       if(h.turn === G.turnCount && G.turn === p) return;   // 숨긴 턴에는 못 쓴다
-      if(playRestriction(card(h.n), p, true)) return;      // 지금 타이밍에 못 내는 카드
+      if(playRestriction(card(h.n), p, true, i)) return;   // 지금 타이밍에 못 내는 카드 · 이 전장에 대상 없는 주문(737)
       out.push({ bfIdx: i, n: h.n });
     });
   });

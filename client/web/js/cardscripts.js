@@ -210,10 +210,12 @@ const EXTRA_OPS = {
   async fightMutual(op, ctx, h){ const it=h.it(), me=ctx.unit; if(!it||!me) return;
     dealDamage(it, might(me), 'effect'); dealDamage(me, might(it), 'effect');
     UI.log(`${unitName(me)} ⚔ ${unitName(it)} 상호 피해!`,'combat'); },
+  // 두 대상 모두 플레이 시점 지정(PRE_TARGET_EXTRA) — 한쪽이 사라지면 양쪽 다 피해 없음(356.3.e, RiftJudge #7367)
   async challenge(op, ctx, h){ const a=await pickBySpec(ctx.p,{side:'friendly',count:1},'아군 유닛 선택'); if(!a) return;
     const b=await pickBySpec(ctx.p,{side:'enemy',count:1},'적 유닛 선택'); if(!b) return;
     dealDamage(b, might(a), 'spell'); dealDamage(a, might(b), 'spell');
     UI.log(`${unitName(a)} ⚔ ${unitName(b)} 상호 피해!`,'combat'); },
+  // 대상은 플레이 시점, 버릴 카드는 해결 시점(#9587) — 대상이 사라져도 버림은 한다(앞 discard op)
   async dmgLastDiscardCost(op, ctx, h){ const d=G._lastDiscard; if(!d||d.p!==ctx.p) return;
     const cost=card(d.n).e||0; if(cost<=0) return;
     const u=await pickBySpec(ctx.p,{side:'any',where:'bf',count:1},`피해 ${cost}을 줄 대상`); if(u){ dealDamage(u,cost,'spell'); h.setIt(u); } },
@@ -227,9 +229,8 @@ const EXTRA_OPS = {
   // ── 위력 조작 ──
   async mightDouble(op, ctx, h){ const u=await pickBySpec(ctx.p, op.spec, '위력을 2배로 할 유닛'); if(u){ u.tempM.push({v:might(u),dur:'turn'}); h.setIt(u); UI.log(`${unitName(u)} 위력 2배!`,'p'+ctx.p); } },
   async mightSetToOther(op, ctx, h){ const it=h.it(); if(!it) return;
-    const others=everyUnit().filter(u=>u.ctrl===ctx.p&&u!==it);
-    if(!others.length) return;
-    const t=await UI.pickUnitFrom(ctx.p, others, '위력을 복사할 다른 아군 유닛'); if(!t) return;
+    // '다른 아군 유닛'도 플레이 시점 대상(#3213) — 기준 유닛이 죽었으면 it=null로 이미 불발
+    const t=await pickBySpec(ctx.p, {side:'friendly',count:1,_exclude:[it]}, '위력을 복사할 다른 아군 유닛'); if(!t) return;
     // 원문은 'increase' — 대상보다 낮은 위력으로는 바꾸지 않는다 (감소 없음)
     const d=might(t)-might(it);
     if(d<=0){ UI.log(`${unitName(it)} 위력 변화 없음 (증가만 가능)`,'p'+ctx.p); return; }
@@ -260,14 +261,13 @@ const EXTRA_OPS = {
     // '보낼까요?'를 먼저 묻지 않는다 — 누구를 보낼지 본 뒤 '이동하지 않음'을 고를 수 있다
     await chooseEffectMove(ctx.p, {side:'friendly',optional:true}, it.loc); },
   async bounceSpec(op, ctx, h){
-    // 위력 조건은 '지금'의 위력으로 본다 — 전투 중 [맹공]·버프로 달라진 값까지 반영된다
-    const spec={...op.spec, mightMax: op.maxM!==undefined ? op.maxM : op.spec.mightMax};
-    if(op.notSelf && ctx.unit) spec._exclude=[ctx.unit];
-    const u=await chooseReturnToHand(ctx.p, spec);
+    // 위력 조건은 '지금'의 위력으로 본다 — 전투 중 [맹공]·버프로 달라진 값까지 반영된다.
+    // 주문이면 대상은 플레이 시점에 정해졌고(352.8.a) 해결 때 4위력이 됐으면 그 지시만 불발(#10710)
+    const u=await chooseReturnToHand(ctx.p, bounceTargetSpec(op, ctx.unit));
     if(u) h.setIt(u); },
   async retreatOp(op, ctx, h){
-    // 소유자의 손으로 돌아가고, 그 소유자가 룬 1개를 탈진 전개한다
-    const u=await chooseReturnToHand(ctx.p, {side:'friendly'}, {channel:1});
+    // 소유자의 손으로 돌아가고, 그 소유자가 룬 1개를 탈진 전개한다 — 대상이 먼저 사라지면 룬 전개도 없다(#5390)
+    const u=await chooseReturnToHand(ctx.p, RETREAT_SPEC, {channel:1});
     if(u) h.setIt(u); },
   async tideTurner(op, ctx, h){ const me=ctx.unit; if(!me) return;
     // 교환도 두 유닛 각각의 '이동'. 서로 자리를 바꿀 수 있는 짝만 후보로 나온다
@@ -281,8 +281,9 @@ const EXTRA_OPS = {
     await chooseEffectMove(ctx.p, {side:'friendly',where:'base'}, 'bf', {storm:true}); },
   async dragonRage(op, ctx, h){
     // 원문은 "이동시킨 뒤 도착지의 다른 적 유닛을 고른다" — 도착지가 적 기지여도 성립한다
-    // (기존에는 전장으로 보냈을 때만 상호 피해를 처리했다)
-    await chooseEffectMove(ctx.p, {side:'enemy'}, 'any', {dragon:true}); },
+    // (기존에는 전장으로 보냈을 때만 상호 피해를 처리했다). 이동시킬 유닛은 플레이 시점 지정(352.8.a),
+    // 목적지는 절충 ④(해결 시점), '도착지의 다른 적'은 반사 격발이라 해결 시점(#7880)
+    await chooseEffectMove(ctx.p, {side:'enemy',_prompt:'이동시킬 적 유닛'}, 'any', {dragon:true}); },
   async whirlwind(op, ctx, h){
     // 각 플레이어가 자기 유닛 하나를 고른다 (토큰은 손패로 가지 않고 사라진다)
     for(const pi of [opp(ctx.p), ctx.p])
@@ -504,13 +505,16 @@ const EXTRA_OPS = {
   async gunsBlazing(op, ctx, h){
     // 힘 핍은 탈진된 룬도 재활용해 낼 수 있다(payCost가 탈진 룬을 먼저 재활용한다).
     // 준비 룬만 세면 에너지를 쓰느라 탈진된 룬만큼 지불 한도가 부족하게 잡힌다.
+    // 전장은 플레이 시점에 고른 대상(352.8·352.10.d — #6108), 힘 액수·지불은 해결 시점
+    const pre=takePreTarget(ctx.p);
     let maxP=Object.values(G.players[ctx.p].power).reduce((a,b)=>a+b,0)+G.players[ctx.p].runes.length;
     if(maxP<=0) return;
     const n=await UI.pickNumber(ctx.p,'지불할 힘(✳) 수',0,Math.min(maxP,10)); if(!n) return;
     const pips=[]; for(let i=0;i<n;i++) pips.push('Any');
     if(!canPay(ctx.p,0,pips)) return;
     payCost(ctx.p,0,pips);
-    const sel=await UI.pickOption(ctx.p,'피해를 줄 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko}))); if(sel===null) return;
+    const sel=(pre && pre.bf!==undefined) ? pre.bf
+      : await UI.pickOption(ctx.p,'피해를 줄 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko}))); if(sel===null) return;
     G.bfs[sel].units.filter(u=>u.ctrl!==ctx.p).forEach(u=>dealDamage(u,n,'spell')); },
   async partyFavor(op, ctx, h){ const o=opp(ctx.p);
     const sel=await UI.pickOption(o,'「파티 선물」: 선택하세요',[{v:'card',label:'카드 (둘 다 1장 드로우)'},{v:'rune',label:'룬 (둘 다 룬 1개 탈진 전개)'}]);
@@ -703,16 +707,12 @@ Object.assign(EXTRA_OPS, {
     await cleanup(ctx.p); },
   // 신사의 결투: 아군 +3(이번 턴) 후 적 하나와 서로 위력만큼 피해 (위력은 동시 계산)
   async gentlemenDuel(op, ctx, h){
-    const mine=everyUnit().filter(u=>u.ctrl===ctx.p);
-    if(!mine.length) return;
-    const a=await UI.pickUnitFrom(ctx.p, mine, '+3 위력을 받고 결투할 아군 유닛');
+    // 아군·적 두 대상 모두 플레이 시점 지정(352.8.a — #7519, 문장 중간의 '그 뒤 고른다'도 대상). 굴절·꿈꾸는 나무는 pickBySpec이 처리
+    const a=await pickBySpec(ctx.p, {side:'friendly',count:1}, '+3 위력을 받고 결투할 아군 유닛');
     if(!a) return;
-    noteSpellPick(ctx.p, a);           // 꿈꾸는 나무(292) 연동
     a.tempM.push({v:3,dur:'turn'});
     UI.log(`${unitName(a)} 위력 +3 (이번 턴)`, 'p'+ctx.p);
-    const foes=everyUnit().filter(u=>u.ctrl!==ctx.p);
-    if(!foes.length) return;
-    const b=await UI.pickUnitFrom(ctx.p, foes, '결투할 적 유닛 선택');
+    const b=await pickBySpec(ctx.p, {side:'enemy',count:1}, '결투할 적 유닛 선택');
     if(!b) return;
     const ma=might(a), mb=might(b);
     dealDamage(b, ma, 'effect'); dealDamage(a, mb, 'effect');
@@ -730,6 +730,7 @@ Object.assign(EXTRA_OPS, {
       }
       const u=makeUnit(0, ctx.p, {loc, isToken:true, tokenMight:1, tokenName:'Recruit'});
       placeUnit(u, loc);
+      await tokenPlayed(ctx.p, u);   // 토큰도 플레이된 유닛 — 오라 [통찰]·'유닛 플레이' 리스너 (룰 351.3, RiftJudge #5092)
     }
     UI.log(`${pname(ctx.p)} 1⚔ 신병 토큰 ${op.count}개 플레이`, 'p'+ctx.p);
     await cleanup(ctx.p); },
@@ -854,18 +855,12 @@ Object.assign(EXTRA_OPS, {
     for(const pi of recycledFor) await fireEvent('onYouRecycle',{p:pi});
     if(left<op.n) UI.log(`「미래의 용광로」: ${op.n-left}장 재활용`,'p'+ctx.p); },
   // 안면 분쇄(220): 같은 전장의 아군 1 + 적 1 기절. 양측이 함께 있는 전장이 있으면 그곳으로 제한
+  // 두 대상(같은 전장의 적·아군)은 플레이 시점 지정 — 쌍이 없으면 플레이 불가(352.8, #9040 · #4868).
+  // pickBySpec을 거치므로 굴절·꿈꾸는 나무·숨김 전장 제한(737)도 적용된다.
   async facebreaker(op, ctx, h){
-    const bothBfs=G.bfs.map((bf,i)=>i).filter(i=>G.bfs[i].units.some(u=>u.ctrl===ctx.p)&&G.bfs[i].units.some(u=>u.ctrl!==ctx.p));
-    // 아군과 적이 함께 있는 전장이 없으면 대상 쌍을 고를 수 없다 — 아무도 기절하지 않는다
-    if(!bothBfs.length){ UI.log('「안면 분쇄」: 아군과 적이 같은 전장에 있어야 합니다', 'sys'); return; }
-    const enCands=everyUnit().filter(u=>u.ctrl!==ctx.p&&bothBfs.includes(u.loc));
-    if(!enCands.length) return;
-    const en=await UI.pickUnitFrom(ctx.p,enCands,'기절시킬 적 유닛 (같은 전장의 아군도 기절)'); if(!en) return;
-    const frCands=G.bfs[en.loc].units.filter(u=>u.ctrl===ctx.p);
-    let fr=null;
-    if(frCands.length){
-      fr=frCands.length===1?frCands[0]:await UI.pickUnitFrom(ctx.p,frCands,'기절할 아군 유닛 (같은 전장)');
-    }
+    const en=await pickBySpec(ctx.p, facebreakerSpec(ctx.p, null), '기절시킬 적 유닛 (같은 전장의 아군도 기절)');
+    if(!en) return;
+    const fr=await pickBySpec(ctx.p, facebreakerSpec(ctx.p, en), '기절할 아군 유닛 (같은 전장)');
     await stunUnits(ctx.p, [en, fr].filter(Boolean)); },
   // 초강력 초토화 로켓!(252): 정복 시 1장 버리면 폐기장의 이 카드를 손패로
   async rocketRecover(op, ctx, h){
@@ -901,6 +896,49 @@ Object.assign(EXTRA_OPS, {
 Object.assign(SCRIPTS, {
   314: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},reaction:true,label:'⚡ 주문 전용 에너지 2 추가',ops:[OPX('addSpellEnergy',{n:2})]}]; return fx; },
 });
+// ══════════ 전용 op의 플레이 시점 대상 (룰 352.8.a) ══════════
+// engine preTargetSpecs가 op마다 여기 적힌 순서로 미리 고르고(굴절·꿈꾸는 나무도 그때), 해결 때 그 op가 같은 순서로
+// pickBySpec/chooseReturnToHand/chooseEffectMove를 부르면 takePreTarget이 꺼내 준다. 그사이 부적법해진 대상은 그 지시만
+// 불발(356.3.e). 항목은 spec 또는 (p, prev)=>spec — prev는 이 주문에서 앞서 고른 유닛들. spec._prompt는 해결 때와 같은 문구.
+// 이동 목적지(352.7)는 절충 ④(해결 시점), 「떨어지는 별」류 'Do this N번'은 반사 격발이라 fx.reflexive로 제외(383).
+function bounceTargetSpec(op, ctxUnit){
+  const spec={...op.spec, mightMax: op.maxM!==undefined ? op.maxM : op.spec.mightMax, _via:'returnHand', _prompt:'소유자의 손패로 되돌릴 대상'};
+  if(op.notSelf && ctxUnit) spec._exclude=[ctxUnit];
+  return spec;
+}
+const RETREAT_SPEC={side:'friendly', _via:'returnHand', _prompt:'소유자의 손패로 되돌릴 대상'};
+// 「안면 분쇄」: 적은 '아군과 함께 있는 전장'에서, 아군은 그 적과 같은 전장에서
+function facebreakerSpec(p, en){
+  if(!en){
+    const both=G.bfs.map((bf,i)=>i).filter(i=>G.bfs[i].units.some(u=>u.ctrl===p)&&G.bfs[i].units.some(u=>u.ctrl!==p));
+    return {side:'enemy',where:'bf',count:1,_uids:everyUnit().filter(u=>u.ctrl!==p&&both.includes(u.loc)).map(u=>u.uid),
+      _prompt:'기절시킬 적 유닛 (같은 전장의 아군도 기절)'};
+  }
+  return {side:'friendly',count:1,_uids:(en.loc==='base'?[]:G.bfs[en.loc].units.filter(u=>u.ctrl===p).map(u=>u.uid)),
+    _prompt:'기절할 아군 유닛 (같은 전장)'};
+}
+const PRE_TARGET_EXTRA = {
+  challenge: [{side:'friendly',count:1,_prompt:'아군 유닛 선택'},{side:'enemy',count:1,_prompt:'적 유닛 선택'}],
+  dmgLastDiscardCost: [{side:'any',where:'bf',count:1,_prompt:'피해를 줄 대상 (버릴 카드의 에너지 비용만큼)'}],
+  extortion: [{side:'enemy',count:1,_prompt:'대상 적 유닛 선택'}],
+  mightSetToOther: [(p,prev)=>({side:'friendly',count:1,_exclude:prev.slice(-1).filter(Boolean),_prompt:'위력을 복사할 다른 아군 유닛'})],
+  engarde: [{side:'friendly',count:1,_prompt:'위력을 올릴 아군 유닛'}],
+  bounceSpec: op=>[bounceTargetSpec(op, null)],
+  retreatOp: [RETREAT_SPEC],
+  possess: [{side:'enemy',where:'bf',count:1,_prompt:'통제권을 뺏을 적 유닛'}],
+  dragonRage: [{side:'enemy',_prompt:'이동시킬 적 유닛'}],
+  gunsBlazing: [{battlefield:true,_prompt:'피해를 줄 전장'}],
+  gentlemenDuel: [{side:'friendly',count:1,_prompt:'+3 위력을 받고 결투할 아군 유닛'},{side:'enemy',count:1,_prompt:'결투할 적 유닛 선택'}],
+  facebreaker: [(p)=>facebreakerSpec(p, null), (p,prev)=>facebreakerSpec(p, prev[prev.length-1])],
+  guillotine: [{type:'unit',side:'any',where:'any',count:1,_prompt:'단두대 대상 선택'}],
+};
+// 'Do this N번' 반사 격발 주문 — 대상은 격발이 체인에 오를 때(해결 뒤) 고른다(383 · 352.8.b, RiftJudge #6944 · #10084).
+// 절충 ①(격발 즉시 해결)에 따라 해결 시점 선택 = 종전 동작. 플레이에 대상이 필요 없고 굴절도 그때 낸다.
+Object.assign(SCRIPTS, {
+  29: fx=>{ fx.reflexive=true; return fx; },     // 떨어지는 별: Do this twice
+  248: fx=>{ fx.reflexive=true; return fx; },    // 이케시아 소나기: Do this 6 times
+});
+
 Object.assign(EXTRA_OPS, {
   async addSpellEnergy(op, ctx, h){
     const P=G.players[ctx.p]; P.energySpell=(P.energySpell||0)+op.n;

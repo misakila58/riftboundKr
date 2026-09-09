@@ -63,7 +63,11 @@ const polWeakest   = a => [...a].sort((x,y)=>might(x)-might(y))[0];
 function polCanPlay(p, c){
   try {
     const e = (typeof applyCostMods==='function') ? applyCostMods(p, c, c.e||0) : (c.e||0);
-    return canPay(p, e, powerPips(c));
+    if(!canPay(p, e, powerPips(c))) return false;
+    // 대상 주문은 적법 대상(굴절 지불 가능한 유닛)이 있어야 낼 수 있다(룰 352.8) — 엔진 playRestriction과 같은 판정
+    if(c.type==='Spell' && typeof spellHasTargets==='function' && !(FX[c.n]&&(FX[c.n].counter||FX[c.n].steal)))
+      return spellHasTargets(c.n, p);
+    return true;
   } catch(err){ return (c.e||0) + powerPips(c).length <= readyRunes(p).length; }
 }
 function polCost(c){ return (c.e||0) + powerPips(c).length; }
@@ -405,8 +409,9 @@ POLICY.number = function(p, text, min, max){
   if(!polSmart()) return clamp(lo + Math.floor(polHash('n', G.turnCount, text) * (hi-lo+1)));
   const txt = String(text||'');
   if(polMfAuroraDeck(p) && /지불할 힘\(✳\) 수/.test(txt)){
-    const plan=polMfBulletPlan(p,!!G.showdown);
-    POLICY._mfBulletPlan=plan?{p,tc:G.turnCount,sd:G.showdown||null,...plan}:null;
+    // 전장은 플레이 시점에 이미 골랐다(352.8 — option 핸들러가 플랜을 남긴다). 같은 플랜의 액수를 쓰고, 없으면 새로 세운다.
+    const bp=POLICY._mfBulletPlan; POLICY._mfBulletPlan=null;
+    const plan=(bp && bp.p===p && bp.tc===G.turnCount && bp.sd===(G.showdown||null)) ? bp : polMfBulletPlan(p,!!G.showdown);
     const n=plan?clamp(plan.damage):clamp(0);
     polSay('number',n,plan?'미스 포츈 — 쌍권총 난사 최소 승리 피해':'미스 포츈 — 유효한 난사 경로 없음');
     return n;
@@ -472,9 +477,14 @@ POLICY.option = function(p, title, options){
   const txt = String(title||'');
   if(polMfAuroraDeck(p)){
     if(/피해를 줄 전장/.test(txt)){
-      const bp=POLICY._mfBulletPlan;
-      POLICY._mfBulletPlan=null;
-      if(bp && bp.p===p && bp.tc===G.turnCount && bp.sd===(G.showdown||null)){
+      // 전장은 플레이 시점에 고른다(352.8) — 플랜을 여기서 세우고 힘 액수(number, 해결 시점)가 이어받는다
+      let bp=POLICY._mfBulletPlan;
+      if(!(bp && bp.p===p && bp.tc===G.turnCount && bp.sd===(G.showdown||null))){
+        const plan=polMfBulletPlan(p,!!G.showdown);
+        bp=plan?{p,tc:G.turnCount,sd:G.showdown||null,...plan}:null;
+      }
+      POLICY._mfBulletPlan=bp;
+      if(bp){
         const pick=options.find(o=>o.v===bp.bfIdx);
         if(pick){ polSay('option',pick.label,'미스 포츈 — 쌍권총 난사 목표 전장'); return pick.v; }
       }

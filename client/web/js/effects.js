@@ -416,7 +416,8 @@ function parseMiscClause(s, c, fx, legion){
     if(fx.activated.length) fx.activated[fx.activated.length-1].onlyAtBf=true; return true; }
   if(/^Other friendly units enter ready$/.test(s)){ st().push({kind:'enterReadyAura'}); return true; }
   if((m=s.match(/^Other friendly units( here)? have \[(\w[\w-]*)( \d+)?\]$/))){
-    st().push({kind:'kwAura',kws:[m[2].toLowerCase().replace('-','')],
+    // 수치 키워드 값(m[3], 없으면 1)은 effKw에서 다른 출처와 합산된다 (룰 Assault/Shield Value summed)
+    st().push({kind:'kwAura',kws:[m[2].toLowerCase().replace('-','')],val:m[3]?+m[3]:1,
       filter:{side:'friendly',other:true,...(m[1]?{where:'here',srcAtBf:true}:{})}}); return true; }
   if((m=s.match(/^Other friendly units have \+(\d+) :rb_might: here$/))){
     st().push({kind:'mightAura',n:+m[1],filter:{side:'friendly',other:true,where:'here',srcAtBf:true}}); return true; }
