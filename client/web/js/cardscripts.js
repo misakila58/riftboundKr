@@ -18,7 +18,10 @@ Object.assign(SCRIPTS, {
   19: fx=>{ fx.manual=[]; fx.statics=[{kind:'selfKw',kws:['assault','ganking'],cond:u=>TF().discarded[u.ctrl]}]; return fx; },
   21: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},legion:true,label:'다음 유닛 준비 등장 (군단)',
       ops:[OPX('setFlag',{flag:'nextUnitReady',val:true})]}]; return fx; },
-  23: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true,discard:1},label:'아군 유닛에 사망 방지 부여',ops:[OPX('armoryProtect')]}]; return fx; },
+  // "Choose a friendly unit"은 활성화 능력의 대상 — 비용(버림·탈진)보다 먼저 고르고(능력 플레이 2단계 선택 → 4단계 지불),
+  // 아군 유닛이 없으면 발동 자체가 불가(룰 391.3, RiftJudge #3642). 비용으로 버린 죠스가 등장해도 대상이 될 수 없다(#2485).
+  23: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true,discard:1},target:{side:'friendly',count:1,_prompt:'사망 방지를 부여할 아군 유닛'},
+      label:'아군 유닛에 사망 방지 부여',ops:[OPX('armoryProtect')]}]; return fx; },
   25: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('blindRage')]}]; return fx; },
   26: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('setFlag',{flag:'noPlay',side:'opp',val:true})]}]; return fx; },
   27: fx=>{ fx.manual=[]; fx.triggers.onYouPlayCard=[{cond:ctx=>ctx.seq===2,ops:[OPX('might',{n:2,self:true,dur:'turn'}),OPX('readySelf')]}]; return fx; },
@@ -111,7 +114,8 @@ Object.assign(SCRIPTS, {
   153: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('openPlan')]}]; return fx; },
   156: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('revealHandPick',{filter:'nonunit',action:'recycle'})]}]; return fx; },
   157: fx=>{ fx.manual=[]; fx.activated=[{cost:{spendBuff:true},label:'우디르: 하나 선택',ops:[OPX('udyr')]}]; return fx; },
-  158: fx=>{ fx.manual=[]; fx.triggers.onMoveToBf=[{who:'opp',cond:(ctx,src)=>src.loc==='base'||ctx.bfIdx!==src.loc,ops:[D1]}]; return fx; },
+  // "a battlefield other than mine" — 볼리베어가 전장에 있을 때만(기지는 전장이 아니다 · 카드 괄호문), 적 유닛이 다른 전장으로 이동하면 (RiftJudge #8279)
+  158: fx=>{ fx.manual=[]; fx.triggers.onMoveToBf=[{who:'opp',cond:(ctx,src)=>src.loc!=='base'&&ctx.bfIdx!==src.loc,ops:[D1]}]; return fx; },
   159: fx=>{ fx.manual=[]; fx.entersReady=true;
       fx.triggers.onAttack=[{ops:[OPX('killAll',{spec:{side:'enemy',where:'here',damaged:true}})]}]; return fx; },
   160: fx=>{ fx.manual=[]; fx.triggers.onEndTurn=[{ops:[OPX('dawnAurora')]}]; return fx; },
@@ -201,7 +205,9 @@ Object.assign(SCRIPTS, {
 // 시그니처: async (op, ctx, h) — h.it()/h.setIt(u)로 직전 대상 공유
 const EXTRA_OPS = {
   // ── 조건부 ──
-  async ifItDead(op, ctx, h){ const it=h.it(); if(it && (it._dead || (it.dmg>0 && it.dmg>=might(it)))) await execOps(op.ops, {...ctx, it}); },
+  // "If this kills it": 주문 해결 직후 클린업(322 2b)에서 죽을지를 같은 잣대로 본다 — 전투 결전 중이면 공/방 지정 위력
+  // ([맹공]·[보호막] 포함, targetMight)이라 살아남는 유닛에 드로우가 나지 않는다 (RiftJudge #7148)
+  async ifItDead(op, ctx, h){ const it=h.it(); if(it && (it._dead || (it.dmg>0 && it.dmg>=targetMight(it)))) await execOps(op.ops, {...ctx, it}); },
   async ifPaid(op, ctx, h){ await execOps(ctx.paidAdd ? op.ops : (op.elseOps||[]), ctx); },
 
   // ── 피해/전투 ──
@@ -233,7 +239,9 @@ const EXTRA_OPS = {
     if(it.stunned){ await killUnit(it); } else { await stunUnits(ctx.p, it); } },
 
   // ── 위력 조작 ──
-  async mightDouble(op, ctx, h){ const u=await pickBySpec(ctx.p, op.spec, '위력을 2배로 할 유닛'); if(u){ u.tempM.push({v:might(u),dur:'turn'}); h.setIt(u); UI.log(`${unitName(u)} 위력 2배!`,'p'+ctx.p); } },
+  // 「최후의 저항」: 해결 시점의 '현재 위력'을 스냅샷 — 전투 중 방어자의 [보호막]·공격자의 [맹공]까지 포함(targetMight).
+  // 쉔 3+보호막2=5 → 10, 전투가 끝나 보호막이 빠지면 8 (RiftJudge #2568)
+  async mightDouble(op, ctx, h){ const u=await pickBySpec(ctx.p, op.spec, '위력을 2배로 할 유닛'); if(u){ u.tempM.push({v:targetMight(u),dur:'turn'}); h.setIt(u); UI.log(`${unitName(u)} 위력 2배!`,'p'+ctx.p); } },
   async mightSetToOther(op, ctx, h){ const it=h.it(); if(!it) return;
     // '다른 아군 유닛'도 플레이 시점 대상(#3213) — 기준 유닛이 죽었으면 it=null로 이미 불발
     const t=await pickBySpec(ctx.p, {side:'friendly',count:1,_exclude:[it]}, '위력을 복사할 다른 아군 유닛'); if(!t) return;
@@ -402,21 +410,22 @@ const EXTRA_OPS = {
       for(let i=0;i<4;i++) drawCard(pi);
     }
     UI.log('「시간선 역전」: 모두 손패를 버리고 4장 드로우','sys'); },
-  async blindRage(op, ctx, h){ const o=opp(ctx.p); const O=G.players[o];
+  async blindRage(op, ctx, h){ const p=ctx.p, o=opp(p); const O=G.players[o], P=G.players[p];
     // 원문에 may 없음 — 공개한 카드는 '반드시' 추방한 뒤 비용 무시로 플레이한다 (거절·재활용 선택지 없음)
     if(!O.deck.length) return;
     const top=O.deck.shift(); const c=card(top);
     O.banish.push(top);                       // 추방 (플레이 실패해도 추방 상태 유지)
     UI.log(`상대 덱 맨 위 공개·추방: 「${c.ko}」 — 비용 무시로 플레이`,'sys');
-    if(c.type==='Unit'){ const u=makeUnit(top,ctx.p,{loc:'base',owner:o}); placeUnit(u,'base');
-      O.banish.splice(O.banish.indexOf(top),1);
-      await runTriggerList((FX[top]||{}).triggers?.onPlay,{p:ctx.p,unit:u,legionOK:true}); }
-    else if(c.type==='Spell'){
-      O.banish.splice(O.banish.indexOf(top),1);
-      for(const po of ((FX[top]||{}).playOps||[])) await execOps(po.ops,{p:ctx.p,kind:'spell'});
-      O.trash.push(top);                      // 다 쓴 주문은 소유자(상대) 폐기장으로 (107.5.i)
+    // 정식 플레이 경로(손패 맨 앞 임시 삽입 → playCardFromHand): 배치 위치 선택(352.3~4 — 결전 중이면 통제 전장도)·플레이 이벤트·
+    // [가속] 등 추가 비용 지불(353 "ignoring its cost"는 기본 비용만 0 — RiftJudge #2434)·브린히르 금지가 손패 플레이와 같다(#10521).
+    // 통제자는 나(ctx.p), 소유자는 상대(#4963) — 다 쓴 주문은 소유자 폐기장으로(107.5.i 유추). 실패하면 추방 상태로 남는다.
+    if(c.type==='Unit'||c.type==='Spell'||c.type==='Gear'){
+      P.hand.unshift(top);
+      const ok=await playCardFromHand(p,0,{byEffect:true,ignoreEnergy:true,ignorePower:true,owner:o});
+      if(ok===false){ if(P.hand[0]===top) P.hand.shift(); UI.log(`「${c.ko}」 플레이하지 못해 추방 상태로 남음`,'sys'); return; }
+      const bi=O.banish.lastIndexOf(top); if(bi>=0) O.banish.splice(bi,1);
+      if(c.type==='Spell'){ const ti=P.trash.lastIndexOf(top); if(ti>=0){ P.trash.splice(ti,1); O.trash.push(top); } }
     }
-    else if(c.type==='Gear'){ O.banish.splice(O.banish.indexOf(top),1); G.players[ctx.p].gear.push({n:top,ex:false,attachedTo:null}); }
     // 그 외(전장/룬 등)는 플레이 불가 — 추방 상태로 남는다 ("가능한 만큼만 실행")
     },
   // 유망한 미래(115): 각자 덱 위 5장을 보고 1장을 추방 → 다음 플레이어부터 정식 플레이 경로로 낸다. 에너지만 무시하고
@@ -585,10 +594,11 @@ const EXTRA_OPS = {
   async killThisGear(op, ctx, h){ if(!ctx.gear) return;
     const P=G.players[ctx.p]; const i=P.gear.indexOf(ctx.gear);
     if(i>=0) await killGear(ctx.p, i); },
+  // 대상은 activateAbility가 비용 지불 전에 골라 둔다(ab.target → ctx.pre). 여러 장을 같은 유닛에 걸면 각각 별개의 대체 효과라
+  // 한 번 죽을 때 하나만 소모된다(RiftJudge #686) — 불리언이 아니라 횟수로 센다.
   async armoryProtect(op, ctx, h){
-    const mine=everyUnit().filter(u=>u.ctrl===ctx.p); if(!mine.length) return;
-    const u=await UI.pickUnitFrom(ctx.p, mine, '사망 방지를 부여할 아군 유닛'); if(!u) return;
-    u._armory=true; UI.log(`${unitName(u)}: 이번 턴 사망 시 룬 지불로 회수 가능`,'p'+ctx.p); },
+    const u=await pickBySpec(ctx.p, {side:'friendly',count:1}, '사망 방지를 부여할 아군 유닛'); if(!u) return;
+    u._armory=(u._armory|0)+1; UI.log(`${unitName(u)}: 이번 턴 사망 시 룬 지불로 회수 가능 (×${u._armory})`,'p'+ctx.p); },
   // 차원문 구출(102): 아군 유닛을 추방한 뒤 '소유자'가 기지에 플레이한다 (에라타 "its owner plays it to its base" — RiftJudge #8127).
   // 정식 플레이 경로라 [가속]·등장 준비(워윅 #8348)·추가 비용·플레이 이벤트(빅토르 #5416·[군단])가 손패 플레이와 같다
   // (룰 353 — ignore는 기본 비용만). 토큰도 고를 수 있지만 보드 밖으로 나가는 순간 소멸한다 (룰 182 · #2895).
@@ -665,13 +675,17 @@ const EXTRA_OPS = {
       await fireEvent('onYouRecycle',{p:pi});
     }
     UI.log('「신성한 심판」: 각자 유닛/도구/룬/손패 2개만 남김','sys'); },
+  // 와작와작 죠스(6) "pay 분노 to play me": 정식 플레이 경로(폐기장→손패 맨 앞→playCardFromHand fromTrash)로 낸다 — 기지 또는
+  // 통제 중인 전장(자운 소굴·방어 중인 결전 전장 포함, 352.4.a · RiftJudge #5470 · #3111)을 고르고, 플레이 이벤트·playedCards·
+  // 등장 준비(태양 원반 등)도 손패 플레이와 같다(#4866 "Chompers permanent on chain"). 분노 힘이 카드의 비용을 대신한다.
   async jawsReplay(op, ctx, h){
-    if(!canPay(ctx.p,0,['Fury'])) return;
+    const P=G.players[ctx.p]; const idx=P.trash.lastIndexOf(6);
+    if(idx<0 || !canPay(ctx.p,0,['Fury']) || TF().noPlay[ctx.p]) return;
     const yes=await UI.confirmP(ctx.p,'분노 힘 1을 지불하고 「와작와작 죠스」를 플레이할까요?'); if(!yes) return;
     payCost(ctx.p,0,['Fury']);
-    const P=G.players[ctx.p]; const idx=P.trash.lastIndexOf(6);
-    if(idx>=0) P.trash.splice(idx,1);
-    const u=makeUnit(6,ctx.p,{loc:'base'}); placeUnit(u,'base');
+    P.trash.splice(idx,1); P.hand.unshift(6);
+    const ok=await playCardFromHand(ctx.p,0,{fromTrash:true,ignoreEnergy:true,ignorePower:true});
+    if(ok===false){ if(P.hand[0]===6) P.hand.shift(); P.trash.splice(idx,0,6); return; }
     UI.log(`${pname(ctx.p)} 「와작와작 죠스」 버림에서 플레이!`,'p'+ctx.p); },
   async itCtrlDraw(op, ctx, h){ const it=h.it(); if(!it) return;
     for(let i=0;i<(op.n||1);i++) drawCard(it.ctrl); },
@@ -783,6 +797,11 @@ Object.assign(EXTRA_OPS, {
     for(const pi of [0,1]){
       const P=G.players[pi];
       for(let i=P.gear.length-1;i>=0;i--) await killGear(pi, i);
+    }
+    // 유닛에 장착된 장비도 여전히 도구다 — "Kill all gear"에 함께 폐기된다 (RiftJudge #3302 · #3756)
+    for(const u of everyUnit()){
+      if(!u.gear || !u.gear.length) continue;
+      for(const gn of u.gear.splice(0)){ trashCard(u.ctrl, gn); UI.log(`장착 도구 「${card(gn).ko}」 폐기됨`, 'p'+u.ctrl); }
     } },
   // 도구 하나를 골라 폐기 (양측 후보). optional이면 '처치 안 함' 포함.
   // 선택지 순서는 봇 정책(첫 항목 선택)을 고려한 것: 적 도구 → 안 함 → 내 도구.
@@ -891,8 +910,8 @@ Object.assign(EXTRA_OPS, {
     if(ti<0 || !P.hand.length) return;
     const yes=await UI.confirmP(ctx.p,'1장을 버리고 「초강력 초토화 로켓!」을 폐기장에서 회수할까요?'); if(!yes) return;
     const idx=await UI.pickHandCard(ctx.p,'버릴 카드 선택');
-    const dn=(idx===null)?P.hand.pop():P.hand.splice(idx,1)[0];
-    P.trash.push(dn); TF().discarded[ctx.p]=true; await fireEvent('onYouDiscard',{p:ctx.p,n:dn});
+    // 정식 버림(discardFromHand): '나를 버리면' 격발(죠스 6 — 버린 죠스를 플레이해도 로켓 회수는 그대로, RiftJudge #6209)·버림 이벤트
+    await discardFromHand(ctx.p, (idx===null)?P.hand.length-1:idx);
     const ti2=P.trash.indexOf(252); if(ti2>=0){ P.trash.splice(ti2,1); P.hand.push(252); }
     UI.log(`「초강력 초토화 로켓!」 손패로 회수`,'p'+ctx.p); },
   // 녹서스의 단두대(254): 군단이면 즉시 처치, 아니면 '이번 턴 다음 피해 시 처치' 표식
