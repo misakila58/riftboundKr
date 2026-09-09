@@ -41,6 +41,7 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 - 화면 구조: `client/web/index.html` (connect/login/menu/decks/editor/lobby/p2p/setup/game 스크린).
 - 서버: `server/server.js` 단일 파일 (계정 REST + WS 릴레이).
 - 리플레이: 데스크톱은 `client/replay-store.js`(메인 프로세스 fs) + `preload.js`의 `desktop.replay.*` IPC로 `문서\RiftboundSim\Replays\*.rbr`에 저장, 웹/APK는 IndexedDB(`rb_replays`). **client 루트에 파일을 추가하면 package.json의 `build.files`에도 넣을 것** (안 넣으면 패키징에서 빠져 앱이 시작조차 못 함).
+- **RiftJudge 대조 수정 (2026-09-09)**: 판정 2,471건 감사 → 불일치 307건 → 룰북 원문 재대조 후 196건 처리(수정 175·부분 5·이미 14·보류 2). 배치별 회귀 테스트 `tools/tests/test-batch1~7.js`(총 277건) — **엔진을 고치면 `for t in tools/tests/test-*.js; do node $t; done` 전부 통과시킬 것**. 변경 내역 `docs/룰대조-변경내역-2026-09-09.md`, 감사 도구는 아래 항목.
 - **룰 판정 대조**: `node tools/fetch-riftjudge.js`가 RiftJudge(app.riftjudge.com, 공개 API `GET /api/questions/{id}`·`POST /api/search {query,limit}`) Q&A 전체를 `tools/data/riftjudge.jsonl`(gitignore, 재개 가능)로 받는다. 카드별 판정을 찾을 때 이 파일을 카드 영문명으로 grep.
 - 카드 데이터 수정: `tools/data/`의 번역본 수정 → `node tools/build-cards.js` (요청 시에만).
 - **카드 풀**: OGN(Origins) 298장 + OGS(증명의 전장, Origins: Proving Grounds) 24장 = 322장. OGS는 n=300+수집번호(301~324), 수집은 `tools/fetch-ogs.js`, 번역은 `tools/data/tr_out_ogs.json`. **시그니처 카드**(티버스·최후의 전사 등 4장)는 같은 챔피언의 전설 덱에만 — buildDeck/에디터/selfplay/서버 4곳 모두에서 태그 일치 검사.
