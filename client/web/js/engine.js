@@ -635,6 +635,12 @@ async function startTurn(){
       UI.log(`[일시적] ${unitName(u)} 처치됨`, 'sys');
       await killUnit(u);
     }
+    // [일시적]은 도구(영구물)에도 붙는다 — 「희미해지는 기억」(180)이 준 도구는 통제자의 개시 단계에 처치 (룰 742.1 · #6709)
+    for(const g of [...P.gear].filter(g=>g.temporary)){
+      const gi=P.gear.indexOf(g); if(gi<0) continue;
+      UI.log(`[일시적] 도구 「${card(g.n).ko}」 처치됨`, 'sys');
+      await killGear(p, gi);
+    }
     if(G.turnCount<=2){
       for(let i=0;i<G.bfs.length;i++)
         await fireBfTrigger(i,'onFirstBeginning',{p, bfIdx:i});
@@ -811,6 +817,8 @@ async function effectMove(p, u, dest){
   // 효과로 옮겨진 이동도 이동이다 (룰 427). 「매혹」으로 상대 유닛을 내 전장에 끌어오면
   // 상대가 공격자이고 그 유닛이 공격자 지정을 받는다 (룰 428).
   await fireAttackTriggers(u, dest);
+  // 효과 이동에도 「은밀한 추적자」가 따라갈 수 있다 (#6119 "It can move with Ride the Wind on a friendly unit")
+  await tagAlongFollow([u], [from], dest);
   return true;
 }
 
@@ -833,10 +841,12 @@ async function chooseEffectMove(p, spec, to, extra={}, boardPick=false){
       : to==='bf' ? G.bfs.map((_,i)=>i)
       : [to];
     for(const dest of dests){
-      if(!canEffectMove(u, dest)) continue;
-      if(extra.swapUid){                       // 물결을 바꾸는 자: 서로 자리를 맞바꿀 수 있을 때만
+      if(!extra.swapUid && !canEffectMove(u, dest)) continue;
+      if(extra.swapUid){                       // 물결을 바꾸는 자: 교환은 두 개의 독립 이동 — 한쪽이 막혀도 가능한 쪽만 이동(부분 해결)
         const me=everyUnit().find(x=>x.uid===extra.swapUid);
-        if(!me || dest!==me.loc || !canEffectMove(me, u.loc)) continue;
+        if(!me || dest!==me.loc) continue;
+        // 「후퇴 없는 전선」의 유닛은 기지로 못 나가지만 물결을 바꾸는 자는 그 전장으로 간다 (룰 100 · 356.3.e — RiftJudge #7241 · #8972)
+        if(!canEffectMove(me, u.loc) && !canEffectMove(u, dest)) continue;
       }
       options.push({ v:options.length,
         label:`${unitLabel(u)} → ${dest==='base'?'기지':card(G.bfs[dest].n).ko}`,
@@ -851,7 +861,8 @@ async function chooseEffectMove(p, spec, to, extra={}, boardPick=false){
 }
 async function resolveEffectMove(p, choice){
   const u = everyUnit().find(x=>x.uid===choice.uid);
-  if(!canEffectMove(u, choice.dest)) return null;
+  if(!u || u._dead) return null;
+  if(!choice.swapUid && !canEffectMove(u, choice.dest)) return null;
   if(!choice.alreadyPicked){
     noteSpellPick(p, u);
     if(!(await payDeflect(p, u))) return null;
@@ -860,9 +871,15 @@ async function resolveEffectMove(p, choice){
   // 「폭풍의 돌격」: 도착 전장의 적에게 이동 유닛의 위력만큼 피해
   if(choice.storm) for(const e of G.bfs[choice.dest].units.filter(x=>x.ctrl!==p)) dealDamage(e, might(u), 'spell');
   if(choice.swapUid){
+    // 물결을 바꾸는 자: 두 이동은 각각 독립 — 막힌 쪽만 불발하고 나머지는 이동한다 (룰 100 · RiftJudge #7241 부분 해결)
     const me=everyUnit().find(x=>x.uid===choice.swapUid);
-    if(!canEffectMove(me, u.loc)) return null;
-    await effectMove(p, me, u.loc);
+    const meDest=u.loc, uDest=choice.dest;
+    let moved=false;
+    if(me && canEffectMove(me, meDest)){ await effectMove(p, me, meDest); moved=true; }
+    else UI.log(`${me?unitName(me):'물결을 바꾸는 자'}: 그곳으로 이동할 수 없어 이동하지 않음`, 'sys');
+    if(canEffectMove(u, uDest)){ await effectMove(p, u, uDest); moved=true; }
+    else UI.log(`${unitName(u)}: 그곳으로 이동할 수 없어 이동하지 않음 (교환 부분 해결)`, 'sys');
+    return moved ? u : null;
   }
   await effectMove(p, u, choice.dest);
   if(choice.ready) await readyUnit(u, p);
@@ -929,6 +946,7 @@ async function resolveReturnToHand(p, choice){
     if(!(await payDeflect(p, u))) return null;
   }
   const owner = u.owner!==undefined ? u.owner : u.ctrl;   // 통제권을 뺏은 유닛은 원래 주인에게
+  detachGear(u);                                    // 장착 도구는 손패로 따라가지 않고 기지로 회수 (룰 425 · #9348)
   removeUnit(u);
   if(!u.isToken){                                   // 토큰은 손패로 가지 않고 사라진다
     // 예측 중에는 '공개적으로 돌아간' 카드만 재사용 가치에 반영한다 (상대의 기존 손패는 평가 안 함)
@@ -1078,7 +1096,8 @@ async function playCardFromHand(p, handIdx, opts={}){
     : playRestriction(c, p, !!opts.fromHidden, opts.bfIdx);
   if(restr){ UI.toast(restr,'warn'); return false; }
   const hasPlayLoc=Object.prototype.hasOwnProperty.call(opts,'playLoc');
-  if(hasPlayLoc && !canPlayCardAt(p,n,opts.playLoc)){
+  // locByEffect: 효과가 위치를 지정한 플레이("play ... here" — 성취자 아바 107)는 통제 여부 검사를 거치지 않는다
+  if(hasPlayLoc && !opts.locByEffect && !canPlayCardAt(p,n,opts.playLoc)){
     UI.toast('이 카드는 그 위치에 플레이할 수 없습니다','warn'); return false;
   }
 
@@ -1157,10 +1176,13 @@ async function playCardFromHand(p, handIdx, opts={}){
   // ── 비용 산정 ──
   let energy = c.e||0, pips = powerPips(c);
   if(opts.fromHidden){ energy=0; pips=[]; }
+  // 힘 할인(크라켄 사냥꾼 150 '버프당 힘 -1')은 [가속] 추가 비용까지 합한 '총비용'에서 뺀다 (룰 353 3단계
+  // "additional costs ... then reductions" · RiftJudge #4836 · #7976 — 4E 3P가 되어 버프 3개면 힘 0) → 가속 결정 뒤에 적용
+  const pipDisc = (AC && addPaid && AC.pipDiscountPer) ? addCount : 0;
+  const discPips = arr => { const a=[...arr]; for(let i=0;i<pipDisc && a.length;i++) a.pop(); return a; };
   if(AC && addPaid){
     if(AC.discountE) energy=Math.max(0,energy-AC.discountE);
     if(AC.ignoreCost){ energy=0; pips=[]; }
-    if(AC.pipDiscountPer){ for(let i=0;i<addCount && pips.length;i++) pips.pop(); }
     if(AC.kind==='pip') pips=[...pips, AC.dom];
   }
   energy = applyCostMods(p, c, energy);
@@ -1175,11 +1197,12 @@ async function playCardFromHand(p, handIdx, opts={}){
   const discE = opts.discountE||0;
   if(c.type==='Unit' && fx.kw.accelerate){
     const accPips = [ (c.dom&&c.dom.length===1)?c.dom[0]:'Any' ];
-    if(canPay(p, Math.max(0,energy+1-discE), [...pips, ...accPips])){
+    if(canPay(p, Math.max(0,energy+1-discE), discPips([...pips, ...accPips]))){
       accel = await UI.confirmP(p, `[가속] 추가 비용(에너지 1+힘 1)을 지불하고 준비 상태로 등장시킬까요?`, c);
       if(accel){ energy+=1; pips=[...pips,...accPips]; }
     }
   }
+  pips = discPips(pips);
   energy = Math.max(0, energy-discE);
   const spellOK = c.type==='Spell';   // 주문 전용 자원(럭스 314·카이사 전설 247)은 주문에만 쓸 수 있다
   // 룰 357.1.a: 비용 지불 단계에서 [반응] 태그의 자원 추가 능력을 발동해 비용을 충당할 수 있다
@@ -1431,6 +1454,9 @@ async function resolveSpellEffects(p, n, fx, o){
       if(po.legion && !o.legionOK){ UI.log(`[군단] 조건 미충족 — 효과 생략`, 'sys'); continue; }
       await execOps(po.ops, {p:execAs, legionOK:o.legionOK, bfIdx:o.bfIdx, kind:'spell', paidAdd:o.addPaid, addCount:o.addCount,
         hiddenBf:o.hiddenBf??null, pre:o.pre||null});
+      // 반사 격발 주문("Do this N번" — 이케시아 소나기·떨어지는 별)은 격발 하나가 해결될 때마다 클린업이 끼어들어
+      // 그때 죽은 유닛의 [죽음의 종소리]가 남은 격발보다 먼저 해결된다 (룰 322 · RiftJudge #272)
+      if(fx.reflexive && fx.playOps.length>1) await cleanupDeaths();
     }
   }
   // 소모형 플래그 해제 (다음 주문 할인/보너스)
@@ -1438,6 +1464,7 @@ async function resolveSpellEffects(p, n, fx, o){
   G._casting=null;
   if(fx.manual.length) UI.manualNotice(c);
   if(G._banishSpell){ P.banish.push(n); G._banishSpell=false; UI.log(`「${c.ko}」 추방됨`, 'sys'); }
+  else if(G._spellPreTrashed===n){ G._spellPreTrashed=null; }   // 효과 중에 미리 폐기장에 둔 주문(「괴롭히는 밤」 198 — #6899)
   else trashCard(p, n);
   // 주문이 체인을 떠나면 먼저 클린업(치명 피해 사망 — 룰 319.7 · 322 2a)이 일어나고, 그 다음에야
   // '주문을 플레이할 때' 격발이 난다. 예전엔 격발이 효과보다 먼저 나서 「레이븐블룸 학생」이 자기 피해 주문에서
@@ -1556,12 +1583,47 @@ async function reactionWindow(caster, c, context={}){
         }
       }catch(e){}
     }
+    // 숨겨 둔 카드는 뒷면인 동안 [반응]이다 (룰 739.1) — 상대 턴 중립 상태의 주문에도 뒤집을 수 있다
+    // (「과거에게 묻다」로 2장 뽑고 카운터를 찾는 플레이 — RiftJudge #7188). 예전엔 전장 클릭으로만 공개할 수 있어
+    // 응수 창에서는 불가능했다. 종류 무관(유닛·도구도 739.1) — playRestriction이 _rwFor+fromHidden으로 허용한다.
+    {
+      const prevRw=G._rwFor; G._rwFor=o;
+      try{
+        G.bfs.forEach((bf,i)=>{
+          if(bf.units.some(u=>u.ctrl!==o && unitFx(u).blockReveal)) return;   // 녹서스 파괴공작원
+          bf.hiddenCards.forEach(h=>{
+            if(h.by!==o) return;
+            if(h.turn===G.turnCount && G.turn===o) return;                     // 숨긴 턴에는 못 쓴다
+            const hc=card(h.n); if(!hc) return;
+            if(playRestriction(hc, o, true, i)) return;                        // 이 전장에 대상 없는 주문(737) 등
+            opts.push({v:{hidden:{bfIdx:i, n:h.n}}, label:`⚡ [숨김 공개] ${hc.ko} (${card(bf.n).ko}, 비용 0)`,
+              isCounter:false, card:hc, pendingSpell: result ? null : {...context, p:caster, n:c.n}});
+          });
+        });
+      } finally { G._rwFor=prevRw; }
+    }
     if(!opts.length) return result;
     const sel=await UI.pickReaction(o, `${pname(caster)}이(가) 「${c.ko}」 플레이 — [반응]으로 응수할까요?`, opts);
     if(sel===null||sel===undefined) return result;
     // [반응] 능력 발동 (즉시 해결)
     if(typeof sel==='object' && sel.ab){
       await activateAbility(o, sel.ab.src, sel.ab.ab);
+      if(G.winner!==null) return result;
+      continue;
+    }
+    // 숨김 카드 공개 (739.1) — playHidden과 같은 정식 경로(fromHidden: 비용 0, 유닛은 그 전장, 주문은 즉시 해결+재응수 창)
+    if(typeof sel==='object' && sel.hidden){
+      const {bfIdx, n:hn2}=sel.hidden; const bf=G.bfs[bfIdx];
+      const h=bf.hiddenCards.find(x=>x.by===o && x.n===hn2); if(!h) continue;
+      bf.hiddenCards.splice(bf.hiddenCards.indexOf(h),1);
+      UI.log(`${pname(o)} 전장의 숨김 카드를 공개! (응수)`, 'p'+o);
+      const prevRw=G._rwFor, prevPending=G._returnPending;
+      G._rwFor=o;
+      G._returnPending = result ? null : {...context, p:caster, n:c.n};
+      let ok;
+      try{ ok=await playCardFromHand(o, -1, {fromHidden:true, bfIdx, directN:hn2}); }
+      finally{ G._rwFor=prevRw; G._returnPending=prevPending; }
+      if(ok===false){ bf.hiddenCards.push(h); UI.render(); }
       if(G.winner!==null) return result;
       continue;
     }
@@ -1719,6 +1781,23 @@ playCardFromHand = async function(p, handIdx, opts={}){
   return _origPlay(p, handIdx, opts);
 };
 
+// 「은밀한 추적자」(177) "When a friendly unit moves from my location, I may be moved with it" — 표준 이동·효과 이동(바람 타기·
+// 매혹·아지르) 모두, 출발지가 기지여도, 추적자가 탈진 상태여도(비용 없는 능력 이동) 동행할 수 있다 (RiftJudge #6119 · #2230 · #1531).
+// 예전엔 표준 이동에서만, 전장 출발일 때만 물었다. 동행 여부는 추적자의 통제자가 정한다.
+async function tagAlongFollow(units, origins, dest){
+  if(G.manual) return;
+  for(let i=0;i<units.length;i++){
+    const mover=units[i], o=origins[i];
+    if(o===dest) continue;
+    const here = o==='base' ? G.players[mover.ctrl].base : G.bfs[o].units;
+    for(const t of [...here].filter(x=>x.ctrl===mover.ctrl && unitFx(x).tagAlong && !units.includes(x) && x.loc===o)){
+      const yes=await UI.confirmP(t.ctrl, `「${unitName(t)}」도 함께 이동할까요?`, unitCard(t));
+      if(yes){ removeUnit(t); placeUnit(t,dest); t.turnMoves=(t.turnMoves||0)+1; UI.log(`${unitName(t)} 동행 이동`, 'p'+t.ctrl);
+        await fireAttackTriggers(t, dest); }
+    }
+  }
+}
+
 // ---------- 이동 ----------
 async function moveUnits(p, units, dest){
   // dest: 'base' | bfIdx
@@ -1751,12 +1830,7 @@ async function moveUnits(p, units, dest){
   }
   if(dest!=='base') await fireEvent('onMoveToBf', {p, bfIdx:dest});
   // 은밀한 추적자: 같은 위치에서 아군이 이동하면 동행 가능
-  for(const o of [...new Set(origins.filter(x=>x!=='base'))]){
-    for(const t of [...G.bfs[o].units].filter(x=>x.ctrl===p && unitFx(x).tagAlong && !units.includes(x))){
-      const yes=await UI.confirmP(p, `「${unitName(t)}」도 함께 이동할까요?`, unitCard(t));
-      if(yes){ removeUnit(t); placeUnit(t,dest); t.turnMoves=(t.turnMoves||0)+1; UI.log(`${unitName(t)} 동행 이동`, 'p'+p); }
-    }
-  }
+  await tagAlongFollow(units, origins, dest);
   // 공격 트리거 — 이동·플레이가 같은 판정을 쓴다
   for(const u of units) await fireAttackTriggers(u, dest);
   await cleanup(p, units[0]?.loc);
@@ -2017,12 +2091,15 @@ async function resolveShowdown(){
     if(!bf.scored[remaining]){
       bf.scored[remaining]=true; P.scoredBf[G.bfs.indexOf(bf)]=true;
       addPoints(remaining,1,'conquer');
+      // 전장 정복 격발의 비용('버프를 소모해 드로우' — 히라나 수도원)은 체인 적재 시점에 내므로(룰 383.3.b · #8738)
+      // 유닛 정복 격발(세트 - 싸움꾼 buffSelf)이 준 버프로는 낼 수 없다 — 정복 순간의 버프 보유 유닛을 스냅샷해 넘긴다
+      const buffedAt=new Set(everyUnit().filter(u=>u.ctrl===remaining && u.buff>0).map(u=>u.uid));
       // 정복 트리거
       for(const u of bf.units.filter(u=>u.ctrl===remaining)){
         await runTriggerList(unitFx(u).triggers?.onConquer, {p:remaining, unit:u, bfIdx:sd.bfIdx, excess:(remaining===sd.attacker?sd.excess:0)});
       }
       await fireTriggers('onConquerYou', {p:remaining, bfIdx:sd.bfIdx});
-      await fireBfTrigger(sd.bfIdx,'onConquerHere',{p:remaining,bfIdx:sd.bfIdx});
+      await fireBfTrigger(sd.bfIdx,'onConquerHere',{p:remaining,bfIdx:sd.bfIdx,buffedAt});
       await legendHook(remaining,'hookConquer',{p:remaining});
     } else {
       UI.log(`이번 턴에 이미 득점한 전장 — 추가 득점 없음`, 'sys');
@@ -2180,13 +2257,14 @@ async function killUnit(u, opts){
   }
   removeUnit(u);
   UI.log(`💀 ${unitName(u)} 사망`, 'combat');
-  // 도구는 폐기
-  u.gear.forEach(gn=>trashCard(u.ctrl,gn));
+  // 장착 도구는 폐기되지 않고 분리되어 기지로 회수된다 (룰 424.3·425 · 148 — RiftJudge #1391 · #677)
+  detachGear(u);
 
   if(!u.isToken){
     // 공식 룰: 선발 챔피언도 사망 시 폐기장으로 간다.
     // 챔피언 존 복귀는 일반적 수단으로는 불가 — 특정 효과(예: 신성한 무덤)로만 가능.
-    trashCard(u.ctrl, u.n);
+    // 카드는 언제나 '소유자'의 폐기장으로 — 「빙의」로 뺏은 유닛도 원 소유자 폐기장 (룰 107 "owner's trash instead" · #2250 · #4896)
+    trashCard(u.owner!==undefined ? u.owner : u.ctrl, u.n);
   }
   // 턴 플래그: 상대 관점의 '적 유닛 사망'
   TF().enemyDied[opp(u.ctrl)]=true;
@@ -2751,20 +2829,29 @@ async function execOps(ops, ctx){
         // 숨김에서 나온 플레이가 유닛을 플레이하게 하면 그 전장에 놓는다 (룰 737.3)
         if(_hiddenBf!==null) loc=_hiddenBf;
         else if(op.where==='here' && _ctxBf!==null) loc=_ctxBf;
-        else if(op.where==='play'){
+        // 「마법사냥꾼 간수」(70) "opponents can only play units to their base" — 토큰 플레이도 유닛 플레이라 전장엔 못 낸다
+        const jailed=everyUnit().some(u=>u.ctrl!==p && u.loc!=='base' && unitFx(u).jailerUnits);
+        if(op.where==='play' && _hiddenBf===null){
           // 토큰도 '플레이'하는 것이므로 기지 또는 통제 중인 전장을 고른다 (룰 406/143)
           const locs=[{v:'base',label:'기지'}];
-          G.bfs.forEach((bf,i)=>{ if(bf.controller===p) locs.push({v:i,label:'전장: '+card(bf.n).ko,n:bf.n}); });
+          if(!jailed) G.bfs.forEach((bf,i)=>{ if(bf.controller===p) locs.push({v:i,label:'전장: '+card(bf.n).ko,n:bf.n}); });
           const sel=locs.length===1?'base':await UI.pickOption(p,'토큰을 배치할 위치',locs);   // '배치할 위치' — 봇의 배치 정책이 답한다
           if(sel!==null) loc=sel;
         }
-        else if(op.where==='at a battlefield'){
+        else if(op.where==='at a battlefield' && _hiddenBf===null){
           const sel=await UI.pickOption(p,'토큰을 배치할 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko,n:bf.n})).concat([{v:'base',label:'기지'}]));
           if(sel!==null) loc=sel;
         }
+        // 숨김에서 낸 「스프라이트 부름」·'이곳' 토큰은 그 전장에만 낼 수 있고 기지로 돌릴 수 없다 — 간수가 있으면
+        // 주문은 해결되되 토큰만 불발 (룰 100 불가능한 지시 무시 · RiftJudge #3977)
+        if(loc!=='base' && jailed){ UI.log(`「마법사냥꾼 간수」: 전장에 유닛을 플레이할 수 없어 토큰이 나오지 않음`, 'sys'); break; }
+        // 토큰도 플레이된 유닛(351.3)이라 「맞대결」(129) '이번 턴 플레이하는 유닛은 준비 등장'·등장 준비 오라를 그대로 받는다 (#8620)
+        let tokReady = !!op.ready || !!TF().enterReady[p]
+          || collectStatics().some(src=>src.s.kind==='enterReadyAura' && src.p===p);
+        if(TF().nextUnitReady[p]){ tokReady=true; TF().nextUnitReady[p]=false; }
         const madeTokens=[];
         for(let i=0;i<op.count;i++){
-          const u=makeUnit(0,p,{loc,isToken:true,tokenMight:op.might,tokenName:op.name,ready:op.ready});
+          const u=makeUnit(0,p,{loc,isToken:true,tokenMight:op.might,tokenName:op.name,ready:tokReady});
           if(op.temp) u.grants.temporary=true;
           placeUnit(u,loc);
           madeTokens.push(u);
@@ -2888,7 +2975,8 @@ async function execOps(ops, ctx){
         if(yes){ payCost(p,op.energy,[]); await execOps([op.inner], {...ctx, it}); }
         break; }
       case 'spendBuffThen': {
-        const cands=everyUnit().filter(u=>u.ctrl===p&&u.buff>0);
+        // 격발 비용은 적재 시점 지불(383.3.b) — 정복 스냅샷(ctx.buffedAt)이 있으면 그때 버프가 있던 유닛만 (#8738)
+        const cands=everyUnit().filter(u=>u.ctrl===p&&u.buff>0&&(!ctx.buffedAt||ctx.buffedAt.has(u.uid)));
         if(!cands.length) break;
         const yes=await UI.confirmP(p,'버프를 소모하고 효과를 실행할까요?');
         if(!yes) break;
@@ -3021,6 +3109,17 @@ function describeOps(ops){
 }
 
 // ---------- 도구 장착 ----------
+// 유닛이 보드를 떠날 때(사망·손패·추방) 장착 도구는 분리되어 '도구 통제자'의 기지로 준비 상태로 회수된다
+// (룰 424.3·425 분리 위치 → 148 전장의 도구는 다음 클린업에 회수 · RiftJudge #1391 · #677 · #43). 예전엔 사망 시 폐기, 손패 복귀 시 소실.
+function detachGear(u){
+  if(!u || !u.gear || !u.gear.length) return;
+  u.gear.forEach((gn,i)=>{
+    const gp=(u.gearCtrl && u.gearCtrl[i]!==undefined) ? u.gearCtrl[i] : u.ctrl;
+    G.players[gp].gear.push({n:gn, ex:false, attachedTo:null});
+    UI.log(`도구 「${card(gn).ko}」 분리 → ${pname(gp)} 기지로 회수`, 'sys');
+  });
+  u.gear=[]; u.gearCtrl=[];
+}
 async function equipGear(p, gearIdx){
   const P=G.players[p];
   const g=P.gear[gearIdx]; if(!g) return;
@@ -3032,6 +3131,7 @@ async function equipGear(p, gearIdx){
   if(!u) return;
   payCost(p,fx.equipCost,[]);
   u.gear.push(g.n);
+  (u.gearCtrl=u.gearCtrl||[]).push(p);   // 도구 통제자 — 분리 시 이 플레이어의 기지로 (뺏은 유닛에 내 도구를 달아도 내 것)
   const gi=P.gear.indexOf(g); if(gi>=0)P.gear.splice(gi,1);
   UI.log(`${pname(p)} 「${card(g.n).ko}」를 ${unitName(u)}에 장착`, 'p'+p);
   UI.render();
