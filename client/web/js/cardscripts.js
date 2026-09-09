@@ -347,29 +347,33 @@ const EXTRA_OPS = {
       UI.log(`${pname(ctx.p)} 폐기장 ${picked.length}장 재활용`,'p'+ctx.p); await fireEvent('onYouRecycle',{p:ctx.p}); } },
   async lookTopHand(op, ctx, h){ const P=G.players[ctx.p];
     const top=P.deck.splice(0, op.n); if(!top.length) return;
-    const sel=await UI.pickOption(ctx.p,'손패에 넣을 카드 1장',top.map(n=>({v:n,label:card(n).ko,n})));
-    const take = sel!==null?sel:top[0];
-    P.hand.push(take);
-    top.splice(top.indexOf(take),1); P.deck.push(...shuffle(top));
+    await nocturneOffer(ctx.p, top);   // 녹턴은 '본' 시점에 추방·플레이 가능 — 손패 1장과 별개 (RiftJudge #9759)
+    if(top.length){
+      const sel=await UI.pickOption(ctx.p,'손패에 넣을 카드 1장',top.map(n=>({v:n,label:card(n).ko,n})));
+      const take = sel!==null?sel:top[0];
+      P.hand.push(take);
+      top.splice(top.indexOf(take),1);
+    }
+    P.deck.push(...shuffle(top));
     if(top.length) await fireEvent('onYouRecycle',{p:ctx.p});
     UI.log(`${pname(ctx.p)} 덱 위 ${op.n}장 확인 → 1장 손패`,'p'+ctx.p); },
+  // 증원(62)·미끼 바늘(242): 덱 위 N장을 보고 유닛 하나를 추방한 뒤 정식 플레이 경로(playCardByEffect)로 낸다.
+  // "ignoring its cost"/"reducing its cost by 5"는 기본 비용만 손대고(룰 353 3단계) [가속]·추가 비용(잔혹한 후원자)·배치 위치
+  // (비워진 통제 전장 포함 — 클린업 전이라 통제 유지)·플레이 이벤트(다리우스·[군단])는 손패 플레이와 같다
+  // (RiftJudge #10924 · #5989 · #10517 · #8008). 증원 할인은 [가속] 에너지에도 적용(#5164 → discountE).
   async lookTopPlayUnit(op, ctx, h){ const P=G.players[ctx.p];
     const top=P.deck.splice(0, op.n); if(!top.length) return;
-    const units=top.filter(n=>card(n).type==='Unit');
-    let played=null;
+    await nocturneOffer(ctx.p, top);
+    let units=top.filter(n=>card(n).type==='Unit');
+    if(op.maxM!==undefined) units=units.filter(n=>(card(n).m||0)<=op.maxM);
+    // 지금 낼 수 없는 카드(할인 후 기본 비용·힘)는 고를 수 없다 (#3727 취지)
+    units=units.filter(n=>canPay(ctx.p, op.freePips?0:Math.max(0,(card(n).e||0)-(op.discE||0)), op.freePips?[]:powerPips(card(n))));
     if(units.length){
       const sel=await UI.pickOption(ctx.p,'플레이할 유닛 (선택)',units.map(n=>({v:n,label:card(n).ko,n})).concat([{v:'skip',label:'플레이 안 함'}]));
       if(sel!=='skip'&&sel!==null){
-        played=sel; top.splice(top.indexOf(sel),1);
-        let e=Math.max(0,(card(sel).e||0)-(op.discE||0));
-        if(op.maxM!==undefined && (card(sel).m||0)>op.maxM){ played=null; top.push(sel); }
-        else if(played!==null){
-          if(canPay(ctx.p, e, op.freePips?[]:powerPips(card(sel)))){ payCost(ctx.p, e, op.freePips?[]:powerPips(card(sel)));
-            const u=makeUnit(sel,ctx.p,{loc:'base'}); placeUnit(u,'base');
-            UI.log(`${pname(ctx.p)} 「${card(sel).ko}」 소환 (덱에서)`,'p'+ctx.p);
-            await runTriggerList((FX[sel]||{}).triggers?.onPlay, {p:ctx.p, unit:u, legionOK:true});
-          } else { UI.toast('자원이 부족해 플레이하지 못했습니다','warn'); top.push(sel); played=null; }
-        }
+        top.splice(top.indexOf(sel),1);
+        UI.log(`${pname(ctx.p)} 「${card(sel).ko}」 덱 위에서 추방 → 플레이`,'p'+ctx.p);
+        await playCardByEffect(ctx.p, sel, op.freePips ? {ignoreEnergy:true, ignorePower:true} : {discountE:op.discE||0});
       }
     }
     P.deck.push(...shuffle(top));
@@ -415,24 +419,32 @@ const EXTRA_OPS = {
     else if(c.type==='Gear'){ O.banish.splice(O.banish.indexOf(top),1); G.players[ctx.p].gear.push({n:top,ex:false,attachedTo:null}); }
     // 그 외(전장/룬 등)는 플레이 불가 — 추방 상태로 남는다 ("가능한 만큼만 실행")
     },
+  // 유망한 미래(115): 각자 덱 위 5장을 보고 1장을 추방 → 다음 플레이어부터 정식 플레이 경로로 낸다. 에너지만 무시하고
+  // 힘·[가속]·추가 비용은 지불(카드 원문 · 룰 353, RiftJudge #7352) — 배치 위치·플레이 이벤트(럭스·도구 등장 격발)도 손패와 같다.
+  // 낼 수 없는 카드(힘 부족·대상 없음)는 고를 수 없고(#3727·#5662) 골랐는데 막히면(브린히르 #6039) 추방 상태로 남는다.
+  // 재활용 격발(카르마 235)은 플레이가 모두 끝난 뒤 — 격발은 해결 중인 효과가 끝난 뒤 체인에 오르므로(376.4.b)
+  // 유망한 미래로 나온 유닛도 버프 대상이 된다 (#3319).
   async promisingFuture(op, ctx, h){
-    const picks={};
+    const picks={}, recycled=[];
     for(const pi of [ctx.p, opp(ctx.p)]){ const P=G.players[pi];
       const top=P.deck.splice(0,5); if(!top.length) continue;
-      const sel=await UI.pickOption(pi,`${pname(pi)}: 추방(플레이 예약)할 카드 1장`,top.map(n=>({v:n,label:card(n).ko,n})));
-      const pick=sel!==null?sel:top[0];
-      top.splice(top.indexOf(pick),1); P.deck.push(...shuffle(top)); picks[pi]=pick;
-      if(top.length) await fireEvent('onYouRecycle',{p:pi});
+      await nocturneOffer(pi, top);
+      const cands=top.filter(n=>{ const c=card(n);
+        if(!['Unit','Spell','Gear'].includes(c.type) || !canPay(pi, 0, powerPips(c), c.type==='Spell')) return false;
+        return c.type!=='Spell' || spellHasTargets(n, pi); });
+      if(cands.length){
+        const sel=await UI.pickOption(pi,`${pname(pi)}: 추방(플레이 예약)할 카드 1장`,cands.map(n=>({v:n,label:card(n).ko,n})));
+        const pick=sel!==null?sel:cands[0];
+        top.splice(top.indexOf(pick),1); picks[pi]=pick;
+      } else UI.log(`${pname(pi)}: 낼 수 있는 카드가 없어 5장 모두 재활용`,'sys');
+      P.deck.push(...shuffle(top)); if(top.length) recycled.push(pi);
     }
     for(const pi of [opp(ctx.p), ctx.p]){
       const n=picks[pi]; if(n===undefined) continue;
-      const c=card(n);
-      if(c.type==='Unit'){ const u=makeUnit(n,pi,{loc:'base'}); placeUnit(u,'base');
-        UI.log(`${pname(pi)} 「${c.ko}」 플레이 (에너지 무시)`,'p'+pi);
-        await runTriggerList((FX[n]||{}).triggers?.onPlay,{p:pi,unit:u,legionOK:true}); }
-      else if(c.type==='Spell'){ for(const po of ((FX[n]||{}).playOps||[])) await execOps(po.ops,{p:pi,kind:'spell'}); G.players[pi].trash.push(n); }
-      else G.players[pi].gear.push({n,ex:false,attachedTo:null});
-    } },
+      UI.log(`${pname(pi)} 「${card(n).ko}」 플레이 (에너지 무시)`,'p'+pi);
+      await playCardByEffect(pi, n, {ignoreEnergy:true});
+    }
+    for(const pi of recycled) await fireEvent('onYouRecycle',{p:pi}); },
   async dawnAurora(op, ctx, h){ const P=G.players[ctx.p];
     const revealed=[];
     let unitN=null;
@@ -577,13 +589,17 @@ const EXTRA_OPS = {
     const mine=everyUnit().filter(u=>u.ctrl===ctx.p); if(!mine.length) return;
     const u=await UI.pickUnitFrom(ctx.p, mine, '사망 방지를 부여할 아군 유닛'); if(!u) return;
     u._armory=true; UI.log(`${unitName(u)}: 이번 턴 사망 시 룬 지불로 회수 가능`,'p'+ctx.p); },
+  // 차원문 구출(102): 아군 유닛을 추방한 뒤 '소유자'가 기지에 플레이한다 (에라타 "its owner plays it to its base" — RiftJudge #8127).
+  // 정식 플레이 경로라 [가속]·등장 준비(워윅 #8348)·추가 비용·플레이 이벤트(빅토르 #5416·[군단])가 손패 플레이와 같다
+  // (룰 353 — ignore는 기본 비용만). 토큰도 고를 수 있지만 보드 밖으로 나가는 순간 소멸한다 (룰 182 · #2895).
   async portalRescue(op, ctx, h){
-    const mine=everyUnit().filter(u=>u.ctrl===ctx.p&&!u.isToken); if(!mine.length) return;
+    const mine=everyUnit().filter(u=>u.ctrl===ctx.p); if(!mine.length) return;
     const u=await UI.pickUnitFrom(ctx.p, mine, '차원문으로 재소환할 아군 유닛'); if(!u) return;
     removeUnit(u);
-    const nu=makeUnit(u.n, u.ctrl, {loc:'base'}); placeUnit(nu,'base');
-    UI.log(`「차원문 구출」: ${unitName(nu)} 재소환`,'p'+ctx.p);
-    await runTriggerList(unitFx(nu).triggers?.onPlay, {p:u.ctrl, unit:nu, legionOK:true}); },
+    if(u.isToken){ UI.log(`「차원문 구출」: ${unitName(u)} 추방 → 토큰은 소멸`,'p'+ctx.p); return; }
+    const owner=u.owner??u.ctrl;
+    UI.log(`「차원문 구출」: ${unitName(u)} 추방 → ${pname(owner)}이(가) 기지에 플레이`,'p'+ctx.p);
+    await playCardByEffect(owner, u.n, {ignoreEnergy:true, ignorePower:true, playLoc:'base'}); },
   async adaptatron(op, ctx, h){
     const gears=[]; [0,1].forEach(pi=>G.players[pi].gear.forEach((g,i)=>gears.push({pi,i,n:g.n,label:pname(pi)+': '+card(g.n).ko})));
     if(!gears.length) return;

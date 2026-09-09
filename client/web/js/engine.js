@@ -685,8 +685,10 @@ async function endTurn(){
   G.phase='ending';
   G._endingTurn={p};
   UI.render();
-  // 턴 종료 트리거 (소나, 눈부신 오로라 등)
-  await fireEvent('onEndTurn', {p});
+  // 턴 종료 트리거 (소나, 눈부신 오로라 등). 종료 격발이 남아 있는 동안은 체인이 있는 닫힌 상태라 결전이 열리지 않는다
+  // (룰 342.1.b 결전은 중립 열린 상태에서 · 클린업 9단계) — 오로라 두 장이면 둘 다 해결한 뒤에야 죽음꽃 포식자의 결전이 열린다 (RiftJudge #9290).
+  G._holdShowdown=true;
+  try{ await fireEvent('onEndTurn', {p}); } finally{ G._holdShowdown=false; }
   if(G.winner!==null){ G._endingTurn=null; return; }
   // 종료 트리거가 양측 유닛을 한 전장에 모았다면 결전이 열린다 (오로라 → 죽음꽃 포식자).
   // 그 전투를 끝내기 전에는 만료 처리도 턴 넘김도 하지 않는다.
@@ -729,7 +731,7 @@ async function finishEndTurn(p){
   UI.log(`${pname(p)} 턴 종료`, 'sys');
   G._endingTurn=null;
   // 추가 턴 (시간 왜곡)
-  if(G.extraTurnFor===p){ G.extraTurnFor=null; UI.log(`⏳ ${pname(p)} 추가 턴!`, 'score'); }
+  if(G.extraTurns && G.extraTurns.length){ G.turn=G.extraTurns.shift(); UI.log(`⏳ ${pname(G.turn)} 추가 턴!`, 'score'); }
   else G.turn=opp(p);
   await startTurn();
   return true;
@@ -1069,8 +1071,11 @@ async function playCardFromHand(p, handIdx, opts={}){
   // 효과가 "플레이하라"고 시키는 경우(「눈부신 오로라」·폐기장 회수 등)는 그 효과 자체가 허가다.
   // 평소의 타이밍 제한(내 턴·행동 단계)에 걸리면 안 된다 — 종료 단계에 발동하는 오로라가
   // 여기서 막혀 실패했고, 그래서 위치 선택도 없이 기지 폴백으로만 나왔다.
-  const byEffect = !!(opts.fromDeck || opts.fromTrash);
-  const restr = byEffect ? null : playRestriction(c, p, !!opts.fromHidden, opts.bfIdx);
+  const byEffect = !!(opts.fromDeck || opts.fromTrash || opts.byEffect);
+  // 단 '카드를 플레이할 수 없다'(브린히르 26 noPlay)는 타이밍이 아니라 금지라 효과 플레이에도 걸린다 —
+  // 유망한 미래로 추방한 카드는 그대로 추방 상태로 남는다 (RiftJudge #6039 · 룰 100 불가능한 지시는 무시).
+  const restr = byEffect ? (TF().noPlay[p] ? '이번 턴에는 카드를 플레이할 수 없습니다 (효과)' : null)
+    : playRestriction(c, p, !!opts.fromHidden, opts.bfIdx);
   if(restr){ UI.toast(restr,'warn'); return false; }
   const hasPlayLoc=Object.prototype.hasOwnProperty.call(opts,'playLoc');
   if(hasPlayLoc && !canPlayCardAt(p,n,opts.playLoc)){
@@ -1166,13 +1171,16 @@ async function playCardFromHand(p, handIdx, opts={}){
   let accel = false;
   // 숨김에서 공개하면 '기본 비용'만 면제된다 (룰 738.1). [가속] 같은 추가 비용은 그대로 고를 수 있다
   // — 룰북도 "비용을 무시하고 플레이하되 가속 비용은 지불한다"를 예로 든다.
+  // 효과의 에너지 할인(증원 62 "reducing its cost by 5")은 [가속] 에너지까지 합한 총액에서 뺀다 (룰 353 추가 비용 → 할인 순, RiftJudge #5164).
+  const discE = opts.discountE||0;
   if(c.type==='Unit' && fx.kw.accelerate){
     const accPips = [ (c.dom&&c.dom.length===1)?c.dom[0]:'Any' ];
-    if(canPay(p, energy+1, [...pips, ...accPips])){
+    if(canPay(p, Math.max(0,energy+1-discE), [...pips, ...accPips])){
       accel = await UI.confirmP(p, `[가속] 추가 비용(에너지 1+힘 1)을 지불하고 준비 상태로 등장시킬까요?`, c);
       if(accel){ energy+=1; pips=[...pips,...accPips]; }
     }
   }
+  energy = Math.max(0, energy-discE);
   const spellOK = c.type==='Spell';   // 주문 전용 자원(럭스 314·카이사 전설 247)은 주문에만 쓸 수 있다
   // 룰 357.1.a: 비용 지불 단계에서 [반응] 태그의 자원 추가 능력을 발동해 비용을 충당할 수 있다
   // (카이사·다리우스 전설, 인장 등)
@@ -1323,7 +1331,9 @@ async function playCardFromHand(p, handIdx, opts={}){
     const hiddenBf=(opts.fromHidden && !fx.hiddenFreeTarget) ? opts.bfIdx : null;
     // 숨김에서 플레이하는 것도 체인을 연다 (룰 737) — 예전에는 중립 상태에서 응수 창을 건너뛰어
     // 숨겨 둔 주문만 카운터가 통하지 않았다. 결전 중에는 원래대로 체인에 적재된다.
-    if(!fx.counter && !fx.steal){
+    // 효과가 해결 중에 플레이하는 주문(유망한 미래)은 그 해결의 일부라 응수 창이 열리지 않는다
+    // (룰 351 1단계 "다른 효과가 해결 중이면 그것을 마저 해결" · RiftJudge #3955).
+    if(!fx.counter && !fx.steal && !byEffect){
       const cw=await counterWindow(p, c, {legionOK, addPaid, addCount, bfIdx:opts.bfIdx});
       if(cw && cw.countered) countered=true;
       else if(cw && cw.steal!==undefined) execAs=cw.steal;
@@ -1469,6 +1479,37 @@ async function spellKillReactions(){
   }
 }
 
+// 덱·보드 밖(추방)에서 효과로 카드를 '플레이'하는 공용 경로 — 손패 맨 앞에 잠시 넣고 정식 플레이(playCardFromHand)로 보낸다.
+// 그래야 배치 위치(352.3~5)·[가속]·추가 비용·플레이 이벤트·[통찰]이 손패 플레이와 같다 — "ignoring its cost"는 기본 비용만 0으로
+// 만든다(룰 353 3단계, 군단 후위병 예시). 차원문 구출·증원·미끼 바늘·유망한 미래·녹턴이 쓴다(눈부신 오로라는 자체 폴백 유지).
+// 플레이하지 못하면(추가 비용 불가·플레이 금지·취소) 카드는 추방 상태로 남는다 (RiftJudge #3955 · #5989 · #6039).
+async function playCardByEffect(p, n, opts){
+  const P=G.players[p];
+  P.hand.unshift(n);
+  const ok=await playCardFromHand(p, 0, {byEffect:true, ...(opts||{})});
+  if(ok===false){
+    if(P.hand[0]===n) P.hand.shift();
+    P.banish.push(n);
+    UI.log(`「${card(n).ko}」 플레이하지 못해 추방 상태로 남음`, 'sys');
+  }
+  return ok!==false;
+}
+// 녹턴(194) "덱 맨 위에서 나를 보거나 공개할 때, 나를 추방할 수 있다. 그렇게 했다면 ✳을 지불하고 나를 플레이할 수 있다" (카드 원문).
+// '본다'는 경로(조작된 덱·[통찰]·증원·미끼 바늘·유망한 미래)가 공유한다. seen은 덱에서 이미 뺀 카드 목록 — 플레이한 장은 제거해 돌려준다.
+// 플레이한 녹턴은 조작된 덱의 '손패 1장'에 들지 않는다 (RiftJudge #9759 · #6744).
+async function nocturneOffer(p, seen){
+  for(let i=seen.length-1;i>=0;i--){
+    const n=seen[i]; const fx=FX[n];
+    if(!fx || !fx.nocturne || !canPay(p, 0, ['Any'])) continue;
+    const yes=await UI.confirmP(p, `「${card(n).ko}」: 추방하고 힘 1(✳)을 지불해 플레이할까요?`, card(n));
+    if(!yes) continue;
+    seen.splice(i,1);
+    payCost(p, 0, ['Any']);
+    UI.log(`${pname(p)} 「${card(n).ko}」 덱 위에서 추방 → 플레이`, 'p'+p);
+    await playCardByEffect(p, n, {ignoreEnergy:true, ignorePower:true});
+  }
+}
+
 // ---------- 대응 창 (카운터/탈취 주문 — 중립 상태 전용, 결전 중에는 체인이 담당) ----------
 // 중립 상태 응수 창 (구 counterWindow 확장) — 공식 규칙 근거:
 //  · '주문'을 내면 체인이 생기고 상태가 닫힌다 (333.1.a / Playing Cards 1단계)
@@ -1569,7 +1610,13 @@ async function tokenPlayed(p, u){
 async function visionCheck(p){
   const P=G.players[p];
   if(!P.deck.length) return;
-  const top=P.deck[0];
+  let top=P.deck[0];
+  // [통찰]도 '덱 맨 위를 본다' — 녹턴이면 먼저 추방·플레이를 물어본다 (743.2 · 카드 원문)
+  if(FX[top] && FX[top].nocturne){
+    const seen=[P.deck.shift()]; await nocturneOffer(p, seen);
+    if(!seen.length) return;
+    P.deck.unshift(top);
+  }
   const yes = await UI.confirmP(p, `[통찰] 덱 맨 위: 「${card(top).ko}」 — 덱 맨 아래로 되돌릴까요?`, card(top));
   if(yes){ P.deck.shift(); P.deck.push(top); UI.log(`${pname(p)} [통찰]로 덱 맨 위 카드를 재활용`, 'p'+p); await fireEvent('onYouRecycle',{p}); }
 }
@@ -1768,8 +1815,8 @@ async function cleanup(actor){
   if(G.winner!==null) return;
   // 빈 전장 통제 해제 (결전 중 상호 전멸 등도 이후 클린업에서 처리됨)
   releaseEmptyBattlefields();
-  // 경합 확인 (중립 상태에서만 새 결전 개시)
-  if(G.state!=='neutral') return;
+  // 경합 확인 (중립 상태에서만 새 결전 개시 — 종료 격발 처리 중(_holdShowdown)에는 endTurn이 끝나고 연다)
+  if(G.state!=='neutral' || G._holdShowdown) return;
   for(let i=0;i<G.bfs.length;i++){
     const bf=G.bfs[i];
     const p0=bf.units.filter(u=>u.ctrl===0).length;
@@ -2708,7 +2755,7 @@ async function execOps(ops, ctx){
           // 토큰도 '플레이'하는 것이므로 기지 또는 통제 중인 전장을 고른다 (룰 406/143)
           const locs=[{v:'base',label:'기지'}];
           G.bfs.forEach((bf,i)=>{ if(bf.controller===p) locs.push({v:i,label:'전장: '+card(bf.n).ko,n:bf.n}); });
-          const sel=locs.length===1?'base':await UI.pickOption(p,'토큰을 플레이할 위치',locs);
+          const sel=locs.length===1?'base':await UI.pickOption(p,'토큰을 배치할 위치',locs);   // '배치할 위치' — 봇의 배치 정책이 답한다
           if(sel!==null) loc=sel;
         }
         else if(op.where==='at a battlefield'){
@@ -2929,7 +2976,9 @@ async function execOps(ops, ctx){
         else if(op.add!==undefined) tf[op.flag][tgt]=(tf[op.flag][tgt]||0)+op.add;
         else tf[op.flag][tgt]=op.val!==undefined?op.val:true;
         break; }
-      case 'extraTurn': G.extraTurnFor=p; UI.log(`⏳ ${pname(p)}: 이 턴이 끝나면 추가 턴!`, 'score'); break;
+      // "Take a turn after this one" — 해결될 때마다 '이 턴 직후'에 하나씩 끼워 넣는 큐(최근 해결분이 앞). 한 턴에 두 장(또는
+      // 유망한 미래로 양측이 한 장씩)이면 둘 다 얻는다 — 단일 플래그 덮어쓰기였다 (RiftJudge #3974 · #2248, 룰 100 카드 원문 그대로).
+      case 'extraTurn': (G.extraTurns=G.extraTurns||[]).unshift(p); UI.log(`⏳ ${pname(p)}: 이 턴이 끝나면 추가 턴!`, 'score'); break;
       case 'banishSelf': G._banishSpell=true; break;
       default: {
         // 카드별 전용 op (cardscripts.js)

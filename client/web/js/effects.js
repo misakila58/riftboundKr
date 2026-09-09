@@ -176,7 +176,9 @@ function parseOp(s){
 
   // 토큰 생성
   if((m = s.match(/^(?:You may )?[Pp]lay (a|one|two|three|\d+)? ?(ready )?(\d+) :rb_might: ([\w' ]+?) unit tokens?( with \[Temporary\])?( here| at a battlefield| to your base| in your base| at your base| into your base)?/))){
-    let where = m[6]?m[6].trim():'base';
+    // 위치 지정이 없으면 유닛 플레이 규칙대로 기지 또는 통제 전장을 고른다(룰 179.1.a 토큰 플레이 · 352.4.a) —
+    // 「스프라이트 부름」을 방어 중인 전장에 바로 낼 수 있다 (RiftJudge #7478). "in/at your base"만 기지 고정.
+    let where = m[6]?m[6].trim():'play';
     if(/base/.test(where)) where='base';
     return { op:'token', count:numOf(m[1]), might:+m[3], name:m[4].trim(), where, ready:!!m[2], temp:!!m[5] };
   }
