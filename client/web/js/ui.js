@@ -1651,7 +1651,10 @@ async function executeMove(dest){
     if(bad.length){
       const badTxt=bad.map(b=>`${unitName(b.u)}(${b.why})`).join(', ');
       if(!good.length){ UI.toast('이동 불가: '+badTxt,'warn'); UI.render(); return; }
-      const ok=await UI.confirmP(p, `이동 불가: ${badTxt}\n나머지 ${good.length}기만 이동할까요?`);
+      // 이 확인은 동기화 액션(dispatch) 밖의 순수 로컬 UI 판단이다 — UI.confirmP(routedPick→NET.choice)를 쓰면
+      // 온라인에서 내 선택 번호(choiceSeq)만 앞서가 이후 상대 응답이 전부 무시되어 양쪽이 멈춘다 (2026-09-10 제보: 이동 시 멈춤).
+      // 상대에게는 결과(이동할 uids)만 액션으로 전달되므로 로컬 확인창으로 충분하다.
+      const ok=await _confirmLocal(p, `이동 불가: ${badTxt}\n나머지 ${good.length}기만 이동할까요?`);
       if(!ok){ UI.render(); return; }
       units=good.map(g=>g.u);
     }

@@ -20,6 +20,17 @@ function updateLegalPad(){
   document.documentElement.style.setProperty('--legal-h', h+'px');
 }
 window.addEventListener('resize', updateLegalPad);
+// 게임 행동은 대부분 async라, 안에서 예외가 나면 프로미스만 조용히 거부되고 화면은 그 자리에 멈춘다
+// (오프라인 이동 경로 moveUnits(...).then(...)에는 catch가 없다). 어떤 예외든 로그·토스트로 드러내야
+// 사용자가 "멈췄다" 대신 원인을 알려줄 수 있다 (2026-09-10 이동 멈춤 제보 — 재현 불가로 원인 미상).
+function reportInternalError(kind, err){
+  const msg = (err && (err.stack || err.message)) ? String(err.stack || err.message) : String(err);
+  const line = msg.split('\n').slice(0,3).join(' ← ').slice(0,300);
+  try{ console.error('[내부 오류/'+kind+']', err); }catch(e){}
+  try{ if(typeof UI!=='undefined'){ UI.log('⚠️ 내부 오류('+kind+'): '+line+' — 이 문구를 제보해 주세요', 'sys'); UI.toast('내부 오류가 발생했습니다 — 로그의 ⚠️ 문구를 제보해 주세요', 'warn'); } }catch(e){}
+}
+window.addEventListener('unhandledrejection', e=>reportInternalError('promise', e.reason));
+window.addEventListener('error', e=>reportInternalError('script', e.error||e.message));
 // 초기 로드 직후엔 폰트·줄바꿈이 확정되기 전이라 푸터 높이가 실제보다 작게 재어진다
 // → 푸터의 렌더 크기 변화를 직접 감시해 그때마다 다시 잰다
 window.addEventListener('DOMContentLoaded', ()=>{
