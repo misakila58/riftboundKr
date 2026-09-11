@@ -20,6 +20,7 @@ for(const f of fs.readdirSync(path.join(__dirname,'pack-src'))) fs.copyFileSync(
 fs.copyFileSync(path.join(D,'rules.txt'), path.join(OUT,'룰북-Core-Rules-2026-07-16.txt'));
 fs.copyFileSync(path.join(D,'errata-spiritforged-2026-01-14.md'), path.join(OUT,'에라타-Spiritforged-2026-01-14.md'));
 fs.copyFileSync(path.join(D,'errata-list-2026-01-12.txt'), path.join(OUT,'에라타-목록-공식-2026-01-12.txt'));
+fs.copyFileSync(path.join(D,'rule-changes-unleashed-vendetta.md'), path.join(OUT,'룰변경-요약-Unleashed-Vendetta.md'));
 
 // ── 카드 ──
 const cm=[];

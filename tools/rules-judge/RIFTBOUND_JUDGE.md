@@ -10,6 +10,7 @@
 | `data/rules-2025-12-01.txt` | 이전 판(Spiritforged) — 옛 판정·옛 자료가 인용하는 번호(352.8, 356.3.e, 735 등)를 확인할 때만 | 직접 grep |
 | `data/errata-spiritforged-2026-01-14.md` | Riot 공식 에라타·해설(2026-01-14). **룰북·판정보다 우선** — 떨어지는 별·이케시아 소나기 반사 격발 취소, 굴절은 고를 때마다, 증원 추방 후 플레이, 0 이하 위력, 전투 승패 등 | 읽기 |
 | `data/errata-list-2026-01-12.txt` | Riot 공식 에라타 목록 원문(2026-01-12 갱신) — 카드별 NEW TEXT / OLD TEXT. Origins: Falling Star·Icathian Rain·Reinforce, 나머지는 Spiritforged | 카드 개정 텍스트 확인 |
+| `data/rule-changes-unleashed-vendetta.md` | Unleashed(2026-03-31)·Vendetta(2026-07-16) 룰 패치에서 바뀐 일반 규칙 요약(한국어, 60여 항목) — '예전엔 어땠는데 지금은'을 물을 때, 옛 판정이 왜 틀린지 설명할 때 | 읽기 |
 | `data/riftjudge.jsonl` | 커뮤니티 판정 사이트 RiftJudge(app.riftjudge.com) Q&A 11,237건(2026-09-09 수집). 한 줄 = `{id,q,a,status,deprecated,date,rules}`. 답변은 영어, `status:"verified"`만 신뢰, `deprecated:1`은 구 판정 | `node search.js --qa "카드 영문명 키워드"` → `--id <번호>` 로 전문 |
 | `data/cards.json` | Origins(OGN 298장)+Proving Grounds(OGS 24장) 카드 322장: 번호·한글명·영문명·종류·비용·위력·속성·원문(영어) | `node search.js --card 약자` / `--card "cull the weak"` / `--card 209` |
 | `data/keywords.json` | 키워드 한↔영 대응표(맹공=Assault, 굴절=Deflect, 보호막=Shield, 개입=Ganking, 통찰=Vision, 숨김=Hidden, 가속=Accelerate, 군단=Legion, 탱커=Tank, 일시적=Temporary 등) | 한글 질문을 영문 검색어로 바꿀 때 |
