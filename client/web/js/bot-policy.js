@@ -672,7 +672,8 @@ POLICY.reaction = async function(p, title, options){
   const pending=options[0].pendingSpell;
   const returns=options.filter(o=>o.card && polIsReturnSpell(o.card.n));
   if(pending && returns.length && !SIM.lock && !NET.online){
-    const finish=async()=>{ G._returnPending=pending;await polResolveReturnPending();await cleanup(pending.p); };
+    // 응수 창이 닫힌 뒤의 해결·클린업 — G._rwFor(닫힌 상태 표시)를 지워야 샌드박스의 cleanup이 통제 해제·결전 개시를 한다 (190.6 · 341)
+    const finish=async()=>{ G._rwFor=null;G._returnPending=pending;await polResolveReturnPending();await cleanup(pending.p); };
     const before=await simTry(p,finish,POLICY);
     let best=null;
     for(const o of returns){

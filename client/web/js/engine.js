@@ -256,8 +256,9 @@ function removeUnit(u){
 // 그 전투에서 지정을 '처음' 받을 때 한 번만 격발한다(378). 빈 전장의 무혈 결전에는 지정이 없고(#4707 · #278),
 // 진행 중인 전투에 나중에 들어온 유닛은 자기 통제자 쪽 지정을 받는다(전투 1단계 · 322 3 · #9303 · #9174).
 // 예전엔 '적이 있으면 공격'으로 판정해 무혈 결전에 바람 타기로 합류한 방어자의 [공격 시]가 났고, 진짜 공격자의
-// [공격 시]는 전투 전환 때 빠졌다. 전투가 없으면 여기서는 아무것도 하지 않는다 — 전투 결전이 열릴 때
-// startShowdown이 양측 유닛 전부를 지정한다. 지정을 받는 것은 이동을 일으킨 사람이 아니라 '그 유닛의 통제자'다.
+// [공격 시]는 전투 전환 때 빠졌다. 전투가 없으면 여기서는 아무것도 하지 않는다 — 전투가 열릴 때(startShowdown, 또는
+// 무혈 결전이 클린업에서 승격될 때 — 318 10a) openCombat이 양측 유닛 전부를 지정한다. 지정을 받는 것은 이동을 일으킨 사람이
+// 아니라 '그 유닛의 통제자'다.
 async function fireAttackTriggers(u, dest){
   if(dest==='base' || dest===null || dest===undefined) return;
   const sd=G.showdown;
@@ -1673,7 +1674,10 @@ async function reactionWindow(caster, c, context={}){
     if(sel===null||sel===undefined) return result;
     // [반응] 능력 발동 (즉시 해결)
     if(typeof sel==='object' && sel.ab){
-      await activateAbility(o, sel.ab.src, sel.ab.ab);
+      // 원 주문이 아직 체인에 있는 닫힌 상태 — 능력 해결 뒤의 클린업이 통제를 풀거나 결전을 열지 않도록 표시 (190.6 · 341)
+      const prevRw=G._rwFor; G._rwFor=o;
+      try{ await activateAbility(o, sel.ab.src, sel.ab.ab); }
+      finally{ G._rwFor=prevRw; }
       if(G.winner!==null) return result;
       continue;
     }
@@ -1904,8 +1908,15 @@ async function moveUnits(p, units, dest){
 
 // 공식 룰: 전장 통제는 유닛 주둔으로 유지된다 — 유닛이 하나도 없으면 무주공산(open)으로 돌아간다.
 // (유지 득점은 "유닛이 주둔한" 통제 전장만 해당 — 상호 전멸 시에도 아무도 통제하지 않음)
+// 체인에 항목이 남아 있는 '닫힌 상태'의 클린업은 통제를 풀지 않는다 — 열린 상태의 클린업에서만 잃는다
+// (2026-07-16판 190.6 · 318 4단계 "if the turn is in an Open State"). 결전 체인이 비었을 때(resolveChainItem의 마지막 항목 뒤)와
+// 중립 응수 창 밖(playCardFromHand의 마지막 cleanup)에서 같은 함수가 다시 돌아 그때 해제한다.
+function chainClosed(){
+  return !!((G.showdown && G.showdown.chain.length) || G._rwFor!=null);
+}
 function releaseEmptyBattlefields(){
   if(G.manual) return;
+  if(chainClosed()) return;
   G.bfs.forEach((bf,bi)=>{
     // 진행 중인 결전 전장은 결전 종료 처리(resolveShowdown)가 담당 — 중간 클린업이
     // 먼저 통제를 풀고 숨김 카드를 폐기하면 룰(클린업 4단계: 비경합 조건)보다 이르다
@@ -1953,8 +1964,22 @@ async function cleanup(actor){
   if(G.winner!==null) return;
   // 빈 전장 통제 해제 (결전 중 상호 전멸 등도 이후 클린업에서 처리됨)
   releaseEmptyBattlefields();
-  // 경합 확인 (중립 상태에서만 새 결전 개시 — 종료 격발 처리 중(_holdShowdown)에는 endTurn이 끝나고 연다)
-  if(G.state!=='neutral' || G._holdShowdown) return;
+  // 무혈 결전 중 상대 유닛이 들어와 전투가 준비되면(양측 유닛 존재) 열린 상태의 이 클린업에서 진행 중인 결전이 그대로
+  // 전투 결전이 된다 — 새 결전을 열지 않고 지정·전장 [방어 시]·지정 격발만 지금 일어나며 포커스·체인은 이어진다
+  // (2026-07-16판 316.9.b.1 · 318 10a단계 · 460.1 · 464 1단계 "the player who has Focus maintains their Focus").
+  // 구판 349.1(결전이 끝난 뒤 새 전투)을 따르던 resolveShowdown의 재개 경로는 폴백으로만 남는다.
+  if(G.showdown && !G.showdown.hasCombat && !G.showdown.chain.length && G.state==='showdown'){
+    const sd=G.showdown, bf=G.bfs[sd.bfIdx];
+    if(bf.units.some(u=>u.ctrl===0) && bf.units.some(u=>u.ctrl===1)){
+      await openCombat(sd, bf.contestedBy ?? sd.attacker);
+      if(G.winner!==null) return;
+      await cleanupDeaths();   // 지정 격발의 피해는 곧바로 다음 클린업이 치명 판정한다 (320.1 "repeating until no new change")
+      if(G.winner!==null) return;
+    }
+  }
+  // 경합 확인 (중립 '열린' 상태에서만 새 결전 개시 — 341. 종료 격발 처리 중(_holdShowdown)에는 endTurn이 끝나고 열고,
+  // 중립 응수 창 안(체인에 원 주문이 남은 닫힌 상태 — G._rwFor)에서는 그 주문이 해결된 뒤의 클린업이 연다)
+  if(G.state!=='neutral' || G._holdShowdown || G._rwFor!=null) return;
   for(let i=0;i<G.bfs.length;i++){
     const bf=G.bfs[i];
     const p0=bf.units.filter(u=>u.ctrl===0).length;
@@ -1977,17 +2002,23 @@ async function startShowdown(bfIdx, attacker, hasCombat){
   G.actingPlayer=attacker;
   UI.log(`⚔️ 결전 개시! 「${card(bf.n).ko}」 — 공격: ${pname(attacker)}`, 'combat');
   // 공격/방어 지정과 그 격발은 '전투'가 있을 때만 (전투 1단계 — 무혈 결전에는 공격자도 방어자도 없다 #4707).
-  // 지정(가면 스냅샷 포함) → 전장 [방어 시] → 방어측 유닛 격발 → 공격측 유닛 격발 순 (fireDesignationTriggers).
-  if(hasCombat){
-    const fresh = designateUnits(G.showdown, [...bf.units]);
-    // 전장 트리거: 방어 시 — 방어자는 '경합을 먼저 걸지 않은 쪽'이지 통제자가 아니다(전투 1단계 "The Defender is the player
-    // who did not apply the Contested status"). 무주공산 전장에 먼저 들어간 쪽이 공격자, 뒤에 합류한 쪽이 방어자로
-    // 「약탈자의 거리」를 쓴다 (RiftJudge #4985). 예전엔 통제자일 때만 격발했다.
-    await fireBfTrigger(bfIdx,'onDefendHere',{p:opp(attacker), bfIdx});
-    await fireDesignationTriggers(G.showdown, fresh);
-  }
+  if(hasCombat) await openCombat(G.showdown, attacker);
   UI.render();
   UI.promptShowdown();
+}
+// 전투 개시(전투 1단계): 결전 sd가 전투 결전이 된다 — 새로 열리는 결전과, 진행 중인 무혈 결전이 클린업에서 승격되는 경우
+// (318 10a · 460.1) 둘 다 여기로. 공격자는 경합 적용자(464 2단계), 포커스·체인·패스 카운터는 건드리지 않는다.
+// 지정(가면 스냅샷 포함) → 전장 [방어 시] → 방어측 유닛 격발 → 공격측 유닛 격발 순 (fireDesignationTriggers).
+async function openCombat(sd, attacker){
+  const bf=G.bfs[sd.bfIdx];
+  if(!sd.hasCombat) UI.log(`⚔️ 전투 개시 — 진행 중인 결전이 전투 결전이 됩니다 (공격: ${pname(attacker)})`, 'combat');
+  sd.attacker=attacker; sd.defender=opp(attacker); sd.hasCombat=true;
+  const fresh = designateUnits(sd, [...bf.units]);
+  // 전장 트리거: 방어 시 — 방어자는 '경합을 먼저 걸지 않은 쪽'이지 통제자가 아니다(전투 1단계 "The Defender is the player
+  // who did not apply the Contested status"). 무주공산 전장에 먼저 들어간 쪽이 공격자, 뒤에 합류한 쪽이 방어자로
+  // 「약탈자의 거리」를 쓴다 (RiftJudge #4985). 예전엔 통제자일 때만 격발했다.
+  await fireBfTrigger(sd.bfIdx,'onDefendHere',{p:sd.defender, bfIdx:sd.bfIdx});
+  await fireDesignationTriggers(sd, fresh);
 }
 
 // 결전 중 패스 — 공식 체인 절차 (규칙 339~340, 346~348):
@@ -2065,15 +2096,17 @@ async function resolveShowdown(){
   const sd=G.showdown; const bf=G.bfs[sd.bfIdx];
   const atkUnits = ()=>bf.units.filter(u=>u.ctrl===sd.attacker);
   const defUnits = ()=>bf.units.filter(u=>u.ctrl===sd.defender);
-  let deferred=[];   // 전투 사망의 보류 격발 (종소리 등) — 전투 정리·통제 확립 뒤에 해결
+  let deferred=[];   // 전투 사망의 보류 격발 (종소리 등) — 전투 정리(치유·귀환) 뒤, 승패 판정 전에 해결
 
-  // 무혈 결전(전투 없이 열린 결전) 종료 시 양측 유닛이 남으면: 통제 확립 불가·경합 유지,
-  // 새 '전투'가 개시된다 (규칙: Staged Combat — 공식 L1565~1571). 곧바로 피해를 주지 않고
-  // 전투 결전을 새로 열어 방어 트리거와 새 응수 라운드를 거치게 한다.
+  // 폴백: 무혈 결전에 양측 유닛이 남은 채 빈 체인에서 양측이 패스했다면 여기서 전투 결전으로 승격해 결전을 잇는다.
+  // 정상 경로는 상대 유닛이 들어온 뒤의 클린업(cleanup → openCombat — 318 10a · 460.1)이라 보통 여기 오지 않는다
+  // (클린업 없이 유닛이 들어온 경우만). 구판 349.1처럼 결전을 닫고 새로 열지 않는다.
   if(!sd.hasCombat && atkUnits().length && defUnits().length){
     UI.log(`양측 유닛이 남아 전투가 개시됩니다 (경합 유지)`, 'combat');
-    G.state='neutral'; G.showdown=null;
-    await startShowdown(sd.bfIdx, bf.contestedBy ?? sd.attacker, true);
+    await openCombat(sd, bf.contestedBy ?? sd.attacker);
+    if(G.winner!==null || G.showdown!==sd) return;
+    sd.passes=0; G.actingPlayer=sd.attacker;   // 전투가 열리며 공격자가 포커스 (464 3단계)
+    UI.render(); UI.promptShowdown();
     return;
   }
 
@@ -2111,14 +2144,6 @@ async function resolveShowdown(){
   if(sd.hasCombat){
     // 모든 유닛 치유 (공식: 전장 밖 유닛 포함)
     everyUnit().forEach(u=>{ u.dmg=0; u._spellDmgBy=null; });
-    // "이번 전투" 한정으로 부여된 키워드([보호막] 등)를 되돌린다
-    for(const gr of (G._combatGrants||[])){
-      if(gr.numeric){
-        const left=(typeof gr.u.grants[gr.key]==='number'?gr.u.grants[gr.key]:0)-gr.v;
-        if(left>0) gr.u.grants[gr.key]=left; else delete gr.u.grants[gr.key];
-      } else delete gr.u.grants[gr.key];
-    }
-    G._combatGrants=[];
     // 방어자 잔존 시 공격자 본진 귀환(2d). 양측 잔존 = 무승부 — 공격측이 「솔라리의 상징」(227)을 가졌으면
     // 카드 원문대로 '모든 유닛'을 귀환시켜 결과 없음(통제 변경·득점 없음, #10142). 예전엔 '전원 사망'을 무승부로 잘못 봤다.
     if(defUnits().length && atkUnits().length){
@@ -2132,11 +2157,21 @@ async function resolveShowdown(){
     }
   }
 
-  // 통제 확립 & 정복
-  const remaining = bf.units.length? bf.units[0].ctrl : null;
+  // 전투 정리에서 생긴 체인 항목(전투 사망의 [죽음의 종소리]·사망 이벤트)은 승패 판정 '전'에 해결한다 — 466.3 Reminder
+  // "Resolve any items on the chain from dealing combat damage and the Combat Cleanup ... before performing this step".
+  // 치유 뒤라 종소리 피해는 지워지지 않고, 그 피해의 치명 판정(클린업 3단계)까지 마친 뒤 잔존 유닛을 센다 — 공격자가 전멸한 뒤
+  // 종소리가 마지막 방어자를 죽이면 '유닛 없음'이라 통제 확립도 정복도 없다. 예전엔 정복 득점 뒤에 종소리를 해결했다.
+  for(const f of deferred) await f();
+  deferred=[];
+  await cleanupDeaths();
+
+  // 통제 확립 & 정복 (466.3 결과 판정 → 466.7 통제 확립). 지정과 '이번 전투' 효과는 정복 격발이 끝난 뒤 '전투 종료'(467)에
+  // 함께 사라지므로 G.showdown은 그때까지 둔다 — 정복 격발 중에도 [맹공]·'전투 중' 조건이 살아 있다.
+  const sides = new Set(bf.units.map(u=>u.ctrl));
+  const remaining = sides.size===1 ? bf.units[0].ctrl : null;
   const prevController = bf.controller;
-  G.state='neutral'; G.showdown=null; G.actingPlayer=G.turn;
-  bf.contestedBy=null;   // 결전 종료 — 경합 해제 (통제 확립/재확립 또는 전장 비움)
+  // 양측이 남았으면(종소리 격발이 유닛을 옮겨 온 경우) '결과 없음' — 경합을 유지해 마지막 cleanup이 새 결전·전투를 연다 (466.5.d)
+  if(sides.size<2) bf.contestedBy=null;   // 결전 종료 — 경합 해제 (통제 확립/재확립 또는 전장 비움)
 
   // 정복(Conquer) = 통제를 '새로 얻는' 것 (규칙 446.1 "gains Control").
   // 이미 통제 중이던 방어자가 방어에 성공하면 '재확립'이라 정복이 아니다 — 득점 없음.
@@ -2186,11 +2221,18 @@ async function resolveShowdown(){
       UI.log(`이번 턴에 이미 득점한 전장 — 추가 득점 없음`, 'sys');
     }
   }
+  // 전투 종료(467): 공격/방어 지정을 거두고 "이번 전투" 효과([보호막] 부여 등)가 동시에 만료된다 — 정복 격발 뒤 마지막 단계
+  for(const gr of (G._combatGrants||[])){
+    if(gr.numeric){
+      const left=(typeof gr.u.grants[gr.key]==='number'?gr.u.grants[gr.key]:0)-gr.v;
+      if(left>0) gr.u.grants[gr.key]=left; else delete gr.u.grants[gr.key];
+    } else delete gr.u.grants[gr.key];
+  }
+  G._combatGrants=[];
+  G.state='neutral'; G.showdown=null; G.actingPlayer=G.turn;
   UI.render();
   UI.prompt(G._endingTurn ? '종료 단계 — 열린 결전 처리 중'
     : (G.turn===G.actingPlayer?`${pname(G.turn)}의 행동 단계`:''));
-  // 보류해 둔 전투 사망 격발 — 치유가 끝난 뒤라 종소리 피해는 지워지지 않고, 이어지는 cleanup이 치명 판정을 한다
-  for(const f of deferred) await f();
   await cleanup(G.turn);
   // 종료 단계에 열렸던 결전이 모두 끝났다면 보류해 둔 종료 절차를 마저 밟는다
   if(G._endingTurn && G.state==='neutral' && !G.showdown) await finishEndTurn(G._endingTurn.p);
