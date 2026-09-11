@@ -132,6 +132,32 @@ function deckToCode(d){
     deckCodeList(sorted(d.main)), deckCodeList(sorted(d.runes)), deckCodeList(d.bfs),
     deckCodeList(sorted(d.side)), encodeURIComponent(d.name||'')].join('|');
 }
+// 덱 목록 텍스트 — 사람이 읽는 '레시피' 형식. 아래 파서(deckFromList)가 그대로 다시 읽을 수 있고,
+// 다른 덱 빌더가 쓰는 "Legend: / MainDeck:" 형식과 같다. (덱 코드는 짧지만 읽을 수 없어 공유용으로는 이쪽이 편하다)
+function deckToList(d){
+  const line=(n,cnt)=>`${cnt} ${card(n).ko}`;
+  const group=arr=>{ const m=new Map(); for(const n of (arr||[])) m.set(n,(m.get(n)||0)+1); return [...m.entries()].sort((a,b)=>a[0]-b[0]).map(([n,c])=>line(n,c)); };
+  const out=[`# ${d.name||'덱'}`, '', 'Legend:', `1 ${card(d.legendN).ko}`, '', 'Champion:', `1 ${card(d.champN).ko}`, '',
+    'MainDeck:', ...group(d.main), '', 'Battlefields:', ...group(d.bfs), '', 'Rune Pool:', ...group(d.runes)];
+  if(d.side && d.side.length) out.push('', 'Sideboard:', ...group(d.side));
+  return out.join('\n');
+}
+// 클립보드 API가 막힌 환경(포커스 없는 창·http·일부 웹뷰)에서는 창에 텍스트를 띄워 직접 복사하게 한다.
+// 예전 폴백은 window.prompt()였는데 Electron(exe)은 prompt를 지원하지 않아 아무것도 안 뜨는 것처럼 보였다.
+async function copyOrShow(text, okMsg, title){
+  try{ await navigator.clipboard.writeText(text); UI.toast(okMsg); return; }catch(e){}
+  const box=document.getElementById('modal-box');
+  box.innerHTML=`<h3>${esc(title||'복사')}</h3><div style="font-size:12px;color:#8f9bb3;margin-bottom:6px">자동 복사가 막혀 있습니다 — 아래 내용을 선택(Ctrl+A)해 복사(Ctrl+C)하세요.</div>
+    <textarea id="copy-box-text" readonly spellcheck="false" style="width:100%;height:220px;padding:8px;border-radius:6px;border:1px solid #3a4a70;background:#0e1626;color:#e8e6e0;font-size:12px;font-family:Consolas,monospace;resize:vertical"></textarea>`;
+  const ta=box.querySelector('#copy-box-text'); ta.value=text;
+  const btns=document.createElement('div'); btns.className='modal-btns';
+  const cp=document.createElement('button'); cp.className='primary'; cp.textContent='📋 복사';
+  cp.onclick=()=>{ ta.select(); try{ document.execCommand('copy'); UI.toast('복사되었습니다!'); }catch(e){ UI.toast('직접 선택해 복사해 주세요','warn'); } };
+  const cl=document.createElement('button'); cl.textContent='닫기'; cl.onclick=()=>closeModal();
+  btns.appendChild(cp); btns.appendChild(cl); box.appendChild(btns);
+  openModal(); markModalDismissable();
+  setTimeout(()=>{ ta.focus(); ta.select(); }, 0);
+}
 // ── 덱 목록 텍스트 파서 ──
 // 덱 빌더들이 내보내는 형식을 그대로 붙여넣을 수 있게 한다:
 //   Legend:
@@ -709,19 +735,19 @@ function renderDeckList(){
     };
     // 덱 코드 복사 — 다른 기기·다른 저장소·친구에게 그대로 붙여넣을 수 있다
     const bc=document.createElement('button'); bc.textContent='📋 코드 복사';
-    bc.title='덱 코드를 클립보드로 복사합니다';
-    bc.onclick=async ()=>{
-      const code=deckToCode(d);
-      try{ await navigator.clipboard.writeText(code); UI.toast(`「${d.name}」 덱 코드를 복사했습니다 (${code.length}자)`); }
-      catch(e){ prompt('덱 코드 (복사해서 쓰세요)', code); }
-    };
+    bc.title='덱 코드를 클립보드로 복사합니다 (덱 가져오기에 붙여넣기)';
+    bc.onclick=()=>{ const code=deckToCode(d); copyOrShow(code, `「${d.name}」 덱 코드를 복사했습니다 (${code.length}자)`, '덱 코드'); };
+    // 읽을 수 있는 목록(레시피)도 복사 — 카톡·게시판 공유용, 가져오기에 그대로 붙여넣어도 읽힌다
+    const bl=document.createElement('button'); bl.textContent='📄 목록 복사';
+    bl.title='카드 이름·장수 목록(레시피)을 복사합니다 — 사람이 읽을 수 있고 덱 가져오기에도 붙여넣을 수 있습니다';
+    bl.onclick=()=>{ copyOrShow(deckToList(d), `「${d.name}」 덱 목록을 복사했습니다`, '덱 목록 (레시피)'); };
     // 반대편 저장소로 바로 복사 (서버 계정 ↔ 이 컴퓨터)
     const other = DeckStore.local ? '서버 계정' : '이 컴퓨터';
     const bx=document.createElement('button');
     bx.textContent = DeckStore.local ? '⬆ 서버로 복사' : '⬇ 이 컴퓨터로 복사';
     bx.title = `이 덱을 ${other}에도 저장합니다 (원본은 그대로)`;
     bx.onclick=()=>copyDeckToOtherStore(d);
-    btns.appendChild(be); btns.appendChild(bc); btns.appendChild(bx); btns.appendChild(bd);
+    btns.appendChild(be); btns.appendChild(bc); btns.appendChild(bl); btns.appendChild(bx); btns.appendChild(bd);
     div.appendChild(btns);
     el.appendChild(div);
   });

@@ -1108,12 +1108,12 @@ const PRE_TARGET_EXTRA = {
   mightTwoDistinct: [{side:'friendly',count:1,_prompt:'+2⚔ 받을 아군 유닛 (1/2, 중복 불가)'},
     (p,prev)=>({side:'friendly',count:1,_exclude:prev.slice(-1).filter(Boolean),_prompt:'+2⚔ 받을 아군 유닛 (2/2, 중복 불가)'})],
 };
-// 'Do this N번' 반사 격발 주문 — 대상은 격발이 체인에 오를 때(해결 뒤) 고른다(383 · 352.8.b, RiftJudge #6944 · #10084).
-// 절충 ①(격발 즉시 해결)에 따라 해결 시점 선택 = 종전 동작. 플레이에 대상이 필요 없고 굴절도 그때 낸다.
-Object.assign(SCRIPTS, {
-  29: fx=>{ fx.reflexive=true; return fx; },     // 떨어지는 별: Do this twice
-  248: fx=>{ fx.reflexive=true; return fx; },    // 이케시아 소나기: Do this 6 times
-});
+// 떨어지는 별(29)·이케시아 소나기(248): 공식 에라타(Spiritforged FAQ 2026-01-14)로 반사 격발이 아니라 보통 주문이 됐다 —
+// "Deal 3 to a unit. Deal 3 to a unit. (You can choose different units.)" 대상을 낼 때 전부 고르고(같은 유닛 반복 가능),
+// 상대는 그걸 보고 응수하며, 해결 때 한꺼번에 피해를 준다. 굴절은 '고를 때마다' 낸다(룰 735.1.c 개정).
+// 파서가 이미 격발 수만큼 damage op를 만들어 두므로(op 객체는 항목마다 별개) 일반 사전 지정 경로가 그대로 맞는다.
+// 이 에라타 이전 RiftJudge 판정(#1159·#3359 등 '해결 때 격발마다 선택')은 더 이상 유효하지 않다. fx.reflexive는 진짜
+// 반사 격발("Then do this:") 카드용으로 남겨 둔다 — Origins 풀에는 현재 없음.
 
 Object.assign(EXTRA_OPS, {
   async addSpellEnergy(op, ctx, h){

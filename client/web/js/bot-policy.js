@@ -103,13 +103,7 @@ function polMfAuroraOnline(p){
 function polRuneRecycleNeed(p, pips){
   const pool={...G.players[p].power}; let need=0;
   for(const pip of pips){
-    if(pip==='Any'){
-      const d=Object.keys(pool).find(k=>pool[k]>0);
-      if(d){pool[d]--;continue;}
-    }else{
-      if(pool[pip]>0){pool[pip]--;continue;}
-      if(pool.Any>0){pool.Any--;continue;}
-    }
+    if(takeFromPool(pool, pip)) continue;   // engine 헬퍼 — 'Mind|Order'(여러 속성 중 하나) 핍도 처리
     need++;
   }
   return need;
@@ -151,15 +145,8 @@ function polMfAuroraTurns(p, extraN, assumeAurora){
     if(s.energy+ready(s)<energy) return false; // 오로라는 도구라 주문 전용 에너지를 못 쓴다
     const pool={...s.power}, used=new Set();
     for(const pip of powerPips(aurora)){
-      if(pip==='Any'){
-        const d=Object.keys(pool).find(k=>pool[k]>0);
-        if(d){pool[d]--;continue;}
-        const i=s.runes.findIndex((r,j)=>!used.has(j)); if(i<0)return false; used.add(i);
-      }else{
-        if(pool[pip]>0){pool[pip]--;continue;}
-        if(pool.Any>0){pool.Any--;continue;}
-        const i=s.runes.findIndex((r,j)=>!used.has(j)&&runeDomain(r.n)===pip); if(i<0)return false; used.add(i);
-      }
+      if(takeFromPool(pool, pip)) continue;
+      const i=s.runes.findIndex((r,j)=>!used.has(j)&&pipAllowsDom(pip, runeDomain(r.n))); if(i<0)return false; used.add(i);
     }
     return true;
   };

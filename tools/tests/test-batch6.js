@@ -77,9 +77,10 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
 
   // ══ ② 이케시아 소나기(248) + 경계하는 보초(96): 격발 사이 클린업 → 종소리가 남은 격발보다 먼저 (#272) ══
   fresh(); const sentry=unit(96,1,0); unit(219,1,0); const handAt=[];
-  PICK=(u,t)=>{ if(/피해 2/.test(t)) handAt.push(G.players[1].hand.length); return u===sentry; };
+  PICK=(u,t)=>{ if(String(t).includes('소나기')) handAt.push(G.players[1].hand.length); return u===sentry; };
   await play(248,0);
-  ok('소나기: 첫 격발로 보초 사망 → 둘째 격발 대상 선택 전에 이미 1장 드로우', handAt.length>=2 && handAt[0]===0 && handAt[1]===1, JSON.stringify(handAt));
+  // 에라타(2026-01-14): 보통 주문 — 낼 때 대상 6개를 전부 고르고(이 동안 드로우 없음) 해결 때 한꺼번에 피해 → 보초 사망으로 1장 드로우
+  ok('소나기: 낼 때 대상 6개 선택(드로우 없음) → 해결 후 보초 사망으로 1장 드로우', handAt.length===6 && handAt.every(x=>x===0) && G.players[1].hand.length===1, JSON.stringify(handAt)+' hand='+G.players[1].hand.length);
 
   // ── 후퇴(104)로 빅토르 - 혁신가(117)를 상대 턴에 되돌리면 '플레이할 때' 격발 없음 (#7951, 이미 수정됨 확인) ──
   fresh(); openSd(1); G.bfs[0].controller=0; const vik=unit(117,0,0); unit(219,1,0); PICK=u=>u===vik;

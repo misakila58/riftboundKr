@@ -34,7 +34,9 @@ node search.js --rule 356.3.e            # 룰 조항
 |---|---|---|
 | `RIFTBOUND_JUDGE.md` | AI용 답변 지침 (절차·형식·자주 틀리는 포인트) | — |
 | `search.js` | 통합 검색 스크립트 (의존성 없음) | — |
-| `data/rules.txt` | Riftbound Core Rules 영문 원문 (Last Updated 2025-12-01) | Riot Games 공식 종합 규칙 |
+| `data/rules.txt` | Riftbound Core Rules 영문 원문 (Last Updated **2026-07-16**, Vendetta판 — 최신) | Riot Games 공식 종합 규칙 (Rules Hub PDF) |
+| `data/rules-2025-12-01.txt` | 이전 판(Spiritforged) — 옛 번호 대조용 | 〃 |
+| `data/errata-spiritforged-2026-01-14.md` | 공식 에라타·해설 요약 (룰북·판정보다 우선) | playriftbound.com Spiritforged FAQ |
 | `data/riftjudge.jsonl` | 커뮤니티 판정 Q&A 11,237건 (verified 10,203 · deprecated 1,034), 2026-09-09 수집 | https://app.riftjudge.com (공개 API) |
 | `data/cards.json` | OGN 298장 + OGS 24장 카드 데이터·영문 원문 | Riftcodex API |
 | `data/keywords.json` | 키워드 한↔영 대응표 | 리프트바운드 시뮬레이터(한글판) |
@@ -43,5 +45,5 @@ node search.js --rule 356.3.e            # 룰 조항
 
 - 룰북·카드 텍스트는 Riot Games, Inc.의 저작물이며 이 묶음은 비영리 팬 자료입니다. Riot Games가 보증하지 않습니다. 재배포 시 이 고지를 유지해 주세요.
 - RiftJudge 판정은 커뮤니티 검증본이지 Riot 공식 판정이 아닙니다. 지침은 룰북을 우선하도록 되어 있습니다.
-- 룰북은 2025-12-01판, 판정은 2026-09-09 수집분입니다. 이후 에라타·패치가 있을 수 있습니다. 갱신 방법은 `RIFTBOUND_JUDGE.md` 마지막 항목 참고.
+- 룰북은 2026-07-16판(최신), 에라타 2026-01-14, 판정은 2026-09-09 수집분입니다. 갱신 방법은 `RIFTBOUND_JUDGE.md` 마지막 항목 참고.
 - 만든 곳: 리프트바운드 시뮬레이터(한글판) 프로젝트 — 문의 misakila58@gmail.com

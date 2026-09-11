@@ -192,8 +192,9 @@ const optUnit=u=>(t,o)=>{ const m=o.find(x=>x.returnHand&&x.returnHand.uid===u.u
 
   // ── 떨어지는 별(29): 반사 격발 — 플레이 시점 대상 없음, 유닛 없어도 플레이 가능 ──
   fresh();
-  ok('떨어지는 별: 플레이 시점 대상 없음', (await preTargetSpell(0,card(29),FX[29],{legionOK:false}))===null && FX[29].reflexive===true);
-  ok('떨어지는 별: 유닛 없어도 플레이 가능', await play(29)===true && G.players[0].trash.includes(29));
+  // 에라타(Spiritforged FAQ 2026-01-14): 반사 격발이 아니라 보통 주문 — 낼 때 대상 2개를 고르고(같은 유닛 가능), 유닛이 없으면 낼 수 없다
+  ok('떨어지는 별: 에라타 뒤 보통 주문 — 반사 격발 아님', !FX[29].reflexive && FX[29].playOps.length===2);
+  ok('떨어지는 별: 유닛이 없으면 플레이 불가(대상 필요)', await play(29)===false && !G.players[0].trash.includes(29));
 
   // ── 숨김(737): 그 전장에 대상 없는 주문은 공개 불가 — playRestriction이 bfIdx로 본다 ──
   fresh(); unit(210,1,0);

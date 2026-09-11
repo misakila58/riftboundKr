@@ -81,6 +81,14 @@ function openSd(){ G.state='showdown'; G.actingPlayer=0; G.showdown={bfIdx:0,att
   await playCardFromHand(0,0,{});
   ok('⑤ 중립 플레이도 대상 1회 선택 후 해결', PICKS.length===1 && t5.dmg===2, 'picks='+PICKS.length+' dmg='+t5.dmg);
 
+  // ── ⑥ 특이점(105) "each of up to two units": 대상은 플레이 시점(응수 전)에 최대 2기·서로 다른 유닛, 해결 때 재선택 없음 ──
+  fresh();   // 중립 상태(특이점은 [행동] 태그가 없어 결전 중엔 낼 수 없다) — 대상 지정 → 응수 창 → 해결 순
+  const s1=makeUnit(219,1,{loc:0,ready:true}); placeUnit(s1,0); const s2=makeUnit(210,1,{loc:0,ready:true}); placeUnit(s2,0);
+  G.players[0].hand=[105]; G.players[0].energy=20; PICKS.length=0;
+  const played=await playCardFromHand(0,0,{});
+  ok('⑥ 특이점: 플레이 시점에 대상 2기 선택 프롬프트(서로 다른 유닛)', played!==false && PICKS.length===2 && PICKS.every(t=>t.includes('피해 6')), 'played='+played+' '+JSON.stringify(PICKS));
+  ok('⑥ 특이점: 두 유닛에 각 6, 해결 때 추가 선택 없음', s1.dmg>=6 && s2.dmg>=6 && PICKS.length===2, 's1='+s1.dmg+' s2='+s2.dmg+' picks='+PICKS.length);
+
   console.log(pass+'/'+(pass+fail)+' 통과'+(fail?' ← 실패 '+fail:''));
 })().catch(e=>console.log('CRASH',e.message,(e.stack||'').split(String.fromCharCode(10))[1]));
 `;

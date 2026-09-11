@@ -413,6 +413,18 @@ function runeDomain(n){ const c=card(n); return c.dom[0]||'Colorless'; }
 // 공식 룰: 룬 하나로 에너지 1(탈진) + 힘 1(재활용)을 모두 낼 수 있다.
 // "재활용: 힘 추가" 스킬은 탈진 여부와 무관하므로, 에너지로 탈진시킨 룬을 그대로 재활용해 힘을 지불할 수 있음.
 // → 에너지와 힘은 독립 조건: 에너지 ≤ 풀+준비 룬 수, 힘 핍마다 영역 일치 룬(상태 무관) 1개.
+// 힘 핍 표기: 'Any'(아무 속성) | 'Mind'(그 속성) | 'Mind|Order'(여러 속성 카드의 [C] — 그 카드 속성들 중 하나.
+// 룰 136.3 2026-07-16판 "processed as any power of that card's Domains", 예시 Defiant Dance [1][C]는 [G] 또는 [P]로)
+function pipDoms(pip){ return pip==='Any' ? null : String(pip).split('|'); }
+function pipAllowsDom(pip, dom){ const ds=pipDoms(pip); return !ds || ds.includes(dom); }
+// 풀(속성별 힘 수)에서 핍 하나를 차감한다. 허용 속성 풀 → 만능(Any) 풀 순. 성공하면 true.
+function takeFromPool(pool, pip){
+  const ds=pipDoms(pip);
+  if(!ds){ const d=Object.keys(pool).find(d=>pool[d]>0); if(d){ pool[d]--; return true; } return false; }
+  for(const d of ds) if(pool[d]>0){ pool[d]--; return true; }
+  if(pool.Any>0){ pool.Any--; return true; }
+  return false;
+}
 function canPay(p, energy, pips){
   const P=G.players[p];
   const poolP = {...P.power};
@@ -422,19 +434,10 @@ function canPay(p, energy, pips){
   // 힘 핍: 풀 → 영역 일치 룬 (준비/탈진 무관, 핍당 서로 다른 룬)
   for(const pip of pips){
     if(spellAny>0){ spellAny--; continue; }
-    if(pip==='Any'){
-      const anyDom = Object.keys(poolP).find(d=>poolP[d]>0);
-      if(anyDom){ poolP[anyDom]--; continue; }
-      const ri = P.runes.findIndex((r,i)=>!used.has(i));
-      if(ri<0) return false;
-      used.add(ri);
-    } else {
-      if(poolP[pip]>0){ poolP[pip]--; continue; }
-      if(poolP.Any>0){ poolP.Any--; continue; }
-      const ri = P.runes.findIndex((r,i)=>!used.has(i) && runeDomain(r.n)===pip);
-      if(ri<0) return false;
-      used.add(ri);
-    }
+    if(takeFromPool(poolP, pip)) continue;
+    const ri = P.runes.findIndex((r,i)=>!used.has(i) && pipAllowsDom(pip, runeDomain(r.n)));
+    if(ri<0) return false;
+    used.add(ri);
   }
   // 에너지: 재활용 예정 룬도 먼저 탈진시켜 에너지를 낼 수 있으므로 준비 룬 전체가 후보
   const ready = P.runes.filter(r=>!r.ex).length;
@@ -450,8 +453,7 @@ function payUsesRunes(p, energy, pips, spellOK){
   const pool = {...P.power};
   for(const pip of pips){
     if(spellAny>0){ spellAny--; continue; }
-    if(pip==='Any'){ const d=Object.keys(pool).find(d=>pool[d]>0); if(d){ pool[d]--; continue; } }
-    else { if(pool[pip]>0){ pool[pip]--; continue; } if(pool.Any>0){ pool.Any--; continue; } }
+    if(takeFromPool(pool, pip)) continue;
     return true;                       // 이 핍은 룬을 재활용해야 낸다
   }
   let need = energy;
@@ -468,9 +470,7 @@ function payCost(p, energy, pips, silent){
   const peek={...P.power};
   const runeDoms=[];
   for(const pip of pips){
-    if(pip!=='Any' && peek[pip]>0){ peek[pip]--; continue; }
-    if(pip==='Any'){ const d=Object.keys(peek).find(d=>peek[d]>0); if(d){ peek[d]--; continue; } }
-    else if(peek.Any>0){ peek.Any--; continue; }
+    if(takeFromPool(peek, pip)) continue;
     runeDoms.push(pip);
   }
   // ① 에너지: 풀 → 준비 룬 탈진.
@@ -484,7 +484,7 @@ function payCost(p, energy, pips, silent){
     const ready = P.runes.filter(r=>!r.ex);
     const order = [];
     for(const dom of runeDoms){
-      const r = ready.find(r=>!order.includes(r) && (dom==='Any' || runeDomain(r.n)===dom));
+      const r = ready.find(r=>!order.includes(r) && pipAllowsDom(dom, runeDomain(r.n)));
       if(r) order.push(r);
     }
     for(const r of ready) if(!order.includes(r)) order.push(r);   // 남는 건 기존 순서대로
@@ -494,13 +494,9 @@ function payCost(p, energy, pips, silent){
   const recycled=[];
   for(const pip of pips){
     if(arguments[4] && (P.powerSpell||0)>0){ P.powerSpell--; continue; }
-    if(pip!=='Any' && P.power[pip]>0){ P.power[pip]--; continue; }
-    if(pip==='Any'){
-      const d=Object.keys(P.power).find(d=>P.power[d]>0);
-      if(d){ P.power[d]--; continue; }
-    } else if(P.power.Any>0){ P.power.Any--; continue; }
-    // 룬 재활용
-    let match = r=> pip==='Any' ? true : runeDomain(r.n)===pip;
+    if(takeFromPool(P.power, pip)) continue;
+    // 룬 재활용 — 핍이 허용하는 속성의 룬
+    let match = r=> pipAllowsDom(pip, runeDomain(r.n));
     let ri = P.runes.findIndex(r=>r.ex && match(r));
     if(ri<0) ri = P.runes.findIndex(match);
     if(ri>=0){
@@ -534,12 +530,12 @@ async function runeFloat(p, idx, mode){
 function powerPips(c){
   const n = c.p||0;
   if(n<=0) return [];
-  // 룰 136.3: 속성이 없거나 둘 이상인 카드의 자기 속성 힘 [C]는 [A](아무 속성)로 처리한다.
-  // 이중 속성 시그니처(힘 착취 등)는 인쇄 핍도 두 속성 반반 하이브리드 — 둘 중 어느 룬으로도 지불 가능.
-  // (예전엔 doms[i%len]로 첫 속성만 배정해, 정신/질서 카드 1핍을 정신 룬으로만 낼 수 있었다)
-  const doms = (c.dom&&c.dom.length===1)?c.dom:['Any'];
+  // 룰 136.3(2026-07-16판): 속성이 없는 카드의 [C]는 [A](아무 속성), 여러 속성 카드의 [C]는 '그 카드 속성들 중 하나'.
+  // 이중 속성 시그니처(힘 착취 등)는 인쇄 핍도 두 속성 반반 하이브리드 — 두 속성 중 어느 룬으로도 지불(다른 속성은 불가).
+  // (예전엔 doms[i%len]로 첫 속성만 배정해 정신/질서 카드 1핍을 정신 룬으로만 낼 수 있었고, 그 뒤 잠시 [A]로 두었다)
+  const pip = !(c.dom&&c.dom.length) ? 'Any' : (c.dom.length===1 ? c.dom[0] : c.dom.join('|'));
   const pips=[];
-  for(let i=0;i<n;i++) pips.push(doms[0]);
+  for(let i=0;i<n;i++) pips.push(pip);
   return pips;
 }
 
@@ -1502,11 +1498,32 @@ async function resolveSpellEffects(p, n, fx, o){
   // 떠날 때마다 클린업이 돈다(319.7) — 4위력 유닛에 2개를 몰면 그 자리에서 죽고, 존야가 살려도 남은 격발로 다시
   // 죽일 수 있다(RiftJudge #6282). 격발이 고르는 대상은 '주문이 고른' 것이 아니라 「꿈꾸는 나무」를 격발하지 않는다(#386).
   G._reflexiveCast = !!fx.reflexive;
+  // 반사 격발(383): 주문이 해결되면 격발 N개가 한꺼번에 체인에 오르고, 대상은 그때 격발마다 하나씩 '전부 먼저' 고른다
+  // (같은 유닛을 여러 번 골라도 되고, 굴절은 고를 때 낸다 — RiftJudge #1159 · #3359). 그 다음 하나씩 해결되며 사이마다
+  // 클린업(319.7)이 돌아, 앞선 격발로 이미 죽은 유닛을 고른 남은 격발은 불발된다(356.3.e — 존야로 살아나면 다시 맞는다 #6282).
+  // 예전엔 격발마다 그때그때 골라, 한 유닛에 몰아 주는 선택 자체가 막혀 있었다.
+  let reflexPicks=null;
+  if(fx.reflexive && !G.manual){
+    reflexPicks=[]; const N=fx.playOps.length;
+    const saved=[_ctxBf,_hiddenBf,_ctxUnit,_curKind];
+    _ctxBf=o.bfIdx??null; _hiddenBf=o.hiddenBf??null; _ctxUnit=null; _curKind='spell';
+    try{
+      for(let i=0;i<N;i++){
+        const op=fx.playOps[i].ops.find(x=>preTargetable(x));
+        if(!op){ reflexPicks.push(null); continue; }
+        const u = unitsBySpec(op.spec, execAs).length
+          ? await pickBySpec(execAs, op.spec, `「${c.ko}」 격발 ${i+1}/${N} 대상 (같은 유닛 반복 가능)`) : null;
+        reflexPicks.push({op, uid:u?u.uid:null});
+      }
+    } finally { [_ctxBf,_hiddenBf,_ctxUnit,_curKind]=saved; }
+  }
   if(fx.playOps.length){
-    for(const po of fx.playOps){
+    for(let i=0;i<fx.playOps.length;i++){
+      const po=fx.playOps[i];
       if(po.legion && !o.legionOK){ UI.log(`[군단] 조건 미충족 — 효과 생략`, 'sys'); continue; }
+      const preMap = reflexPicks ? (reflexPicks[i] ? new Map([[reflexPicks[i].op, reflexPicks[i].uid]]) : null) : pre;
       await execOps(po.ops, {p:execAs, legionOK:o.legionOK, bfIdx:o.bfIdx, kind:'spell', paidAdd:o.addPaid, addCount:o.addCount,
-        hiddenBf:o.hiddenBf??null, pre});
+        hiddenBf:o.hiddenBf??null, pre:preMap});
       // 반사 격발 주문("Do this N번" — 이케시아 소나기·떨어지는 별)은 격발 하나가 해결될 때마다 클린업이 끼어들어
       // 그때 죽은 유닛의 [죽음의 종소리]가 남은 격발보다 먼저 해결된다 (룰 322·383 · RiftJudge #272 · #6282)
       if(fx.reflexive) await cleanupDeaths();
@@ -2683,6 +2700,14 @@ function preTargetSpecs(op){
   if(!op) return [];
   if(preTargetable(op)) return [op.spec];
   if(op.op==='grantKw' && op.who!=='me' && op.who!=='it' && op.kws) return [grantKwSpec(op)];
+  // "each of up to N units"(특이점 105 등): N개까지의 대상도 플레이 시점에 고른다(352.8.a) — 서로 다른 유닛, 0개도 적법(355.13 · #9363).
+  // 예전엔 해결 때 골라 상대가 대상을 모른 채 응수해야 했다.
+  if(op.op==='damageAll' && op.spec && typeof op.spec.count==='number'){
+    const n=op.spec.count;
+    return Array.from({length:n},(_,i)=>(p,prev)=>({...op.spec, count:1, optional:true,
+      _exclude:[...(op.spec._exclude||[]), ...(i ? prev.slice(prev.length-i) : []).filter(Boolean)],
+      _prompt:`피해 ${op.n} 대상 선택 (${i+1}/${n}, 최대 ${n}기 · 선택 안 함 가능)`}));
+  }
   const ex=(typeof PRE_TARGET_EXTRA!=='undefined') ? PRE_TARGET_EXTRA[op.op] : null;
   return ex ? (typeof ex==='function' ? ex(op) : ex) : [];
 }
@@ -2821,9 +2846,11 @@ async function execOps(ops, ctx){
         if(typeof op.spec.count==='number'){
           // "each of up to N units" — N개까지 골라 각각 피해 (optional이면 중도 중단 가능)
           const picked=[];
+          const hadPre = _preTarget!==undefined;   // 플레이 시점에 고른 대상 배열이 있으면 그것만 쓴다 (해결 때 추가 선택 없음)
           for(let i=0;i<op.spec.count;i++){
+            if(hadPre && _preTarget===undefined) break;
             const u=await pickBySpec(p,{...op.spec,count:1,_exclude:picked},`피해 ${op.n} 대상 선택 (${i+1}/${op.spec.count})`);
-            if(!u) break;
+            if(!u){ if(hadPre) continue; break; }   // 사전 지정 대상이 '선택 안 함'이거나 불발이면 다음 것으로
             picked.push(u);
           }
           picked.forEach(u=>{ dealDamage(u, op.n+effDmgBonus(u, p), _curKind); });

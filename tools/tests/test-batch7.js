@@ -147,14 +147,17 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
 
   // ══ ⑧ 이케시아 소나기(248) ══
   fresh(); let t1=unit(219,1,0), t2=unit(175,1,0);
+  PICK=u=>{ const q=PICKS.length; return q<=2 ? u===t1 : u===t2; };   // 에라타(2026-01-14): 낼 때 대상 6개를 전부 고른다 — t1에 2회, 나머지 t2
   await play(248);
-  ok('소나기: 격발마다 클린업 — 4위력이 죽은 뒤 남은 격발은 다음 유닛으로(둘 다 사망)', !onBoard(t1) && !onBoard(t2), 't1='+onBoard(t1)+' t2='+onBoard(t2)+' dmg='+t1.dmg);
+  ok('소나기: 낼 때 대상 전부 지정(같은 유닛 반복 가능), 해결 때 한꺼번에 피해 — t1(4위력)·t2 모두 사망', !onBoard(t1) && !onBoard(t2), 't1='+onBoard(t1)+' t2='+onBoard(t2)+' dmg='+t1.dmg);
+  PICK=null;
   fresh(); gear(77,1); t1=unit(219,1,0);
   await play(248);
-  ok('소나기: 존야가 한 번 살려도 남은 격발로 다시 죽인다(#6282)', !onBoard(t1) && G.players[1].gear.length===0, 'alive='+onBoard(t1)+' gear='+G.players[1].gear.length);
+  // 에라타 뒤에는 6회 피해가 한 번에 들어가 사망 판정도 한 번 → 존야가 한 번 살리면 그걸로 끝(남은 격발이 따로 없다)
+  ok('소나기: 피해가 한꺼번에 들어가 존야가 한 번 살리면 생존 (에라타 2026-01-14)', onBoard(t1) && G.players[1].gear.length===0, 'alive='+onBoard(t1)+' gear='+G.players[1].gear.length);
   fresh([292,297]); let mine=unit(219,0,0); PICK=u=>u===mine;
   await play(248);
-  ok('소나기: 반사 격발이 내 유닛을 골라도 「꿈꾸는 나무」 미격발(#386)', G.players[0].hand.length===0, 'hand='+G.players[0].hand.length);
+  ok('소나기: 보통 주문이라 내 유닛을 고르면 「꿈꾸는 나무」 격발(턴 1회 드로우)', G.players[0].hand.length===1, 'hand='+G.players[0].hand.length);
   fresh([292,297]); mine=unit(219,0,0); PICK=u=>u===mine;
   await play(4);
   ok('꿈꾸는 나무: 일반 주문(가르기)이 고르면 드로우(회귀)', G.players[0].hand.length===1, 'hand='+G.players[0].hand.length);

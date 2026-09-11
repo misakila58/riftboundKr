@@ -16,8 +16,10 @@ const CAP=40;   // 카드당 최대 수록 건수 (질문에 카드명이 든 �
 // ── 설치 안내·지침 (pack-src/ 원본 복사) ──
 for(const f of fs.readdirSync(path.join(__dirname,'pack-src'))) fs.copyFileSync(path.join(__dirname,'pack-src',f), path.join(OUT,f));
 
-// ── 룰북 ──
-fs.copyFileSync(path.join(D,'rules.txt'), path.join(OUT,'룰북-Core-Rules-2025-12-01.txt'));
+// ── 룰북(최신) + 공식 에라타 ──
+fs.copyFileSync(path.join(D,'rules.txt'), path.join(OUT,'룰북-Core-Rules-2026-07-16.txt'));
+fs.copyFileSync(path.join(D,'errata-spiritforged-2026-01-14.md'), path.join(OUT,'에라타-Spiritforged-2026-01-14.md'));
+fs.copyFileSync(path.join(D,'errata-list-2026-01-12.txt'), path.join(OUT,'에라타-목록-공식-2026-01-12.txt'));
 
 // ── 카드 ──
 const cm=[];
