@@ -48,3 +48,5 @@ tools/data/riftjudge.jsonl
 tools/data/riftjudge-digest/
 tools/data/riftjudge-by-card.json
 tools/data/riftjudge-audit/
+tools/rules-judge/data/riftjudge.jsonl
+tools/rules-judge/project-pack/
