@@ -72,7 +72,8 @@ const onBoard=u=>everyUnit().includes(u);
   G.players[0].hand=[303]; G.players[1].hand=[45];
   RQ.push('counter'); RQ.push(null);
   await playCardFromHand(0,0,{});
-  ok('② 카운터된 주문: 학생 +0, A 플레이 수 0', might(st3)===2 && G.players[0].playedCards===0, 'm='+might(st3)+' played='+G.players[0].playedCards);
+  // 2026-07-16판 420.3.b: 카운터된 주문도 파이널라이즈됐으므로 비격발 판정용 플레이 수(playedCards)에는 든다(학생 격발만 없음) — 예전 기대 0
+  ok('② 카운터된 주문: 학생 +0, A 플레이 수 1(파이널라이즈 기준)', might(st3)===2 && G.players[0].playedCards===1 && G.players[0].playedSeq===0, 'm='+might(st3)+' played='+G.players[0].playedCards);
   ok('② 카운터(저항)는 B가 플레이한 주문으로 셈', G.players[1].playedCards===1, 'B played='+G.players[1].playedCards);
 
   // ── ① 탈취(신비한 반전): 해결 시 통제자가 '플레이한' 사람 ──
@@ -85,7 +86,8 @@ const onBoard=u=>everyUnit().includes(u);
   await playCardFromHand(0,0,{});
   // B의 학생은 반전(+1)과 탈취한 소각(+1)을 모두 본다
   ok('① 탈취된 주문: B의 학생 +2(반전+소각), A의 학생 +0', might(stB)===4 && might(stA)===2, 'B='+might(stB)+' A='+might(stA));
-  ok('① 탈취된 주문의 플레이 수는 B 몫 (반전+소각=2), A는 0', G.players[1].playedCards===2 && G.players[0].playedCards===0,
+  // 420.3.b/813.1: 비격발 플레이 수는 '파이널라이즈한 사람' 기준 — 소각은 A가, 반전은 B가 파이널라이즈(각 1). 격발 순번(playedSeq)은 해결 시 통제자 B(2)
+  ok('① 탈취된 주문: 파이널라이즈 수는 A=1·B=1, 격발 순번은 B=2', G.players[1].playedCards===1 && G.players[0].playedCards===1 && G.players[1].playedSeq===2 && G.players[0].playedSeq===0,
      'B='+G.players[1].playedCards+' A='+G.players[0].playedCards);
 
   // ── ② 숨김 주문 카운터 → 잉걸불 수도승 +2 없음 / 해결되면 +2 ──
@@ -135,7 +137,7 @@ const onBoard=u=>everyUnit().includes(u);
 
   // ── ① 빙의를 두 번째 카드로: 뺏어온 다리우스가 '두 번째 카드'를 본다 ──
   fresh();
-  G.players[0].playedCards=1;
+  G.players[0].playedCards=1; G.players[0].playedSeq=1;   // 앞서 한 장을 플레이(해결)한 상태 — 다리우스 '두 번째 카드'는 격발 순번(playedSeq)을 본다
   const dar=makeUnit(27,1,{loc:0,ready:false}); placeUnit(dar,0);
   G.players[0].hand=[203];
   await playCardFromHand(0,0,{});

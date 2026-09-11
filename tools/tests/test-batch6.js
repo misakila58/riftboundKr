@@ -105,7 +105,7 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('카이사+일반 주문: 해결 후 덱 맨 아래로 재활용', G.players[0].deck[G.players[0].deck.length-1]===129 && !G.players[0].trash.includes(129) && G.players[0].hand.length===1, '');
 
   // ══ ④ 도전(128) + 다리우스(27): 도전 피해가 먼저, +2는 해결 뒤 (#5184, 이미 수정됨 확인) ══
-  fresh(); G.players[0].playedCards=1; const dar=unit(27,0,0); const en=unit(219,1,0);
+  fresh(); G.players[0].playedCards=1; G.players[0].playedSeq=1; const dar=unit(27,0,0); const en=unit(219,1,0);
   PICK=(u,t)=>/아군/.test(t)?u===dar:u===en;
   await play(128,0);
   ok('도전+다리우스: 적은 5 피해(7 아님), 다리우스는 해결 뒤 +2', en.dmg===5 && might(dar)===7, 'dmg='+en.dmg+' m='+might(dar));

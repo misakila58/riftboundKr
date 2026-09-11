@@ -139,7 +139,7 @@ const A=()=>G.players[0], B=()=>G.players[1];
   await play(9); const okc=await play(45);
   ok('저항: 자기 주문도 카운터 대상(#8450)', okc===true && G.showdown.chain.length===2 && G.showdown.chain[1].target===G.showdown.chain[0], 'ok='+okc+' chain='+G.showdown.chain.length);
   await resolveOne(); await resolveOne();
-  ok('저항: 자기 광선이 무효화되어 피해 없음', cb.dmg===0 && A().playedCards===1, 'dmg='+cb.dmg+' played='+A().playedCards);
+  ok('저항: 자기 광선이 무효화되어 피해 없음 — 플레이 수는 둘 다 파이널라이즈(420.3.b)라 2', cb.dmg===0 && A().playedCards===2 && A().playedSeq===1, 'dmg='+cb.dmg+' played='+A().playedCards);
   fresh(); openSd(0,true); const cb2=unit(210,1,0); unit(210,0,0); PICK=u=>u===cb2;
   await play(9); B().hand=[45]; await playCardFromHand(1,0,{});
   ok('저항: 상대 주문이 먼저 후보(단일 자동 선택이 상대 주문)', G.showdown.chain[1].target===G.showdown.chain[0] && G.showdown.chain[1].p===1, '');
@@ -165,11 +165,12 @@ const A=()=>G.players[0], B=()=>G.players[1];
   ok('규율/광선: 적법 대상 없으면 플레이 불가(#8139 · #3502)', r58===false && r9===false, 'r58='+r58+' r9='+r9);
   fresh(); openSd(0,true); const cq=unit(210,1,0); PICK=u=>u===cq;
   await play(9); B().hand=[45]; await playCardFromHand(1,0,{}); await resolveOne(); await resolveOne();
-  ok('카운터된 주문은 플레이 수에 들지 않음(#9459)', A().playedCards===0 && cq.dmg===0, 'played='+A().playedCards);
+  // 2026-07-16판 420.3.b: 카운터된 주문도 파이널라이즈 — 비격발 플레이 수 1, 격발 순번 0 (구판 #9459와 반대)
+  ok('카운터된 주문도 파이널라이즈 플레이 수에는 든다(420.3.b), 격발 순번은 0', A().playedCards===1 && A().playedSeq===0 && cq.dmg===0, 'played='+A().playedCards);
   fresh(); openSd(0,false); const nh=unit(210,0,0,{dmg:1});
   await resolveShowdown();
   ok('무혈 결전 종료엔 치유 없음(#11147)', nh.dmg===1, 'dmg='+nh.dmg);
-  fresh(); G.bfs[0].controller=1; const jl=unit(70,1,0,{dmg:2}); const dr=unit(27,0,'base',{ex:true}); A().playedCards=1; PICK=u=>u===jl;
+  fresh(); G.bfs[0].controller=1; const jl=unit(70,1,0,{dmg:2}); const dr=unit(27,0,'base',{ex:true}); A().playedCards=1; A().playedSeq=1; PICK=u=>u===jl;
   await play(5);
   ok('간수: 주문 플레이 격발은 클린업 뒤 — 간수가 죽은 뒤 다리우스 준비(#7846)', !onBoard(jl) && dr.ex===false, 'jl='+onBoard(jl)+' ex='+dr.ex);
 

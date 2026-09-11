@@ -53,7 +53,7 @@ Object.assign(SCRIPTS, {
       ops:[OPX('buffSelf'),D1]}]; return fx; },
   62: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('lookTopPlayUnit',{n:5,discE:5})]}]; return fx; },
   63: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('buff',{count:1,spec:{side:'friendly'}})]}];
-      fx.statics=[{kind:'kwAura',kws:['deflect'],filter:{side:'friendly',buffed:true}}]; return fx; },
+      fx.statics=[{kind:'kwAura',kws:['deflect'],ifNotHas:true,filter:{side:'friendly',buffed:true}}]; return fx; },   // 원문 'if they didn't already' — 이미 [굴절]이면 부여 없음(810.1.c.3 합산의 카드 예외)
   64: fx=>{ fx.manual=[]; fx.counter={}; fx.playOps=[]; return fx; },
   65: fx=>{ fx.manual=[]; fx.statics=[{kind:'selfMight',fn:u=>u.buff>0?1:0}]; return fx; },
   68: fx=>{ fx.manual=[]; fx.combatLast=true;
@@ -217,7 +217,7 @@ const EXTRA_OPS = {
   // ── 피해/전투 ──
   // "위력만큼" 피해는 전투 중이면 공/방 지정 보정([맹공]·[보호막]·마스터 이)을 포함한 현재 위력(targetMight, #5261)
   // 능력 피해도 「공허의 관문」·애니의 +1 추가 피해를 받는다 (관문 원문 "spells and abilities" · RiftJudge #3674) — effDmgBonus
-  async dmgEqMyMight(op, ctx, h){ const u=await pickBySpec(ctx.p, op.spec, '피해를 줄 대상 선택'); if(u&&ctx.unit){ const m=targetMight(ctx.unit)+effDmgBonus(u,ctx.p); dealDamage(u, m, ctx.kind||'ability'); h.setIt(u); UI.log(`${unitName(u)}에게 피해 ${m}`,'combat'); } },
+  async dmgEqMyMight(op, ctx, h){ const u=await pickBySpec(ctx.p, op.spec, '피해를 줄 대상 선택'); if(u&&ctx.unit){ const m=dmgPlus(targetMight(ctx.unit),u,ctx.p); dealDamage(u, m, ctx.kind||'ability'); h.setIt(u); UI.log(`${unitName(u)}에게 피해 ${m}`,'combat'); } },
   // "It deals damage equal to its Might" — 유닛이 피해 주체(kind 'unit', 룰 405~406 · #8166): 주문/능력 피해 방지에 안 걸린다
   async itDealsTo(op, ctx, h){ const it=h.it(); if(!it) return; const u=await pickBySpec(ctx.p, op.spec, '피해를 줄 적 유닛 선택'); if(u){ dealDamage(u, targetMight(it), 'unit'); UI.log(`${unitName(it)} → ${unitName(u)}에게 위력만큼 피해`,'combat'); } },
   // "We deal damage ... to each other" — 유닛 주체 피해(#7331)
@@ -235,7 +235,7 @@ const EXTRA_OPS = {
   // 대상은 플레이 시점, 버릴 카드는 해결 시점(#9587) — 대상이 사라져도 버림은 한다(앞 discard op)
   async dmgLastDiscardCost(op, ctx, h){ const d=G._lastDiscard; if(!d||d.p!==ctx.p) return;
     const cost=card(d.n).e||0; if(cost<=0) return;
-    const u=await pickBySpec(ctx.p,{side:'any',where:'bf',count:1},`피해 ${cost}을 줄 대상`); if(u){ dealDamage(u,cost+effDmgBonus(u,ctx.p),'spell'); h.setIt(u); } },   // 관문 +1
+    const u=await pickBySpec(ctx.p,{side:'any',where:'bf',count:1},`피해 ${cost}을 줄 대상`); if(u){ dealDamage(u,dmgPlus(cost,u,ctx.p),'spell'); h.setIt(u); } },   // 관문 +1
   async extortion(op, ctx, h){ const u=await pickBySpec(ctx.p,{side:'enemy',count:1},'대상 적 유닛 선택'); if(!u) return;
     const o=u.ctrl;
     const sel=await UI.pickOption(o,`「갈취」: 선택하세요`,[{v:'dmg',label:`${unitName(u)}이(가) 피해 6을 받는다`},{v:'draw',label:`상대가 카드 2장을 뽑는다`}]);
@@ -387,8 +387,8 @@ const EXTRA_OPS = {
     for(let i=0;i<op.n && P.trash.length;i++){
       const opts=P.trash.map((n,idx)=>({v:idx, label:card(n).ko, n}));
       const idx=await UI.pickOption(ctx.p, `덱 아래로 재활용할 카드 (${i+1}/${op.n})`, opts);
-      if(idx===null || idx===undefined) break;
-      picked.push(P.trash.splice(idx,1)[0]);
+      // 416.6 효과 재활용은 강제 — 취소해도 지정 장수만큼(폐기장이 허락하는 한) 재활용한다(취소 시 마지막 카드, 비용 recycleTrash와 같은 폴백)
+      picked.push(P.trash.splice((idx===null||idx===undefined)?P.trash.length-1:idx,1)[0]);
     }
     // 룰 403.5: 동시에 재활용되는 카드들은 무작위 순서로 덱 맨 아래에 놓인다
     if(picked.length){ P.deck.push(...shuffle(picked));
@@ -457,6 +457,8 @@ const EXTRA_OPS = {
     UI.log('「시간선 역전」: 모두 손패를 버리고 4장 드로우','sys'); },
   async blindRage(op, ctx, h){ const p=ctx.p, o=opp(p); const O=G.players[o], P=G.players[p];
     // 원문에 may 없음 — 공개한 카드는 '반드시' 추방한 뒤 비용 무시로 플레이한다 (거절·재활용 선택지 없음)
+    // 431.1.b 덱 맨 위 카드를 다른 존(추방)으로 옮기는 지시 — 덱이 비면 상대가 번아웃(폐기장→덱, 이쪽 1점)한 뒤 나머지를 완료(431.3 반복 포함)
+    ensureDeck(o);
     if(!O.deck.length) return;
     const top=O.deck.shift(); const c=card(top);
     O.banish.push(top);                       // 추방 (플레이 실패해도 추방 상태 유지)
@@ -524,7 +526,7 @@ const EXTRA_OPS = {
     const top=P.deck.splice(0,5);
     const hiddenCnt=top.filter(n=>FX[n]&&FX[n].kw&&FX[n].kw.hidden).length;
     UI.log(`덱 위 5장 공개 — [숨겨짐] ${hiddenCnt}장`,'sys');
-    if(hiddenCnt>0) dealDamage(t, hiddenCnt+effDmgBonus(t,ctx.p), 'effect');   // 한 인스턴스 + 관문 +1 (RiftJudge #3674)
+    if(hiddenCnt>0) dealDamage(t, dmgPlus(hiddenCnt,t,ctx.p), 'effect');   // 한 인스턴스 + 관문 +1 (RiftJudge #3674) — 0장이면 피해 액션 없음·보너스 없음(717.3 예시)
     P.deck.push(...shuffle(top));
     if(top.length) await fireEvent('onYouRecycle',{p:ctx.p}); },
   async tfGamble(op, ctx, h){ const P=G.players[ctx.p];
@@ -585,7 +587,7 @@ const EXTRA_OPS = {
     if(n>0) payCost(ctx.p,0,pips);
     const sel=(pre && pre.bf!==undefined) ? pre.bf
       : await UI.pickOption(ctx.p,'피해를 줄 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko}))); if(sel===null) return;
-    G.bfs[sel].units.filter(u=>u.ctrl!==ctx.p).forEach(u=>dealDamage(u,n+effDmgBonus(u,ctx.p),'spell')); },
+    G.bfs[sel].units.filter(u=>u.ctrl!==ctx.p).forEach(u=>dealDamage(u,dmgPlus(n,u,ctx.p),'spell')); },   // 힘 0이면 보너스 없음(717.3)
   async partyFavor(op, ctx, h){ const o=opp(ctx.p);
     const sel=await UI.pickOption(o,'「파티 선물」: 선택하세요',[{v:'card',label:'카드 (둘 다 1장 드로우)'},{v:'rune',label:'룬 (둘 다 룬 1개 탈진 전개)'}]);
     if(sel==='rune'){ channelRunes(ctx.p,1,true); channelRunes(o,1,true); }
@@ -760,12 +762,14 @@ const EXTRA_OPS = {
       }
     }
     // 나머지 재활용 — 토큰은 소멸, 카드는 소유자 덱 밑으로, 룬은 룬 덱으로
-    const recycledFor=new Set();
-    for(const u of everyUnit().filter(u=>!keepU.has(u))){ removeUnit(u); if(!u.isToken){ G.players[u.owner??u.ctrl].deck.push(u.n); recycledFor.add(u.owner??u.ctrl); } }
-    for(const {pi,g} of gearAll().filter(x=>!keepG.has(x.g))){ const P=G.players[pi]; P.gear.splice(P.gear.indexOf(g),1); P.deck.push(g.n); recycledFor.add(pi); }
+    // 동시에 메인 덱으로 재활용되는 카드들은 무작위 순서로 맨 아래에 놓인다 (417.1 = 감사 416.3.a) — 유닛·도구·손패를 모아 한 번에 섞어 넣는다
+    const recycledFor=new Set(); const toDeck=[[],[]];
+    for(const u of everyUnit().filter(u=>!keepU.has(u))){ removeUnit(u); if(!u.isToken){ toDeck[u.owner??u.ctrl].push(u.n); } }
+    for(const {pi,g} of gearAll().filter(x=>!keepG.has(x.g))){ const P=G.players[pi]; P.gear.splice(P.gear.indexOf(g),1); toDeck[pi].push(g.n); }
     for(const {pi,r} of runeAll().filter(x=>!keepR.has(x.r))){ const P=G.players[pi]; P.runes.splice(P.runes.indexOf(r),1); P.runeDeck.push(r.n); recycledFor.add(pi); }
     for(const pi of [0,1]){ const P=G.players[pi]; const keep=P.hand.filter((n,i)=>keepH[pi].has(i)); const rest=P.hand.filter((n,i)=>!keepH[pi].has(i));
-      if(rest.length){ P.deck.push(...rest); recycledFor.add(pi); } P.hand=keep; }
+      toDeck[pi].push(...rest); P.hand=keep;
+      if(toDeck[pi].length){ P.deck.push(...shuffle(toDeck[pi])); recycledFor.add(pi); } }
     for(const pi of recycledFor) await fireEvent('onYouRecycle',{p:pi});
     UI.log('「신성한 심판」: 각자 고른 유닛·도구·룬 2개(보드 전체)와 손패 2장만 남기고 재활용','sys'); },
   // 와작와작 죠스(6) "pay 분노 to play me": 정식 플레이 경로(폐기장→손패 맨 앞→playCardFromHand fromTrash)로 낸다 — 기지 또는
@@ -831,7 +835,7 @@ Object.assign(EXTRA_OPS, {
     const sel=await UI.pickOption(ctx.p,'피해를 줄 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})));
     if(sel===null) return;
     [...G.bfs[sel].units].filter(u=>u.ctrl!==ctx.p).forEach(u=>{
-      const d=dealDamage(u, op.n+effDmgBonus(u, ctx.p), 'spell');
+      const d=dealDamage(u, dmgPlus(op.n,u,ctx.p), 'spell');
       UI.log(`${unitName(u)}에게 피해 ${d}`, 'combat');
     });
     await cleanup(ctx.p); },
@@ -999,15 +1003,17 @@ Object.assign(EXTRA_OPS, {
     let left=op.n; const recycledFor=new Set();
     if(Array.isArray(ctx.preAb)){
       // 발동 시점에 고른 카드만 — 그사이 폐기장을 떠났으면(불사조 재플레이) 그 재활용은 사라진다 (#5445)
+      const toDeck=[[],[]];   // 동시 재활용은 무작위 순서로 덱 밑에 (417.1)
       for(const pk of ctx.preAb){
         const P=G.players[pk.pi]; const ti=P.trash.indexOf(pk.n);
         if(ti<0){ UI.log(`「${card(pk.n).ko}」은(는) 이미 폐기장에 없어 재활용하지 않음`, 'sys'); continue; }
-        P.deck.push(P.trash.splice(ti,1)[0]); recycledFor.add(pk.pi); left--;
+        toDeck[pk.pi].push(P.trash.splice(ti,1)[0]); recycledFor.add(pk.pi); left--;
       }
-      for(const pi of recycledFor) await fireEvent('onYouRecycle',{p:pi});
+      for(const pi of recycledFor){ G.players[pi].deck.push(...shuffle(toDeck[pi])); await fireEvent('onYouRecycle',{p:pi}); }
       if(left<op.n) UI.log(`「미래의 용광로」: ${op.n-left}장 재활용`,'p'+ctx.p);
       return;
     }
+    const toDeck2=[[],[]];
     while(left>0){
       const opts=[];
       G.players.forEach((P,pi)=>P.trash.forEach((n,i)=>opts.push({v:{pi,i},label:`${pname(pi)} 폐기장: ${card(n).ko}`,n})));
@@ -1015,10 +1021,10 @@ Object.assign(EXTRA_OPS, {
       opts.push({v:'stop',label:`그만 (남은 ${left}장 포기)`});
       const sel=await UI.pickOption(ctx.p,`재활용할 카드 선택 (남은 ${left}장)`,opts);
       if(sel===null||sel==='stop') break;
-      const P=G.players[sel.pi]; P.deck.push(P.trash.splice(sel.i,1)[0]);
+      const P=G.players[sel.pi]; toDeck2[sel.pi].push(P.trash.splice(sel.i,1)[0]);
       recycledFor.add(sel.pi); left--;
     }
-    for(const pi of recycledFor) await fireEvent('onYouRecycle',{p:pi});
+    for(const pi of recycledFor){ G.players[pi].deck.push(...shuffle(toDeck2[pi])); await fireEvent('onYouRecycle',{p:pi}); }   // 무작위 순서 (417.1)
     if(left<op.n) UI.log(`「미래의 용광로」: ${op.n-left}장 재활용`,'p'+ctx.p); },
   // 안면 분쇄(220): 같은 전장의 아군 1 + 적 1 기절. 양측이 함께 있는 전장이 있으면 그곳으로 제한
   // 두 대상(같은 전장의 적·아군)은 플레이 시점 지정 — 쌍이 없으면 플레이 불가(352.8, #9040 · #4868).

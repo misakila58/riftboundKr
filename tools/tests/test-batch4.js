@@ -90,7 +90,7 @@ const locOpts=t=>OPTLIST.filter(x=>x.t===t).map(x=>x.o.map(o=>o.v));
   await EXTRA_OPS.luredHook({}, {p:0}, null);
   ok('미끼 바늘: 잔혹한 후원자 — 남은 아군을 추가 비용으로 처치하고 등장', find(0,208) && !onBoard(v1) && !onBoard(v2), 'v2='+onBoard(v2)+' 208='+!!find(0,208));
   // ── 다리우스(27)를 미끼 바늘로 내면 '두 번째 카드'로 자기 준비(#8008) ──
-  fresh(); G.players[0].playedCards=1; const d0=unit(159,0,'base'); PICK=u=>u===d0;
+  fresh(); G.players[0].playedCards=1; G.players[0].playedSeq=1; const d0=unit(159,0,'base'); PICK=u=>u===d0;
   G.players[0].deck.unshift(27,210,210,210,210);
   await EXTRA_OPS.luredHook({}, {p:0}, null);
   ok('미끼 바늘: 다리우스 두 번째 카드 → 준비', find(0,27) && find(0,27).ex===false, 'ex='+(find(0,27)&&find(0,27).ex));

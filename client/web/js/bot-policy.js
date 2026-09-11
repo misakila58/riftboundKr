@@ -1179,7 +1179,7 @@ function polAbLegal(p, c){
   }
   if(ab.legion && !(P.playedCards >= 1)) return false;
   if(ab.onlyAtBf && c.src.kind === 'unit' && c.src.u.loc === 'base') return false;
-  if(ab.target && typeof unitsBySpec === 'function' && !unitsBySpec(ab.target, p).length) return false;   // 대상 없으면 발동 불가 (룰 391.3)
+  if(typeof abilityHasTargets === 'function' && !abilityHasTargets(p, c.src, ab)) return false;   // 대상 없으면 발동 불가 (404 — 엔진 preTargetAbility와 같은 판단)
   if(cost.exhaustSelf){
     if(c.src.kind === 'unit'   && c.src.u.ex) return false;
     if(c.src.kind === 'legend' && P.legendEx) return false;
