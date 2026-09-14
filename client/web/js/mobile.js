@@ -22,7 +22,7 @@
   function askExit(){
     const box=document.getElementById('modal-box');
     box.innerHTML=`<h3>앱 종료</h3>
-      <div style="font-size:14px;line-height:1.7;margin-bottom:6px">정말 종료하시겠습니까?</div>`;
+      <div class="modal-copy">정말 종료하시겠습니까?</div>`;
     const btns=document.createElement('div'); btns.className='modal-btns';
     const yes=document.createElement('button'); yes.className='primary'; yes.textContent='예, 종료';
     yes.onclick=()=>{
@@ -39,6 +39,7 @@
     // 1) 카드 확대가 열려 있으면 닫기
     const zoom=document.getElementById('card-zoom');
     if(zoom && zoom.style.display && zoom.style.display!=='none'){ UI.hideZoom(); return; }
+    if(chainIsOpen()){ UI.hideChain(); return; }
     // 2) 컨텍스트 메뉴(능력/플레이 메뉴)가 열려 있으면 닫기
     const menu=document.getElementById('ctx-menu');
     if(menu && menu.style.display==='block'){ hideMenu(); return; }

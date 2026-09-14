@@ -5,8 +5,9 @@
 
 UI.fx = {
   on: (localStorage.getItem('rb_fx') !== 'off'),
-  setOn(v){ UI.fx.on = !!v; localStorage.setItem('rb_fx', v ? 'on' : 'off'); updateTurnGlow(); },
+  setOn(v){ UI.fx.on = !!v; localStorage.setItem('rb_fx', v ? 'on' : 'off'); document.body.classList.toggle('fx-disabled', !UI.fx.on); updateTurnGlow(); },
 };
+document.body.classList.toggle('fx-disabled', !UI.fx.on);
 
 function fxLayer(){
   let l = document.getElementById('fx-layer');

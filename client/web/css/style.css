@@ -1,26 +1,42 @@
-/* 행동 차례 표시: 카드 조작을 막지 않는 짧은 가장자리 파동 */
+/* 행동 주체의 진영 경계를 감싸는 표시. 상대는 같은 모양을 위아래로 뒤집는다. */
 #turn-glow {
-  display:none; position:fixed; left:0; right:0; bottom:0;
-  height:clamp(12px,2.8vh,28px); overflow:hidden; pointer-events:none; z-index:90;
+  display:none; position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:90;
   --turn-glow-rgb:65,160,255;
+  --turn-glow-radius:clamp(20px,3vw,32px);
+  --turn-glow-rise:clamp(44px,62%,140px);
+  border-radius:0 0 var(--turn-glow-radius) var(--turn-glow-radius);
+  box-shadow:inset 0 -10px 22px -14px rgba(var(--turn-glow-rgb),.65);
 }
-#turn-glow[data-side="mine"], #turn-glow[data-side="opponent"] { display:block; }
-#turn-glow[data-side="opponent"] {
-  top:0; bottom:auto; transform:rotate(180deg); --turn-glow-rgb:245,75,85;
+.player-area > #turn-glow[data-side="mine"], .player-area > #turn-glow[data-side="opponent"] { display:block; }
+#turn-glow[data-side="opponent"] { transform:scaleY(-1); --turn-glow-rgb:245,75,85; }
+#turn-glow::before, #turn-glow::after { content:""; position:absolute; transform-origin:center bottom; }
+#turn-glow::before {
+  inset:auto 0 0; height:clamp(22px,24%,58px);
+  background:linear-gradient(to top,rgba(var(--turn-glow-rgb),.34),rgba(var(--turn-glow-rgb),.1) 42%,transparent),
+    radial-gradient(ellipse at 40% 110%,rgba(var(--turn-glow-rgb),.26),transparent 72%);
+  animation:turn-glow-base 4.8s ease-in-out infinite;
 }
-#turn-glow::before, #turn-glow::after {
-  content:""; position:absolute; inset:0 -20%; pointer-events:none;
-  background:linear-gradient(to top,rgba(var(--turn-glow-rgb),.32),rgba(var(--turn-glow-rgb),.1) 45%,transparent 100%),
-    radial-gradient(ellipse at 35% 110%,rgba(var(--turn-glow-rgb),.35),transparent 65%);
-  transform-origin:center bottom; animation:turn-glow-wave 3.6s ease-in-out infinite;
+#turn-glow::after {
+  inset:0;
+  background:
+    radial-gradient(ellipse 68px 60px at 24px calc(100% - 18px),rgba(var(--turn-glow-rgb),.3),transparent 85%),
+    radial-gradient(ellipse 68px 60px at calc(100% - 24px) calc(100% - 18px),rgba(var(--turn-glow-rgb),.3),transparent 85%),
+    radial-gradient(ellipse at left bottom,rgba(var(--turn-glow-rgb),.55),rgba(var(--turn-glow-rgb),.18) 34%,transparent 76%) left bottom / 32px var(--turn-glow-rise) no-repeat,
+    radial-gradient(ellipse at right bottom,rgba(var(--turn-glow-rgb),.55),rgba(var(--turn-glow-rgb),.18) 34%,transparent 76%) right bottom / 32px var(--turn-glow-rise) no-repeat,
+    linear-gradient(to top,rgba(var(--turn-glow-rgb),.55),transparent) left bottom / 1px var(--turn-glow-rise) no-repeat,
+    linear-gradient(to top,rgba(var(--turn-glow-rgb),.55),transparent) right bottom / 1px var(--turn-glow-rise) no-repeat;
+  animation:turn-glow-sides 5.7s ease-in-out -1.4s infinite;
 }
-#turn-glow::after { animation-duration:5.2s; animation-delay:-2.6s; }
-@keyframes turn-glow-wave {
-  0%,100% { transform:translateX(-5%) scaleY(.55); opacity:.45; }
-  50% { transform:translateX(5%) scaleY(1); opacity:.85; }
+@keyframes turn-glow-base {
+  0%,100% { transform:scaleY(.75); opacity:.6; }
+  50% { transform:scaleY(1); opacity:.9; }
+}
+@keyframes turn-glow-sides {
+  0%,100% { transform:scaleY(.88); opacity:.6; }
+  50% { transform:scaleY(1); opacity:.85; }
 }
 @media (prefers-reduced-motion:reduce) {
-  #turn-glow::before, #turn-glow::after { animation:none; opacity:.4; }
+  #turn-glow[data-side]::before, #turn-glow[data-side]::after { animation:none; opacity:.4; }
 }
 
 /* ══════════ 기본 ══════════ */
@@ -211,7 +227,7 @@ button { cursor:pointer; font-family:inherit; }
 }
 
 /* 플레이어 영역 */
-.player-area { flex:1; display:flex; gap:8px; min-height:0; }
+.player-area { position:relative; flex:1; display:flex; gap:8px; min-height:0; }
 .player-area.top { flex-direction:row; }
 .player-area.bottom { flex-direction:row; }
 #board.playmat-upper::before, #board.playmat-lower::after {
@@ -311,31 +327,72 @@ button { cursor:pointer; font-family:inherit; }
 }
 
 /* 전장 */
-#battlefields { flex:0 0 210px; display:flex; gap:12px; align-items:stretch; justify-content:center; }
+#battlefields {
+  --bf-unit-height:clamp(88px,15vh,104px); --bf-card-width:160px; --bf-divider-height:28px;
+  /* 큰 전장 이미지는 중앙 칸 밖으로 겹쳐 그린다. 구역 높이는 유닛 두 줄에 맞춘다. */
+  flex:0 0 calc(2 * var(--bf-unit-height) + var(--bf-divider-height) + 40px);
+  display:flex; gap:12px; align-items:stretch; justify-content:center;
+}
 .battlefield {
-  flex:1; max-width:44%; border:2px solid #3a4a70; border-radius:12px;
-  background:rgba(22,32,58,.85); padding:6px 8px; position:relative;
-  display:flex; flex-direction:column;
+  flex:1; min-width:0; min-height:0; max-width:44%; border:2px solid #3a4a70; border-radius:12px;
+  background:rgba(22,32,58,.85); padding:4px; position:relative;
+  display:grid; grid-template-rows:minmax(0,1fr) var(--bf-divider-height) minmax(0,1fr);
+  container: battlefield / inline-size;
 }
 .battlefield.contested { border-color:#e05a5a; box-shadow:0 0 14px #e05a5a55; }
 .battlefield.controlled-0 { border-color:#5a9de0; }
 .battlefield.controlled-1 { border-color:#e0a05a; }
-.bf-header { display:flex; gap:8px; align-items:center; font-size:12px; margin-bottom:4px; }
-.bf-header img { width:88px; border-radius:6px; cursor:pointer; box-shadow:0 2px 8px #0008; }
+.bf-header { position:relative; z-index:0; display:flex; justify-content:center; align-items:center; min-width:0; }
+.bf-header::before {
+  content:""; position:absolute; left:0; right:0; top:50%; height:1px; pointer-events:none;
+  background:linear-gradient(to right,transparent,#7186ad66 18%,#7186ad66 82%,transparent);
+}
+.bf-header img {
+  position:relative; flex:none; width:min(var(--bf-card-width),calc(100cqw - 12px)); height:auto; object-fit:contain;
+  border-radius:7px; cursor:zoom-in; box-shadow:0 4px 15px #0009,0 0 0 1px #a0bde32b;
+}
+.bf-info {
+  display:none; position:absolute; left:calc(50% + var(--bf-card-width) / 2 + 10px); right:6px;
+  padding:7px 8px; border-radius:8px;
+  background:linear-gradient(100deg,rgba(12,23,40,.78),rgba(17,31,50,.3));
+  box-shadow:inset 1px 0 #a2c7ee33; text-shadow:0 1px 3px #050b16;
+}
 .bf-name { font-weight:bold; color:#d8c27a; font-size:13px; }
-.bf-status { font-size:11px; color:#9aa4bd; }
-.bf-units { flex:1; display:flex; gap:4px; flex-wrap:wrap; align-content:flex-start; overflow-y:auto; }
-.bf-units .bf-row { display:flex; gap:4px; flex-wrap:wrap; width:100%; }
-.bf-row-label { font-size:10px; color:#667; width:100%; }
-#center-info { flex:0 0 130px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; }
+.bf-status { font-size:11px; color:#c0cede; margin-top:3px; }
+.bf-name, .bf-status { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bf-hidden-count {
+  position:absolute; left:6px;
+  padding:2px 3px; border-radius:4px; background:#16203a; color:#b5c2da; font-size:10px; white-space:nowrap;
+}
+/* 이미지 중앙을 기준으로 양쪽 카드 줄을 고정한다. 넘치는 카드는 각 진영 안에서 스크롤한다. */
+.bf-lane { position:relative; z-index:1; display:flex; min-width:0; min-height:0; pointer-events:none; }
+.bf-row {
+  flex:1; display:flex; gap:6px; align-items:center; justify-content:safe center; min-width:0; min-height:0;
+  overflow-x:auto; overflow-y:hidden; padding:6px 6px 8px; scrollbar-width:thin;
+}
+.bf-row .card-mini { height:var(--bf-unit-height); width:calc(var(--bf-unit-height) * 74 / 104); pointer-events:auto; }
+.bf-scroll {
+  display:none; flex:0 0 20px; align-self:center; height:44px; place-items:center;
+  border:0; border-radius:5px; background:#31446555; color:#bbd5f5; font-size:20px;
+  touch-action:manipulation; pointer-events:auto;
+}
+.bf-lane.has-overflow > .bf-scroll { display:grid; }
+.bf-scroll:disabled { opacity:.25; cursor:default; }
+.bf-scroll:focus-visible { outline:1px solid #9fc8ff; }
+@media (min-width:821px) and (min-height:600px) {
+  @container battlefield (min-width:420px) { .bf-info { display:block; } }
+}
+#center-info { flex:0 0 130px; min-height:0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; }
 #pool-display {
   font-size:12px; text-align:center; color:#9fd8ff; line-height:1.6;
-  background:rgba(20,28,48,.85); border-radius:8px; padding:8px 12px;
+  background:radial-gradient(ellipse at center,rgba(14,27,47,.8),rgba(14,27,47,.12));
+  border-radius:12px; padding:10px 12px; color:#c4def4; text-shadow:0 1px 3px #000b;
 }
 #pool-display:empty { display:none; }
 #showdown-banner {
-  background:#8a2a2a; border:1px solid #e05a5a; padding:6px 10px; border-radius:8px;
+  background:linear-gradient(125deg,#512631e6,#271e32bb); border:1px solid #d77d7d66; padding:6px 10px; border-radius:8px;
   font-size:13px; font-weight:bold; text-align:center; line-height:1.5;
+  min-height:0; overflow-y:auto; overflow-wrap:anywhere;
 }
 
 /* ══════════ 카드 ══════════ */
@@ -344,6 +401,12 @@ button { cursor:pointer; font-family:inherit; }
   background:#223; background-size:cover; background-position:center;
   border:2px solid #445; cursor:pointer; transition:transform .08s;
   box-shadow:0 2px 5px #0006;
+}
+/* 카드 확대 제스처에서 브라우저의 텍스트 선택/이미지 길게 누르기 메뉴를 막는다. */
+.card-zoom-trigger, .card-zoom-trigger * {
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
 }
 .card-mini:hover { transform:scale(1.06); z-index:3; border-color:#d8c27a; }
 .card-mini.selected { border-color:#7fe07f; box-shadow:0 0 10px #7fe07f88; }
@@ -427,16 +490,17 @@ button { cursor:pointer; font-family:inherit; }
   font-size:11px; color:#8a94b0; cursor:pointer;
 }
 .pile-count { font-size:16px; font-weight:bold; color:#c8d2ea; }
-.pile.deck { background:#182238 url('../assets/playcard_back.png') 50.318471% 45.662100% / 117.386489% 117.312253% no-repeat; }
-.pile.runedeck { background:#182238 url('../assets/runecard_back.png') 50.000000% 51.155116% / 125.890736% 125.656224% no-repeat; }
-.pile.trash { background-position:center; background-size:cover; background-repeat:no-repeat; }
+.pile.deck { --pile-image:url('../assets/playcard_back.png'); background:#182238 var(--pile-image) 50.318471% 45.662100% / 117.386489% 117.312253% no-repeat; }
+.pile.runedeck { --pile-image:url('../assets/runecard_back.png'); background:#182238 var(--pile-image) 50.000000% 51.155116% / 125.890736% 125.656224% no-repeat; }
+.pile.trash { background-image:var(--pile-image,none); background-position:center; background-size:cover; background-repeat:no-repeat; }
 .pile.deck > span, .pile.runedeck > span, .pile.trash.has-card-image > span {
   background:rgba(10,14,24,.8); color:#e8edf7; padding:0 4px; border-radius:3px;
 }
 
 /* ══════════ 카드 정보 패널 (호버 — 작게 표시, 확대는 Alt+클릭/꾹 누르기) ══════════ */
 #inspector {
-  flex:0 0 auto; max-height:40%; overflow-y:auto; padding:10px;
+  /* 내용과 이미지 로딩에 따라 로그 영역이 움직이지 않도록 높이를 먼저 확보한다. */
+  flex:0 0 auto; height:min(280px,32vh); max-height:40%; min-height:0; overflow-y:auto; padding:10px;
   background:rgba(20,28,48,.92); border:1px solid #2e3d5e; border-radius:10px;
 }
 /* 모달(멀리건 등)이 열린 동안엔 어두운 오버레이 위로 올려, 카드 호버 정보가 밝게 보이게 */
@@ -528,6 +592,238 @@ body.modal-open #inspector {
 .act-btn:disabled { opacity:.35; cursor:default; }
 .act-btn.armed { background:#2a5a2a; border-color:#7fe07f; }
 
+/* 푸른 마력 질감: 구슬 외곽 없이 버튼 내부만 채운다. 글자와 클릭 영역은 원래 버튼 그대로다. */
+.act-btn.arcane-button {
+  position:relative; isolation:isolate; overflow:hidden;
+  background:#16294f; color:#b7c9e3;
+  text-shadow:0 1px 3px #000,0 0 7px #081645;
+}
+.act-btn.arcane-button.primary:not(:disabled) {
+  color:#f5faff; border-color:#d8c27a;
+  background:radial-gradient(ellipse at 25% 5%,#226bd3 0%,#1552bf 30%,#12399e 62%,#111f64 100%);
+  box-shadow:inset 0 1px 2px #7cbbef66,inset 0 -2px 7px #081340cc,0 2px 6px #0007;
+}
+.arcane-button::before, .arcane-button::after {
+  content:""; position:absolute; z-index:-1; pointer-events:none;
+  opacity:0;
+}
+/* 윤곽선 없는 농도 차이만 겹친다. 서로 다른 주기로 흘러가며 사라지고, 투명할 때 위치를 되돌린다. */
+.arcane-button::before {
+  inset:-90% -45%;
+  background:
+    url('../assets/arcane-flow.svg') center / 100% 100% no-repeat,
+    radial-gradient(ellipse at 40% 52%,#3c9aff60 0%,#277aff28 24%,transparent 58%);
+  animation:arcane-current 11.3s linear -3.2s infinite paused;
+}
+.arcane-button::after {
+  inset:-110% -55%;
+  background:
+    url('../assets/arcane-flow.svg') 70% 30% / 165% 135% no-repeat,
+    radial-gradient(ellipse at 64% 62%,#235bf040 0%,transparent 53%);
+  animation:arcane-undertow 17.9s linear -11.6s infinite paused;
+}
+.arcane-button.primary:not(:disabled)::before,
+.arcane-button.primary:not(:disabled)::after { animation-play-state:running; }
+@keyframes arcane-current {
+  0% { transform:translate(-22%,12%) rotate(-8deg) scale(1.1); opacity:0; }
+  18% { opacity:.3; }
+  46% { opacity:.38; }
+  73% { opacity:.2; }
+  100% { transform:translate(22%,-14%) rotate(6deg) scale(1.22); opacity:0; }
+}
+@keyframes arcane-undertow {
+  0% { transform:translate(-18%,-15%) rotate(168deg) scale(1.25); opacity:0; }
+  24% { opacity:.23; }
+  57% { opacity:.32; }
+  81% { opacity:.14; }
+  100% { transform:translate(18%,18%) rotate(184deg) scale(1.05); opacity:0; }
+}
+@media (hover:hover) {
+  .act-btn.arcane-button.primary:hover:not(:disabled) {
+    border-color:#f3e1a7; box-shadow:inset 0 1px 3px #91c9ef80,inset 0 -2px 7px #081340cc,0 0 10px #317dff40;
+  }
+}
+.act-btn.arcane-button:active:not(:disabled) { box-shadow:inset 0 2px 9px #06163db3; }
+.act-btn.arcane-button:focus-visible { outline:3px solid #a6e6ff; outline-offset:2px; }
+body:is(.fx-disabled,.modal-open) .arcane-button.primary::before,
+body:is(.fx-disabled,.modal-open) .arcane-button.primary::after { animation-play-state:paused; }
+.arcane-button:not(.primary)::before, .arcane-button:not(.primary)::after,
+.arcane-button:disabled::before, .arcane-button:disabled::after { visibility:hidden; }
+@media (prefers-reduced-motion:reduce) {
+  .arcane-button::before, .arcane-button::after { animation:none; }
+}
+/* 파장·시작 위상·출렁임 주기를 분리한 연속 물결. 이동과 그라데이션은 같은 한 파장을 반복한다. */
+.arcane-filaments { position:absolute; inset:0; width:100%; height:100%; z-index:-1; pointer-events:none; }
+.arcane-wave {
+  --wave-x:360px; --wave-y:-34px;
+  animation:arcane-wave-travel 27.7s linear -9.8s infinite paused,
+    arcane-wave-breathe 17.3s ease-in-out -3.9s infinite alternate paused;
+}
+.arcane-wave-soft {
+  --wave-x:264px; --wave-y:-24px;
+  animation-duration:38.3s,23.9s; animation-delay:-28.4s,-17.2s;
+}
+.arcane-wave-thread {
+  --wave-x:432px; --wave-y:-40px;
+  animation-duration:46.9s,31.1s; animation-delay:-36.7s,-8.6s;
+}
+.arcane-wave path {
+  fill:url(#arcane-thread-color); stroke:none; opacity:.36;
+  animation:arcane-wave-swell 16.9s ease-in-out -11.7s infinite alternate paused;
+}
+.arcane-wave-soft path {
+  fill:url(#arcane-violet-color); opacity:.28;
+  animation-name:arcane-soft-swell; animation-duration:26.3s; animation-delay:-4.8s;
+}
+.arcane-wave-thread path {
+  fill:none; stroke:url(#arcane-fine-color); stroke-width:.7px; vector-effect:non-scaling-stroke;
+  opacity:.48; animation-name:arcane-thread-swell; animation-duration:37.1s; animation-delay:-29.6s;
+}
+.arcane-hue { animation:arcane-color-tide 24.9s ease-in-out -7.1s infinite alternate paused; }
+#arcane-violet-color .arcane-hue { animation-name:arcane-violet-tide; animation-duration:34.7s; animation-delay:-23.6s; }
+#arcane-fine-color .arcane-hue { animation-duration:43.1s; animation-delay:-31.4s; }
+@keyframes arcane-color-tide { from { stop-color:#6ce9dd; } to { stop-color:#93bcff; } }
+@keyframes arcane-violet-tide { from { stop-color:#a8a2ff; } to { stop-color:#69c5ed; } }
+@keyframes arcane-wave-travel { to { transform:translate(var(--wave-x),var(--wave-y)); } }
+@keyframes arcane-wave-breathe { from { opacity:.58; } to { opacity:1; } }
+@keyframes arcane-wave-swell {
+  from { d:path("M -720 108 c 60 -12 120 -29 180 -17 c 60 12 120 -5 180 -17 c 60 -12 120 -29 180 -17 c 60 12 120 -5 180 -17 c 60 -12 120 -29 180 -17 c 60 12 120 -5 180 -17 c 60 -12 120 -29 180 -17 c 60 12 120 -5 180 -17 c 60 -12 120 -29 180 -17 c 60 12 120 -5 180 -17 v 5 c -60 14 -120 31 -180 17 c -60 -14 -120 3 -180 17 c -60 14 -120 31 -180 17 c -60 -14 -120 3 -180 17 c -60 14 -120 31 -180 17 c -60 -14 -120 3 -180 17 c -60 14 -120 31 -180 17 c -60 -14 -120 3 -180 17 c -60 14 -120 31 -180 17 c -60 -14 -120 3 -180 17 Z"); }
+  to { d:path("M -720 110 c 60 -14 120 -31 180 -17 c 60 14 120 -3 180 -17 c 60 -14 120 -31 180 -17 c 60 14 120 -3 180 -17 c 60 -14 120 -31 180 -17 c 60 14 120 -3 180 -17 c 60 -14 120 -31 180 -17 c 60 14 120 -3 180 -17 c 60 -14 120 -31 180 -17 c 60 14 120 -3 180 -17 v 5 c -60 16 -120 33 -180 17 c -60 -16 -120 1 -180 17 c -60 16 -120 33 -180 17 c -60 -16 -120 1 -180 17 c -60 16 -120 33 -180 17 c -60 -16 -120 1 -180 17 c -60 16 -120 33 -180 17 c -60 -16 -120 1 -180 17 c -60 16 -120 33 -180 17 c -60 -16 -120 1 -180 17 Z"); }
+}
+@keyframes arcane-soft-swell {
+  from { d:path("M -528 96 c 44 -6 88 -18 132 -12 c 44 6 88 -6 132 -12 c 44 -6 88 -18 132 -12 c 44 6 88 -6 132 -12 c 44 -6 88 -18 132 -12 c 44 6 88 -6 132 -12 c 44 -6 88 -18 132 -12 c 44 6 88 -6 132 -12 c 44 -6 88 -18 132 -12 c 44 6 88 -6 132 -12 v 3 c -44 8 -88 20 -132 12 c -44 -8 -88 4 -132 12 c -44 8 -88 20 -132 12 c -44 -8 -88 4 -132 12 c -44 8 -88 20 -132 12 c -44 -8 -88 4 -132 12 c -44 8 -88 20 -132 12 c -44 -8 -88 4 -132 12 c -44 8 -88 20 -132 12 c -44 -8 -88 4 -132 12 Z"); }
+  to { d:path("M -528 93 c 44 -11 88 -23 132 -12 c 44 11 88 -1 132 -12 c 44 -11 88 -23 132 -12 c 44 11 88 -1 132 -12 c 44 -11 88 -23 132 -12 c 44 11 88 -1 132 -12 c 44 -11 88 -23 132 -12 c 44 11 88 -1 132 -12 c 44 -11 88 -23 132 -12 c 44 11 88 -1 132 -12 v 3 c -44 13 -88 25 -132 12 c -44 -13 -88 -1 -132 12 c -44 13 -88 25 -132 12 c -44 -13 -88 -1 -132 12 c -44 13 -88 25 -132 12 c -44 -13 -88 -1 -132 12 c -44 13 -88 25 -132 12 c -44 -13 -88 -1 -132 12 c -44 13 -88 25 -132 12 c -44 -13 -88 -1 -132 12 Z"); }
+}
+@keyframes arcane-thread-swell {
+  from { d:path("M -864 124 c 72 -13 144 -33 216 -20 c 72 13 144 -7 216 -20 c 72 -13 144 -33 216 -20 c 72 13 144 -7 216 -20 c 72 -13 144 -33 216 -20 c 72 13 144 -7 216 -20 c 72 -13 144 -33 216 -20 c 72 13 144 -7 216 -20 c 72 -13 144 -33 216 -20 c 72 13 144 -7 216 -20 "); }
+  to { d:path("M -864 123 c 72 -16 144 -36 216 -20 c 72 16 144 -4 216 -20 c 72 -16 144 -36 216 -20 c 72 16 144 -4 216 -20 c 72 -16 144 -36 216 -20 c 72 16 144 -4 216 -20 c 72 -16 144 -36 216 -20 c 72 16 144 -4 216 -20 c 72 -16 144 -36 216 -20 c 72 16 144 -4 216 -20 "); }
+}
+/* 빛 입자는 세 개만 두고, 사라져 있는 동안 출발점으로 돌아간다. */
+.arcane-spark {
+  --spark-x:82px; --spark-y:-28px; fill:#c0f6ff; stroke:#70cde8; stroke-width:.2px;
+  vector-effect:non-scaling-stroke; opacity:0;
+  animation:arcane-spark-drift 17.9s ease-in-out -12.8s infinite paused;
+}
+.arcane-spark:nth-child(2) { --spark-x:94px; --spark-y:-29px; animation-duration:25.7s; animation-delay:-3.4s; fill:#bdd1ff; }
+.arcane-spark:nth-child(3) { --spark-x:101px; --spark-y:-25px; animation-duration:31.3s; animation-delay:-20.6s; }
+@keyframes arcane-spark-drift {
+  0% { transform:translate(0,0); opacity:0; }
+  24% { opacity:.38; }
+  52% { opacity:.56; }
+  78% { opacity:.18; }
+  100% { transform:translate(var(--spark-x),var(--spark-y)); opacity:0; }
+}
+.arcane-button.primary:not(:disabled) :is(.arcane-wave,.arcane-wave path,.arcane-hue,.arcane-spark) { animation-play-state:running; }
+body:is(.fx-disabled,.modal-open) :is(.arcane-wave,.arcane-wave path,.arcane-hue,.arcane-spark) { animation-play-state:paused !important; }
+.arcane-button:not(.primary) .arcane-filaments, .arcane-button:disabled .arcane-filaments { visibility:hidden; }
+@media (prefers-reduced-motion:reduce) {
+  .arcane-wave, .arcane-wave path, .arcane-hue, .arcane-spark { animation:none !important; }
+  .arcane-spark { opacity:0; }
+}
+
+/* 안내 패널은 배경 톤을 살리면서 글자 뒤에는 충분한 명암을 남긴다. */
+#game-screen :is(#turn-panel,#inspector,#prompt-area,#log) {
+  background:linear-gradient(135deg,rgba(14,24,42,.86),rgba(19,32,52,.62));
+  border-color:#8eb4dc2e; box-shadow:0 3px 12px #0002; text-shadow:0 1px 2px #050b16;
+}
+
+/* 체인: 적재 순서를 한 줄로 유지하고, 긴 체인은 가로로 스크롤한다. */
+#btn-chain {
+  position:relative; display:flex; flex:0 0 64px; width:64px; height:64px;
+  align-items:center; justify-content:center; flex-direction:column; gap:3px;
+  border:1px solid #a494d2; border-radius:50%; color:#e0d2ff;
+  background:linear-gradient(145deg,#393052,#1a223c); box-shadow:0 0 0 3px #181f3488,0 3px 12px #0007;
+}
+#btn-chain:hover { border-color:#e0d2ff; background:linear-gradient(145deg,#51416f,#293452); }
+#btn-chain[aria-expanded="true"] { border-color:#ffe49a; color:#ffe49a; }
+#btn-chain svg { width:25px; height:25px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.chain-button-label { font-size:11px; font-weight:600; line-height:1; }
+#btn-chain-count {
+  position:absolute; top:-3px; right:-5px; display:flex; align-items:center; justify-content:center;
+  min-width:23px; height:23px; padding:0 5px; border:2px solid #192138; border-radius:12px;
+  background:#dfd1ff; color:#251c3b; font-size:12px; font-weight:700; line-height:1;
+}
+#btn-modal-chain { border-color:#8a79bf; color:#e0d2ff; }
+#btn-modal-chain { position:absolute; right:10px; top:10px; z-index:1; padding:7px 12px; white-space:nowrap; }
+.has-chain #modal-box { padding-top:60px; }
+#chain-overlay {
+  position:fixed; inset:0; z-index:220; background:rgba(5,8,16,.84);
+  display:flex; align-items:center; justify-content:center; padding:16px;
+}
+#chain-panel {
+  display:flex; flex-direction:column; width:min(1120px,100%); min-width:0; max-height:calc(100vh - 32px);
+  padding:18px; border:1px solid #6975a1; border-radius:14px;
+  background:#141e32; box-shadow:0 12px 44px #0009;
+}
+.chain-header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex:0 0 auto; }
+.chain-header h3 { margin:0; color:#e0d2ff; font-size:19px; }
+#btn-chain-close { padding:7px 18px; }
+.chain-meta { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:3px 12px; margin:4px 0 6px; flex:0 0 auto; }
+#chain-guide { margin:0; color:#a9b8d4; font-size:11px; line-height:1.3; }
+#chain-legend { display:flex; flex-wrap:wrap; gap:3px 10px; min-width:0; font-size:11px; line-height:1.3; }
+.chain-player-0 { --chain-color:#9fc8ff; --chain-tint:rgba(75,126,200,.15); }
+.chain-player-1 { --chain-color:#ffc89f; --chain-tint:rgba(206,135,75,.15); }
+.chain-owner { color:var(--chain-color); font-weight:600; overflow-wrap:anywhere; }
+#chain-cards {
+  display:flex; flex:1 1 auto; align-items:stretch; gap:14px; min-height:0;
+  overflow:auto; overscroll-behavior:contain; list-style:none; padding:2px 2px 12px; margin:0;
+  scrollbar-color:#7381a5 #10182a;
+}
+.chain-entry {
+  flex:0 0 208px; height:max-content; min-height:100%; min-width:0; padding:12px; border:1px solid var(--chain-color);
+  border-top:4px solid var(--chain-color); border-radius:10px; background:var(--chain-tint);
+}
+.chain-order { display:flex; align-items:center; justify-content:space-between; gap:6px; color:#c6cfe3; font-size:12px; margin-bottom:8px; }
+.chain-next { background:#58451d; color:#ffe49a; border-radius:4px; padding:3px 6px; font-size:11px; }
+.chain-entry > .chain-owner { font-size:12px; }
+.chain-entry h4 { margin:7px 0 10px; min-height:2.7em; color:#f0f3fb; font-size:14px; line-height:1.35; overflow-wrap:anywhere; }
+.chain-source-card {
+  display:flex; align-items:center; justify-content:center; width:100%; aspect-ratio:744 / 1039;
+  padding:0; overflow:hidden; border:1px solid var(--chain-color); border-radius:8px; background:#10182a;
+}
+.chain-source-card img { display:block; width:100%; height:100%; object-fit:contain; }
+.chain-card-fallback { color:#e0e8fa; padding:10px; font-size:14px; }
+.chain-countered .chain-source-card { opacity:.55; filter:grayscale(.8); }
+.chain-ability, .chain-state { margin:8px 0; font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+.chain-ability { color:#c6cfe3; }
+.chain-state { color:#ffe49a; }
+.chain-target-heading { margin-top:12px; margin-bottom:7px; color:#e0d2ff; font-size:13px; font-weight:600; }
+.chain-target-number { color:#c6cfe3; font-size:11px; margin-bottom:5px; }
+.chain-target { margin-top:6px; padding-top:6px; border-top:1px solid #495875; }
+.chain-target-card {
+  display:flex; align-items:center; gap:8px; width:100%; padding:5px; border:1px solid #495875;
+  border-left:3px solid var(--chain-color); border-radius:6px; background:#10182a; text-align:left;
+}
+.chain-target-card img { flex:0 0 46px; width:46px; height:65px; object-fit:contain; border-radius:3px; }
+.chain-target-card > .chain-card-fallback { flex:0 0 46px; padding:2px; font-size:10px; }
+.chain-target-info { display:flex; flex-direction:column; gap:5px; min-width:0; color:#e1e7f5; font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+.chain-target-info small { color:#a9b8d4; font-size:11px; }
+.chain-hint { margin:8px 0 0; color:#a9b8d4; font-size:12px; line-height:1.5; }
+.chain-footer { margin-top:4px; font-size:11px; line-height:1.3; flex:0 0 auto; }
+#chain-panel button { cursor:pointer; font-family:inherit; }
+#chain-panel button:hover { border-color:#ffe49a; }
+#chain-panel button:focus-visible, #btn-chain:focus-visible, #btn-modal-chain:focus-visible { outline:3px solid #ffe49a; outline-offset:2px; }
+@media(max-width:600px), (max-height:540px) {
+  #chain-overlay { padding:8px; }
+  #chain-panel { padding:10px; max-height:calc(100vh - 16px); max-height:calc(100dvh - 16px); }
+  #chain-cards { gap:8px; }
+  .chain-entry { flex-basis:160px; padding:8px; min-height:0; }
+  .chain-entry h4 { margin:4px 0 6px; min-height:0; font-size:13px; }
+  .chain-order { margin-bottom:4px; }
+  .chain-source-card {
+    width:min(100%, 110px, 22vh);
+    width:min(100%, 110px, 22dvh);
+    margin-inline:auto;
+  }
+  .chain-target-heading { margin-top:7px; margin-bottom:4px; }
+  .chain-target-card { gap:5px; padding:4px; }
+  .chain-target-card img { flex-basis:32px; width:32px; height:45px; }
+  .chain-header h3 { font-size:16px; }
+  #btn-chain-close { min-height:44px; }
+  #btn-modal-chain { padding:5px 10px; font-size:12px; }
+  .has-chain #modal-box { padding-top:52px; }
+}
+
 /* ══════════ 모달 ══════════ */
 #modal-overlay {
   position:fixed; inset:0; background:rgba(5,8,16,.8); z-index:100;
@@ -568,6 +864,7 @@ body.modal-peeking #inspector { z-index:auto; }
 .battlefield-source-info { min-width:0; font-size:13px; line-height:1.6; }
 .battlefield-source-info strong { color:#ffe6a0; }
 .battlefield-source-text { margin-top:6px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.battlefield-source-combat { margin-top:6px; padding-top:6px; border-top:1px dashed #4a5a78; font-size:12px; color:#d8deea; overflow-wrap:anywhere; }
 #prompt-area .battlefield-source { flex-direction:column; gap:8px; padding:8px; }
 #prompt-area .battlefield-source-card { flex-basis:auto; width:150px; max-width:100%; }
 @media(max-width:600px) {
@@ -687,17 +984,24 @@ body.modal-peeking #inspector { z-index:auto; }
 #card-zoom {
   position:fixed; inset:0; z-index:400; display:none;
   align-items:center; justify-content:center;
-  background:rgba(5,8,16,.82); cursor:zoom-out; padding:20px;
+  background:rgba(5,8,16,.82); cursor:zoom-out;
+  padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));
 }
 .cz-box {
-  display:flex; gap:20px; max-width:820px; max-height:90vh; cursor:default;
+  display:flex; flex-direction:column; width:820px; max-width:100%; max-height:100%; min-height:0; cursor:default;
   background:#141c30; border:1px solid #3a4a70; border-radius:16px;
-  padding:20px; box-shadow:0 10px 40px #000b; animation:czIn .12s ease-out;
+  overflow:hidden; box-shadow:0 10px 40px #000b; animation:czIn .12s ease-out;
 }
+.cz-toolbar { flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:6px 10px 6px 18px; border-bottom:1px solid #3a4a7066; color:#b4c5de; font-size:13px; }
+.cz-close { flex:none; min-width:80px; min-height:44px; display:flex; align-items:center; justify-content:center; gap:10px; border:1px solid #57749c; border-radius:9px; background:#223656; color:#f1f6ff; font-size:15px; touch-action:manipulation; }
+.cz-close span { font-size:25px; line-height:1; }
+.cz-close:hover { background:#2d456b; }
+.cz-close:focus-visible { outline:2px solid #a6d8ff; outline-offset:2px; }
+.cz-body { display:flex; gap:20px; min-height:0; overflow:auto; overscroll-behavior:contain; padding:18px 20px; }
 @keyframes czIn { from{opacity:0; transform:scale(.94);} to{opacity:1; transform:scale(1);} }
-.cz-img { width:340px; max-width:44vw; border-radius:12px; object-fit:contain; align-self:center; }
+.cz-img { width:340px; max-width:44%; height:auto; flex:none; border-radius:12px; object-fit:contain; align-self:flex-start; }
 .cz-noimg { width:280px; height:390px; display:flex; align-items:center; justify-content:center; font-size:80px; background:#1a2238; border-radius:12px; }
-.cz-info { flex:1; min-width:0; overflow-y:auto; }
+.cz-info { flex:1 0 auto; min-width:0; width:0; }
 .cz-name { font-size:26px; font-weight:bold; color:#d8c27a; }
 .cz-en { font-size:13px; color:#7c86a0; margin-bottom:8px; }
 .cz-type { font-size:15px; color:#9fd8ff; margin-bottom:12px; }
@@ -706,7 +1010,6 @@ body.modal-peeking #inspector { z-index:auto; }
 .cz-kw { font-size:13px; color:#9aa4bd; margin-top:8px; line-height:1.6; }
 .cz-tags { margin-top:10px; font-size:12px; color:#8a94b0; }
 .cz-hint { margin-top:16px; font-size:12px; color:#5a6a90; }
-@media (max-width:640px){ .cz-box{flex-direction:column} .cz-img{width:auto;max-width:70vw} }
 
 /* ══════════ 튜토리얼 패널 ══════════ */
 #tut-panel {
@@ -828,6 +1131,13 @@ body.modal-peeking #inspector { z-index:auto; }
   padding:5px 14px; max-height:22vh; overflow-y:auto;
 }
 #legal-footer .legal-en { color:#5a6a90; }
+@media (max-width:820px), (max-height:540px) and (pointer:coarse) {
+  #legal-footer {
+    font-size:8px; line-height:1.3; padding:3px 8px;
+    max-height:16vh; max-height:16dvh;
+    -webkit-text-size-adjust:100%; text-size-adjust:100%;
+  }
+}
 
 /* 규칙 처리 모드 체크박스 */
 .mode-chk { display:inline-flex; align-items:center; gap:5px; font-size:13px; color:#c8d2ea; cursor:pointer; }
@@ -846,7 +1156,7 @@ body.modal-peeking #inspector { z-index:auto; }
   #turn-info{ font-size:14px; } #phase-info{ font-size:12px; }
   .player-area{ gap:4px; }
   .side-zone{ flex-basis:104px; padding:4px; gap:3px; }
-  #battlefields{ flex:0 0 auto; gap:6px; }
+  #battlefields{ --bf-unit-height:82px; --bf-card-width:120px; --bf-divider-height:24px; gap:6px; }
   .battlefield{ padding:4px; }
   /* 좁은 화면에서는 예전 배분(기지가 남는 폭을 차지)이 더 낫다 — 데스크톱 전용 배분을 되돌린다 */
   .base-zone{ flex:1 1 auto; max-width:none; }
@@ -870,8 +1180,11 @@ body.modal-peeking #inspector { z-index:auto; }
   #ed-pool-panel{ min-height:0; border-right:none; border-bottom:1px solid #2e3d5e; }
   #ed-deck-panel{ min-height:0; }
   .ed-pool{ min-height:0; }
-  .cz-box{ flex-direction:column; max-width:94vw; }
-  .cz-img{ width:auto; max-width:80vw; max-height:52vh; }
+  .cz-body{ flex-direction:column; gap:14px; padding:14px; }
+  .cz-img{ width:auto; max-width:100%; max-height:44vh; align-self:center; }
+  .cz-info{ width:auto; }
+  .cz-noimg{ max-width:100%; max-height:32vh; align-self:center; }
+  .cz-name{ font-size:22px; }
   /* ── 모달(멀리건 등) 모바일 보정 ── */
   /* 모바일은 호버가 없어 탭 순간 인스펙터가 모달 버튼을 덮는 문제 → 승격 해제 (카드 확대는 꾹 누르기) */
   body.modal-open #inspector{ position:static; z-index:auto; }
@@ -885,6 +1198,7 @@ body.modal-peeking #inspector { z-index:auto; }
 }
 /* 가로가 매우 좁은 소형 폰 */
 @media (max-width:480px){
+  #battlefields{ --bf-unit-height:70px; --bf-card-width:84px; --bf-divider-height:20px; }
   .card-mini{ width:50px; height:70px; }
   .cm-name{ font-size:8px; }
 }
@@ -898,7 +1212,7 @@ body.modal-peeking #inspector { z-index:auto; }
     position:static; width:auto; flex:0 0 auto; max-height:42vh;
     padding:4px 4px calc(58px + env(safe-area-inset-bottom)); gap:4px; overflow-y:auto;
   }
-  #inspector{ flex:0 0 auto; max-height:20vh; }
+  #inspector{ flex:0 0 auto; height:min(120px,20vh); max-height:20vh; }
   #inspector img{ width:84px; }
   #log{ flex:0 0 auto; max-height:14vh; }
   /* 턴 종료/이동/패스: 화면 하단 고정 가로 바 (항상 보임) */
@@ -914,6 +1228,9 @@ body.modal-peeking #inspector { z-index:auto; }
 
 /* ══════════ 모바일 가로 (APK 기본): 스크롤 없이 전체 보드 + 로그 상시 표시 ══════════ */
 @media (orientation:landscape) and (max-height:520px){
+  .cz-body{ flex-direction:row; gap:14px; padding:12px; }
+  .cz-img, .cz-noimg{ width:30%; max-width:220px; max-height:none; align-self:flex-start; }
+  .cz-info{ width:0; }
   #game-screen{ display:flex; flex-direction:row; }
   /* 보드/사이드바 모두 overflow:hidden — 내부 섹션 높이를 통제해 '잘려서 안 보이는' 상황 자체를 없앤다 */
   #board{ position:absolute; top:0; left:0; right:206px; bottom:0; padding:3px 4px; gap:3px; overflow:hidden; }
@@ -938,19 +1255,18 @@ body.modal-peeking #inspector { z-index:auto; }
   .pile{ width:32px; height:44px; font-size:8px; border-radius:4px; }
   .pile-count{ font-size:11px; }
   .slot-caption{ font-size:7px; }
-  #battlefields{ flex:0 0 auto; gap:4px; min-height:0; }
+  #battlefields{
+    --bf-unit-height:56px; --bf-card-width:100px; --bf-divider-height:12px;
+    flex-basis:calc(2 * var(--bf-unit-height) + var(--bf-divider-height) + 34px); gap:4px; min-height:0;
+  }
   .battlefield{ padding:3px 4px; max-width:none; }
-  .bf-header{ gap:4px; margin-bottom:2px; }
-  .bf-header img{ width:34px; }
-  .bf-name{ font-size:10px; }
-  .bf-status{ font-size:8px; }
-  .bf-units{ gap:2px; }
-  .bf-row-label{ font-size:7px; }
+  .bf-row{ gap:4px; padding:5px 4px 7px; }
+  .bf-hidden-count{ font-size:8px; padding:1px 2px; }
 
   /* ── 사이드바: 인스펙터를 제한하고 로그는 최소 높이를 보장 (항상 보임) ── */
   #turn-panel{ flex:0 0 auto; font-size:10px; padding:3px 5px; }
   #turn-info{ font-size:11px; } #phase-info{ font-size:10px; }
-  #inspector{ flex:0 0 auto; max-height:88px; padding:4px 5px; }
+  #inspector{ flex:0 0 auto; height:88px; max-height:88px; padding:4px 5px; }
   #inspector img{ width:44px; margin-right:5px; }
   .insp-name{ font-size:11px; }
   .insp-name-en{ font-size:8px; margin-bottom:1px; }
@@ -971,6 +1287,66 @@ body.modal-peeking #inspector { z-index:auto; }
   #modal-box{ max-height:94vh; padding:10px; }
   .modal-cards .card-mini{ width:64px; height:90px; }
   .modal-cards .card-mini .cm-name{ font-size:8px; }
+}
+
+/* 모바일: 폐기 바로 아래 오른쪽 정렬한 세로 룬 덱, 왼쪽에는 가로로 이어지는 룬 두 행. */
+@media (max-width:820px), (orientation:landscape) and (max-height:520px) {
+  .side-zone {
+    --mobile-side-card-width:58px;
+    --mobile-pile-width:50px;
+    --mobile-rune-size:28px;
+    flex:0 0 calc(2 * var(--mobile-side-card-width) + var(--mobile-pile-width) + 28px);
+    display:grid; grid-template-columns:var(--mobile-side-card-width) var(--mobile-side-card-width) var(--mobile-pile-width);
+    grid-template-areas:"legend champion deck" "legend champion trash" "runes runes runedeck";
+    grid-template-rows:auto auto auto; align-items:start; align-content:start;
+  }
+  .side-zone > .legend-slot { grid-area:legend; }
+  .side-zone > .champ-slot { grid-area:champion; }
+  .side-zone > :is(.legend-slot,.champ-slot) > .card-mini {
+    width:var(--mobile-side-card-width); height:auto; aspect-ratio:74 / 104;
+  }
+  .side-zone > .runes-zone {
+    grid-area:runes; --rune-rows:2;
+    --rune-width:calc(var(--mobile-rune-size) * 5 / 7); --rune-height:var(--mobile-rune-size);
+    gap:2px; padding:0; overflow-x:auto;
+  }
+  .side-zone > .piles { display:contents; }
+  .side-zone .pile.deck { grid-area:deck; }
+  .side-zone .pile.trash { grid-area:trash; }
+  .side-zone .pile.runedeck { grid-area:runedeck; }
+  .side-zone .pile {
+    position:relative; isolation:isolate; overflow:hidden;
+    width:100%; height:auto; aspect-ratio:88 / 63; flex:none; flex-direction:row; justify-content:center;
+    background-image:none; padding:0 2px; gap:2px; border-radius:4px; font-size:9px; text-shadow:0 1px 3px #000;
+  }
+  /* 카드 그림만 시계 방향으로 회전한다. 글자와 터치 영역은 가로 방향을 유지한다. */
+  .side-zone .pile::before {
+    content:""; position:absolute; z-index:-1; pointer-events:none;
+    left:50%; top:50%; width:calc(100% * 63 / 88); height:calc(100% * 88 / 63);
+    transform:translate(-50%,-50%) rotate(90deg);
+    background-image:var(--pile-image,none); background-position:inherit; background-size:inherit; background-repeat:no-repeat;
+  }
+  .side-zone .pile > span:is(.pile-label,.pile-count) { padding:0; white-space:nowrap; flex:none; }
+  .side-zone .pile-count { font-size:11px; }
+  .side-zone .pile.runedeck {
+    width:calc(var(--mobile-pile-width) * .72); justify-self:end; aspect-ratio:63 / 88; flex-direction:column;
+    background-image:var(--pile-image);
+  }
+  .side-zone .pile.runedeck::before { content:none; }
+}
+@media (max-width:480px) { .side-zone { --mobile-side-card-width:50px; } }
+@media (max-width:820px) and (orientation:portrait) {
+  .player-area { min-height:148px; }
+  .player-area > .hand-zone, .player-area > .base-zone { flex:1 1 0; min-width:0; }
+}
+@media (orientation:landscape) and (max-height:520px) {
+  .side-zone { --mobile-side-card-width:40px; --mobile-pile-width:40px; --mobile-rune-size:22px; }
+  .side-zone > .piles { gap:2px; }
+}
+@media (orientation:landscape) and (max-height:360px) {
+  .side-zone { --mobile-pile-width:31px; }
+  .side-zone .pile { padding:0; gap:1px; font-size:7px; }
+  .side-zone .pile-count { font-size:9px; }
 }
 
 /* ══════════ 리플레이: 보관함 카드 + 재생 컨트롤 바 ══════════ */

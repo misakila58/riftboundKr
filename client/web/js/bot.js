@@ -64,7 +64,7 @@ botWrap('pickMulligan', (p)=>POLICY.mulligan(p));
 setInterval(()=>{
   if(!BOT.active || !G || G.winner!==null || NET.online || BOT.busy) return;
   if(UI.isPicking && UI.isPicking()) return;                       // 사람이 선택 중
-  if(document.getElementById('modal-overlay').style.display!=='none') return;
+  if(document.getElementById('modal-overlay').style.display!=='none' || chainIsOpen()) return;
 
   // 결전: 봇 응답 차례 — 어려움은 박빙일 때 트릭 카드 시도 후 패스
   if(G.state==='showdown'){
@@ -99,78 +99,153 @@ async function botStep(){
   if(await POLICY.step(p, BOT.ctx)) await endTurn();
 }
 
+const BOT_SETUP_KEY='rb_bot_setup';
+let botSelectEvents;
 function openBotSelect(){
   const box=document.getElementById('modal-box');
-  box.innerHTML=`<h3>🤖 BOT 대전</h3>
-    <div style="font-size:13px;color:#9aa4bd;margin-bottom:8px">
-      실제 대회 우승 덱을 연습 상대로 고를 수 있습니다. (밴 미적용 · 당시 대회 리스트 그대로)</div>
-    <div style="margin-bottom:10px">
-      <label style="font-size:12px;color:#8fa">내 덱</label><br>
-      <select id="bot-deck" style="width:100%;padding:8px;border-radius:6px;border:1px solid #3a4a70;background:#0e1626;color:#e8e6e0;font-size:14px"></select>
-    </div>
-    <div style="margin-bottom:12px">
-      <label style="font-size:12px;color:#8fa">상대(봇) 덱</label><br>
-      <select id="bot-opp-deck" style="width:100%;padding:8px;border-radius:6px;border:1px solid #3a4a70;background:#0e1626;color:#e8e6e0;font-size:14px"></select>
-      <div id="bot-opp-info" style="font-size:11px;color:#5a6a90;margin-top:4px;line-height:1.5"></div>
-    </div>`;
-  const sel=box.querySelector('#bot-deck');
-  const auto=document.createElement('option');
-  auto.value='auto'; auto.textContent='🎲 무작위 자동 덱';
-  sel.appendChild(auto);
-  DeckStore._read().forEach((d,i)=>{
-    const o=document.createElement('option');
-    o.value=i; o.textContent=`${d.name} (${card(d.legendN).ko})`;
-    sel.appendChild(o);
-  });
-  if(DeckStore._read().length) sel.value='0';
-  // 상대 덱: 무작위 + 대회 덱
-  const osel=box.querySelector('#bot-opp-deck');
-  const oauto=document.createElement('option');
-  oauto.value='auto'; oauto.textContent='🎲 무작위 자동 덱';
-  osel.appendChild(oauto);
-  BOT_DECKS.forEach(td=>{
-    const o=document.createElement('option');
-    o.value=td.id; o.textContent=`🏆 [${td.place}] ${td.name}${td.tag?` — ${td.tag}`:''}`;
-    osel.appendChild(o);
-  });
-  const info=box.querySelector('#bot-opp-info');
-  const updInfo=()=>{
-    const td=BOT_DECKS.find(x=>x.id===osel.value);
-    info.textContent = td ? `${td.event}` : '전설 무작위 + 자동 구성 덱';
+  const overlay=document.getElementById('modal-overlay');
+  botSelectEvents?.abort();
+  botSelectEvents=new AbortController();
+  const returnFocus=document.activeElement;
+  let saved;
+  try{ saved=JSON.parse(localStorage.getItem(BOT_SETUP_KEY)); }catch(e){}
+  const automatic={key:'auto', name:'무작위 자동 덱', detail:'레전드 무작위 · 자동 구성', deck:null};
+  const mine=[automatic, ...DeckStore._read().map(d=>({key:deckToCode(d), name:d.name, detail:card(d.legendN).ko, deck:d}))];
+  const opponents=[automatic, ...BOT_DECKS.map(d=>({key:d.id, name:d.name, detail:`${d.place} · ${d.tag || d.event}`, deck:d}))];
+  // 목록 순번 대신 덱 내용으로 복원한다. 덱을 수정했다면 이름·레전드가 같은 덱이 하나일 때만 이어 쓴다.
+  const sameName=mine.filter(c=>c.deck && c.name===saved?.myDeck?.name && c.deck.legendN===saved?.myDeck?.legendN);
+  let my=mine.find(c=>c.key===saved?.myDeck?.key) || (sameName.length===1?sameName[0]:null) || (saved?automatic:(mine[1] || automatic));
+  let opponent=opponents.find(c=>c.key===saved?.opponent) || automatic;
+  let levelIndex=BOT_LEVELS.findIndex(l=>l.id===saved?.level);
+  if(levelIndex<0) levelIndex=1;
+  let notice=saved?.myDeck?.key && saved.myDeck.key!=='auto' && my===automatic
+    ? '이전에 고른 내 덱이 없어 무작위 덱으로 바뀌었습니다.' : '';
+  let goBack;
+  const save=()=>{
+    try{
+      localStorage.setItem(BOT_SETUP_KEY, JSON.stringify({
+        myDeck:{key:my.key, name:my.name, legendN:my.deck?.legendN}, opponent:opponent.key, level:BOT_LEVELS[levelIndex].id,
+      }));
+    }catch(e){
+      notice='이 기기에 설정을 저장하지 못했습니다. 다음 실행 때 다시 선택해 주세요.';
+      const note=box.querySelector('#bot-save-note');
+      if(note) note.textContent=notice;
+    }
   };
-  osel.onchange=updInfo; updInfo();
-  const btns=document.createElement('div'); btns.className='modal-btns';
-  btns.style.flexDirection='column';
-  BOT_LEVELS.forEach(lv=>{
-    const b=document.createElement('button'); b.className='primary';
-    b.innerHTML=`${lv.name} — <span style="font-weight:normal;font-size:12px">${lv.desc}</span>`;
-    b.onclick=()=>{
-      const my=botMyDeck();
-      const oppDeck=botOppDeck(osel.value);
-      closeModal();
-      startBotGame(lv, my, oppDeck);
-    };
-    btns.appendChild(b);
-  });
-  const cancel=document.createElement('button'); cancel.textContent='취소';
   // 게임 종료 후 진입한 경우: 취소하면 끝난 게임 화면에 갇히지 않게 처음으로
-  cancel.onclick=()=>{ if(typeof G!=='undefined' && G && G.winner!==null) location.reload(); else closeModal(); };
-  btns.appendChild(cancel);
-  box.appendChild(btns);
+  const cancel=()=>{
+    if(typeof G!=='undefined' && G && G.winner!==null){ location.reload(); return; }
+    closeModal();
+    if(returnFocus?.isConnected) returnFocus.focus({preventScroll:true});
+  };
+  const thumb=choice=>{
+    const legend=choice.deck && card(choice.deck.legendN);
+    return legend
+      ? `<img class="bot-legend-thumb" src="${esc(cardImgUrl(legend.img,160))}" alt="${esc(legend.ko)}" loading="lazy" draggable="false">`
+      : '<span class="bot-legend-thumb bot-random-thumb" aria-hidden="true">🎲</span>';
+  };
+  const deckButton=(choice,id,label)=>`<button type="button" id="${id}" class="bot-deck-button" aria-haspopup="dialog">
+    ${thumb(choice)}<span class="bot-deck-copy"><small>${label}</small><strong>${esc(choice.name)}</strong><span>${esc(choice.detail)}</span></span>
+    <span class="bot-deck-change" aria-hidden="true">변경 ›</span></button>`;
+  const header=(title,kicker,description)=>`<header class="bot-dialog-header">
+    <div><p class="start-panel-kicker">${kicker}</p><h3 id="bot-dialog-title">${title}</h3><p class="bot-dialog-description">${description}</p></div>
+    <button type="button" class="bot-dialog-close" aria-label="${title} 닫기">×</button></header>`;
+  function renderSetup(focusId='bot-deck'){
+    goBack=cancel;
+    box.innerHTML=`<section class="bot-dialog bot-setup-panel" role="dialog" aria-modal="true" aria-labelledby="bot-dialog-title">
+      ${header('BOT 대전','PRACTICE','덱과 난이도를 고르고, 나만의 속도로 연습하세요.')}
+      <div class="bot-setup-content">
+        <div class="bot-deck-selections">${deckButton(my,'bot-deck','내 덱')}${deckButton(opponent,'bot-opp-deck','상대 덱')}</div>
+        <section class="bot-difficulty" aria-labelledby="bot-difficulty-title">
+          <h4 id="bot-difficulty-title">난이도</h4>
+          <div class="bot-difficulty-controls">
+            <button type="button" id="bot-level-down" aria-label="난이도 낮추기">‹</button>
+            <div class="bot-level-summary" aria-live="polite"><strong id="bot-level-name"></strong><span id="bot-level-step"></span></div>
+            <button type="button" id="bot-level-up" aria-label="난이도 높이기">›</button>
+          </div>
+          <p id="bot-level-description"></p>
+        </section>
+      </div>
+      <p class="bot-tournament-note">대회 덱은 당시 목록 그대로 사용합니다. · 밴 미적용</p>
+      <footer class="bot-dialog-footer"><p id="bot-save-note" role="status">${esc(notice || '마지막으로 고른 설정은 이 기기에 자동 저장됩니다.')}</p>
+        <button type="button" id="bot-start" class="bot-start-button">대전 시작 <span aria-hidden="true">→</span></button></footer>
+    </section>`;
+    box.querySelector('.bot-dialog-close').onclick=cancel;
+    box.querySelector('#bot-deck').onclick=()=>renderDeckPicker('mine');
+    box.querySelector('#bot-opp-deck').onclick=()=>renderDeckPicker('opponent');
+    const updateLevel=()=>{
+      const level=BOT_LEVELS[levelIndex];
+      box.querySelector('#bot-level-name').textContent=level.name;
+      box.querySelector('#bot-level-step').textContent=`${levelIndex+1} / ${BOT_LEVELS.length}`;
+      box.querySelector('#bot-level-description').textContent=level.desc;
+      box.querySelector('#bot-level-down').disabled=levelIndex===0;
+      box.querySelector('#bot-level-up').disabled=levelIndex===BOT_LEVELS.length-1;
+    };
+    [-1,1].forEach(delta=>{
+      box.querySelector(delta<0?'#bot-level-down':'#bot-level-up').onclick=()=>{
+        levelIndex=Math.max(0,Math.min(BOT_LEVELS.length-1,levelIndex+delta)); updateLevel(); save();
+      };
+    });
+    updateLevel();
+    box.querySelector('#bot-start').onclick=()=>{
+      const myDeck=botMyDeck(my.deck), oppDeck=botOppDeck(opponent.key);
+      save(); closeModal(); startBotGame(BOT_LEVELS[levelIndex],myDeck,oppDeck);
+    };
+    box.scrollTop=0;
+    box.querySelector('#'+focusId).focus({preventScroll:true});
+  }
+  function renderDeckPicker(side){
+    const isMine=side==='mine', choices=isMine?mine:opponents, selected=isMine?my:opponent;
+    const back=()=>renderSetup(isMine?'bot-deck':'bot-opp-deck');
+    goBack=back;
+    box.innerHTML=`<section class="bot-dialog bot-deck-picker" role="dialog" aria-modal="true" aria-labelledby="bot-dialog-title">
+      ${header(isMine?'내 덱 선택':'상대 덱 선택','CHOOSE YOUR DECK',isMine?'이 기기에 저장된 덱에서 골라 주세요.':'레전드와 덱 이름을 보고 연습 상대를 골라 주세요.')}
+      <div class="bot-deck-list" aria-label="${isMine?'내':'상대'} 덱 목록"></div>
+      <footer class="bot-dialog-footer"><p>${isMine && mine.length===1?'저장된 덱이 없습니다. 시작 화면의 ‘내 덱’에서 만들어 주세요.':'덱을 누르면 선택하고 설정으로 돌아갑니다.'}</p>
+        <button type="button" class="bot-back-button">설정으로 돌아가기</button></footer>
+    </section>`;
+    const list=box.querySelector('.bot-deck-list');
+    choices.forEach(choice=>{
+      const button=document.createElement('button'); button.type='button'; button.className='bot-deck-option';
+      button.setAttribute('aria-pressed',String(choice===selected));
+      button.innerHTML=`${thumb(choice)}<span class="bot-deck-copy"><strong>${esc(choice.name)}</strong><span>${esc(choice.detail)}</span>${!isMine && choice.deck?`<small>${esc(choice.deck.event)}</small>`:''}</span><span class="bot-deck-check" aria-hidden="true">${choice===selected?'✓':'›'}</span>`;
+      button.onclick=()=>{ if(isMine) my=choice; else opponent=choice; notice=''; save(); back(); };
+      list.appendChild(button);
+    });
+    box.querySelector('.bot-dialog-close').onclick=back;
+    box.querySelector('.bot-back-button').onclick=back;
+    const active=list.querySelector('[aria-pressed="true"]');
+    active.focus({preventScroll:true}); active.scrollIntoView({block:'nearest'});
+  }
+  // 팝업 안에서 키보드 초점을 유지하고, 덱 선택 중 Esc는 설정창으로 한 단계만 돌아간다.
+  overlay.addEventListener('keydown',event=>{
+    if(!box.querySelector('.bot-dialog')) return;
+    if(event.key==='Escape'){ event.preventDefault(); event.stopPropagation(); goBack(); }
+    if(event.key==='Tab'){
+      const controls=[...box.querySelectorAll('button:not(:disabled)')], first=controls[0], last=controls[controls.length-1];
+      if(event.shiftKey && document.activeElement===first){ event.preventDefault(); last.focus(); }
+      else if(!event.shiftKey && document.activeElement===last){ event.preventDefault(); first.focus(); }
+    }
+  },{signal:botSelectEvents.signal});
+  // 공통 모달의 바깥 클릭 정책을 덮어쓰지 않고 BOT 창에서만 한 단계 뒤로 간다.
+  overlay.addEventListener('click',event=>{
+    if(event.target===overlay && box.querySelector('.bot-dialog')){ event.stopImmediatePropagation(); goBack(); }
+  },{capture:true,signal:botSelectEvents.signal});
+  renderSetup();
   openModal();
+  box.querySelector('#bot-deck').focus({preventScroll:true});
   // 게임 종료 후 재대결 선택 중에는 뒤로 가기로 닫으면 조작 불가 화면에 갇히므로 제외
   if(!(typeof G!=='undefined' && G && G.winner!==null)) markModalDismissable();
 }
 
-// 모달의 선택값 → 내 덱 객체 {legendN, champN, main, runes, bfs}
-function botMyDeck(){
-  const v=document.getElementById('bot-deck').value;
-  if(v==='auto'){
+// 선택한 저장 덱 또는 무작위 자동 덱 → {legendN, champN, main, runes, bfs}
+function botMyDeck(selected){
+  if(!selected){
     const l=botRand(legendList());
     const d=buildDeck(l.n);
     return { name:'자동 덱', legendN:l.n, champN:d.champN, main:d.deck.slice(0,40), runes:d.runes, bfs:d.bfs };
   }
-  return DeckStore._read()[+v];
+  return selected;
 }
 // 상대(봇) 덱: 무작위 자동 또는 대회 덱
 function botOppDeck(v){

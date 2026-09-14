@@ -1,16 +1,47 @@
 // ══════════ 화면 흐름: 로그인 → 메뉴 → (덱 관리 | 로비 | 핫시트) → 게임 ══════════
 
-const SCREENS = ['connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','p2p-screen','replay-screen','patch-screen','record-screen','setup-screen','game-screen'];
+const HOME_PANELS = {
+  'online-screen':{trigger:'btn-online-play', close:'btn-online-back', focus:'btn-online-back'},
+  'offline-screen':{trigger:'btn-offline-play', close:'btn-offline-back', focus:'btn-goto-p2p'},
+};
+// 선택 창 뒤에 메인 화면도 보이므로 선택 창을 먼저 확인한다.
+const SCREENS = [...Object.keys(HOME_PANELS),'connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','p2p-screen','replay-screen','patch-screen','record-screen','setup-screen','game-screen'];
+let homePanelCloseTimer;
 // 지금 보이는 화면 (패치 노트처럼 '왔던 곳으로' 돌아가야 하는 화면에 쓴다)
 function currentScreen(){
   return SCREENS.find(id=>{ const e=document.getElementById(id); return e && e.style.display!=='none'; }) || 'connect-screen';
 }
 function showScreen(id){
-  SCREENS.forEach(s=>{ document.getElementById(s).style.display = s===id ? 'flex' : 'none'; });
+  clearTimeout(homePanelCloseTimer);
+  const homePanel=HOME_PANELS[id];
+  if(id!=='game-screen') UI.hideChain();
+  SCREENS.forEach(s=>{
+    document.getElementById(s).style.display = (s===id || (homePanel && s==='connect-screen')) ? 'flex' : 'none';
+  });
+  Object.entries(HOME_PANELS).forEach(([screenId, config])=>{
+    const panel=document.getElementById(screenId);
+    panel.classList.remove('is-closing'); panel.inert=false;
+    document.getElementById(config.trigger).setAttribute('aria-expanded',String(screenId===id));
+  });
+  document.getElementById('connect-screen').inert=!!homePanel;
+  document.body.classList.toggle('start-menu-visible', id==='connect-screen' || !!homePanel);
   // 법적 고지 푸터: 게임 화면에서는 보드를 가리지 않게 숨김, 그 외 입장 화면에서는 상시 노출
   const lf=document.getElementById('legal-footer');
   if(lf) lf.style.display = (id==='game-screen') ? 'none' : 'block';
   updateLegalPad();
+  if(homePanel) document.getElementById(homePanel.focus).focus({preventScroll:true});
+}
+function closeHomePanel(){
+  const id=currentScreen(), config=HOME_PANELS[id];
+  if(!config || document.body.classList.contains('modal-open')) return;
+  const panel=document.getElementById(id);
+  // 서버 접속 중에는 기존 닫기 버튼과 같은 제한을 적용한다.
+  if(document.getElementById(config.close).disabled || panel.classList.contains('is-closing')) return;
+  panel.classList.add('is-closing'); panel.inert=true;
+  homePanelCloseTimer=setTimeout(()=>{
+    showScreen('connect-screen');
+    document.getElementById(config.trigger).focus({preventScroll:true});
+  }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 160);
 }
 // 고정 푸터의 실제 높이를 CSS 변수(--legal-h)로 알려, 각 화면이 그만큼 하단 여백을 확보한다
 // (여백 없이는 낮은 해상도에서 스크롤 끝까지 내려도 마지막 내용이 푸터에 깔려 안 보인다)
@@ -46,21 +77,35 @@ function uiScale(){ const v=parseFloat(localStorage.getItem(UISCALE_KEY)); retur
 function applyUiScale(v){ document.documentElement.style.zoom=v; updateLegalPad(); }
 function showScalePicker(firstRun){
   const box=document.getElementById('modal-box');
-  box.innerHTML='<h3>🔍 화면 배율</h3><div style="font-size:13px;color:#9aa4bd;margin-bottom:10px">'+
-    (firstRun ? '화면이 잘리거나 글자가 너무 작으면 배율을 조절하세요.<br>누르는 즉시 적용됩니다 — 나중에 첫 화면·ESC 메뉴에서 언제든 변경 가능'
-              : '누르는 즉시 적용됩니다')+'</div>';
-  const btns=document.createElement('div'); btns.className='modal-btns';
-  [0.7,0.8,0.9,1,1.1,1.25,1.4].forEach(v=>{
-    const b=document.createElement('button');
-    b.textContent=Math.round(v*100)+'%';
-    if(Math.abs(uiScale()-v)<0.01) b.className='primary';
-    b.onclick=()=>{ applyUiScale(v); try{localStorage.setItem(UISCALE_KEY,String(v));}catch(e){} showScalePicker(firstRun); };
-    btns.appendChild(b);
-  });
-  box.appendChild(btns);
-  const done=document.createElement('div'); done.className='modal-btns';
-  const ok=document.createElement('button'); ok.className='primary'; ok.textContent='완료'; ok.onclick=closeModal;
-  done.appendChild(ok); box.appendChild(done);
+  const percent=Math.round(uiScale()*100);
+  box.innerHTML=`<section class="scale-settings" aria-labelledby="scale-heading">
+    <h3 id="scale-heading">🔍 화면 배율</h3>
+    <p class="scale-description">${firstRun?'화면이 잘리거나 글자가 작으면 배율을 조절하세요. 첫 화면·ESC 메뉴에서 다시 변경할 수 있습니다.<br>':''}슬라이더를 움직이면 바로 적용되며, 변경한 배율은 자동으로 저장됩니다.</p>
+    <div class="scale-control">
+      <div class="scale-control-header">
+        <label for="ui-scale-slider">현재 배율</label>
+        <output id="ui-scale-value" for="ui-scale-slider">${percent}%</output>
+      </div>
+      <input id="ui-scale-slider" class="scale-slider" type="range" min="60" max="160" step="1" value="${percent}" aria-valuetext="${percent}%">
+      <div class="scale-limits" aria-hidden="true"><span>60% · 작게</span><span>160% · 크게</span></div>
+    </div>
+    <div class="modal-btns scale-actions">
+      <button type="button" id="ui-scale-reset">기본값 100%</button>
+      <button type="button" id="ui-scale-done" class="primary">완료</button>
+    </div>
+  </section>`;
+  const slider=box.querySelector('#ui-scale-slider');
+  const value=box.querySelector('#ui-scale-value');
+  const update=()=>{
+    const percent=Number(slider.value), scale=percent/100;
+    value.textContent=percent+'%';
+    slider.setAttribute('aria-valuetext',percent+'%');
+    applyUiScale(scale);
+    try{localStorage.setItem(UISCALE_KEY,String(scale));}catch(e){}
+  };
+  slider.oninput=update;
+  box.querySelector('#ui-scale-reset').onclick=()=>{ slider.value='100'; update(); };
+  box.querySelector('#ui-scale-done').onclick=closeModal;
   openModal(); markModalDismissable();
 }
 
@@ -364,7 +409,34 @@ function defaultServerUrl(){
 function initConnect(){
   const input=document.getElementById('server-url');
   const msg=document.getElementById('connect-msg');
+  const connectBtn=document.getElementById('btn-connect');
+  const backBtn=document.getElementById('btn-online-back');
   input.value = localStorage.getItem('rb_server') || defaultServerUrl();
+  document.getElementById('btn-online-play').onclick=()=>showScreen('online-screen');
+  document.getElementById('btn-offline-play').onclick=()=>showScreen('offline-screen');
+  document.getElementById('btn-home-settings').onclick=openSystemMenu;
+  Object.entries(HOME_PANELS).forEach(([id, config])=>{
+    document.getElementById(config.close).onclick=closeHomePanel;
+    const panel=document.getElementById(id);
+    panel.addEventListener('click',event=>{ if(event.target===panel) closeHomePanel(); });
+  });
+  // 상위 팝업(BOT 덱 선택 등)이 열렸을 때는 그 팝업의 키 처리를 우선한다.
+  document.addEventListener('keydown',event=>{
+    const id=currentScreen();
+    if(!HOME_PANELS[id] || document.body.classList.contains('modal-open')) return;
+    if(event.key==='Escape'){
+      event.preventDefault(); event.stopImmediatePropagation(); closeHomePanel(); return;
+    }
+    if(event.key!=='Tab') return;
+    const panel=document.getElementById(id);
+    const controls=[...panel.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
+    const first=controls[0], last=controls[controls.length-1];
+    if(!first){ event.preventDefault(); panel.querySelector('[role="dialog"]').focus(); return; }
+    const active=document.activeElement;
+    if(!controls.includes(active) || (event.shiftKey && active===first) || (!event.shiftKey && active===last)){
+      event.preventDefault(); (event.shiftKey?last:first).focus();
+    }
+  },true);
   document.getElementById('btn-offline').onclick=()=>showScreen('setup-screen');
   document.getElementById('btn-tutorial').onclick=()=>TUT.start();
   document.getElementById('btn-local-decks').onclick=()=>{
@@ -373,32 +445,42 @@ function initConnect(){
   };
 
   const connect=async ()=>{
+    if(connectBtn.disabled) return;
     msg.textContent='';
     let url=input.value.trim();
+    if(!url){ msg.style.color='#ff9b9b'; msg.textContent='서버 주소를 입력하세요.'; input.focus(); return; }
     if(!/^https?:\/\//i.test(url)) url='http://'+url; // 프로토콜 생략 시 http 보완
+    const savedServer=localStorage.getItem('rb_server');
+    const token=localStorage.getItem('rb_token'), userId=localStorage.getItem('rb_id');
     NET.setBase(url);
+    NET.token=null; NET.userId=null;
+    connectBtn.disabled=true; input.disabled=true; backBtn.disabled=true;
+    connectBtn.textContent='접속 중…';
     msg.style.color='#8fa'; msg.textContent='서버에 연결 중...';
     try{
       await NET.health();
+      // 저장된 계정은 같은 서버에 직접 접속했을 때만 복원한다. 시작 화면을 건너뛰지 않는다.
+      if(savedServer===NET.base && token && userId){
+        NET.token=token; NET.userId=userId;
+        try{ await enterMenu(); msg.textContent=''; return; }
+        catch(e){ NET.token=null; NET.userId=null; }
+      }
+      // 다른 서버로 바꾼 경우 이전 서버의 로그인 정보가 새 서버에 사용되지 않게 한다.
+      localStorage.removeItem('rb_token'); localStorage.removeItem('rb_id');
       localStorage.setItem('rb_server', NET.base);
       msg.textContent='';
       enterLogin();
     }catch(e){
       msg.style.color='#ff9b9b';
       msg.textContent='서버에 연결할 수 없습니다. 주소를 확인하세요. ('+e.message+')';
+    }finally{
+      connectBtn.disabled=false; input.disabled=false; backBtn.disabled=false;
+      connectBtn.textContent='서버 접속';
     }
   };
   document.getElementById('btn-connect').onclick=connect;
   input.addEventListener('keydown',e=>{ if(e.key==='Enter') connect(); });
 
-  // 이전에 접속한 서버 + 저장된 토큰이 있으면 자동 로그인 시도
-  const savedServer=localStorage.getItem('rb_server');
-  const t=localStorage.getItem('rb_token'), id=localStorage.getItem('rb_id');
-  if(savedServer && t && id){
-    NET.setBase(savedServer); NET.token=t; NET.userId=id;
-    NET.getDecks().then(async d=>{ myDecks=d; await enterMenu(); })
-      .catch(()=>{ NET.token=null; }); // 실패 시 연결 화면 유지
-  }
 }
 
 // ---------- 패치 노트 ----------
@@ -473,7 +555,7 @@ function initLogin(){
   document.getElementById('login-pw').addEventListener('keydown',e=>{ if(e.key==='Enter') doAuth(NET.login); });
   document.getElementById('btn-change-server').onclick=()=>{
     NET.token=null; localStorage.removeItem('rb_token');
-    showScreen('connect-screen');
+    showScreen('online-screen');
   };
 }
 
@@ -1429,7 +1511,7 @@ function initP2P(){
     p2pRefreshDecks();
     showScreen('p2p-screen');
   };
-  $('btn-p2p-back').onclick=()=>{ P2P.reset(); showScreen('connect-screen'); };
+  $('btn-p2p-back').onclick=()=>{ P2P.reset(); showScreen('offline-screen'); };
   $('btn-p2p-decks').onclick=()=>{
     DeckStore.local=true; DeckStore.returnTo='p2p-screen';
     DeckStore.list().then(d=>{ myDecks=d; renderDeckList(); showScreen('decks-screen'); });
@@ -1740,7 +1822,7 @@ function confirmSurrender(){
   const box=document.getElementById('modal-box');
   box.innerHTML='<h3>🏳 항복</h3>';
   const t=document.createElement('div');
-  t.style.cssText='font-size:14px;line-height:1.7;margin-bottom:6px';
+  t.className='modal-copy';
   t.textContent=`${pname(me)}이(가) 항복하고 ${pname(opp(me))}의 승리로 경기를 끝냅니다. 계속할까요?`;
   box.appendChild(t);
   const btns=document.createElement('div'); btns.className='modal-btns';
@@ -1752,52 +1834,97 @@ function confirmSurrender(){
 }
 function openSystemMenu(){
   const box=document.getElementById('modal-box');
+  const inGame=currentScreen()==='game-screen' && !!G;
   const isBot=(typeof BOT!=='undefined' && BOT.active && !NET.online);
-  box.innerHTML=`<h3>⚙️ 메뉴</h3>`;
-  const btns=document.createElement('div'); btns.className='modal-btns'; btns.style.flexDirection='column';
-  const add=(label,fn,primary)=>{ const b=document.createElement('button'); if(primary) b.className='primary';
-    b.textContent=label; b.onclick=fn; btns.appendChild(b); return b; };
-  if(NET.online){
-    const reqPending = RM.decks[1-NET.seat] && !RM.decks[NET.seat];
-    add(reqPending?'🔄 상대의 재대결 요청 수락 (덱 선택)':'🔄 상대와 다시 하기 (덱 선택)', ()=>{ closeModal(); RM.openPick(!!reqPending); }, true);
-    add(P2P.active?'🚪 나가기 (연결 종료)':'🚪 로비로 가기', ()=>{ closeModal(); gameLeave(); });
-  } else if(isBot){
-    // BOT.active를 여기서 끄면 안 된다 — 봇 선택 모달에서 '취소'하면 그대로 진행 중인 판으로
-    // 돌아오는데, 그때 봇이 멈추고(드라이버가 BOT.active를 본다) 봇 손패 가림막·프롬프트
-    // 가로채기까지 함께 풀린다. 새 판을 시작하면 startBotGame → newGame 래퍼가 알아서 끈다.
-    // (모달이 열려 있는 동안 봇이 움직이는 문제는 드라이버의 modal-overlay 검사가 이미 막는다)
-    add('🔄 다시 하기 (봇/덱 선택)', ()=>{ closeModal(); openBotSelect(); }, true);
-    add('🚪 처음 화면으로', ()=>location.reload());
-  } else if(typeof TUT!=='undefined' && TUT.active){
-    // 튜토리얼 중 '핫시트 새 게임'을 권하면 수업 한가운데서 다른 모드로 끌려간다
-    add('🔄 튜토리얼 다시 시작', ()=>{ closeModal(); TUT.start(); }, true);
-    add('🚪 처음 화면으로', ()=>location.reload());
-  } else {
-    add('🔄 다시 하기 (핫시트 새 게임)', ()=>{ closeModal(); startHotseat(); }, true);
-    add('🚪 처음 화면으로', ()=>location.reload());
+  box.innerHTML=`<div class="system-settings">
+    <header class="settings-header">
+      <div><h3>${inGame?'게임 메뉴':'설정'}</h3><p>플레이 방식과 화면을 편하게 조절하세요.</p></div>
+      <button type="button" class="settings-close" aria-label="설정 닫기">×</button>
+    </header>
+    <div class="settings-sections"></div>
+    <footer class="settings-footer"><span>변경한 옵션은 이 기기에 저장됩니다.</span>
+      <button type="button" class="settings-done">${inGame?'계속하기':'닫기'}</button></footer>
+  </div>`;
+  box.querySelector('.settings-close').onclick=closeModal;
+  box.querySelector('.settings-done').onclick=closeModal;
+  const sections=box.querySelector('.settings-sections');
+  const section=(title, extra='')=>{
+    const el=document.createElement('section'); el.className='settings-section '+extra;
+    const h=document.createElement('h4'); h.textContent=title; el.appendChild(h);
+    sections.appendChild(el); return el;
+  };
+  const toggle=(group, id, title, description, checked, onChange)=>{
+    const row=document.createElement('label'); row.className='settings-toggle';
+    const copy=document.createElement('span'); copy.className='settings-option-copy';
+    const name=document.createElement('strong'); name.id=id+'-label'; name.textContent=title;
+    const detail=document.createElement('small'); detail.id=id+'-detail'; detail.textContent=description;
+    copy.append(name,detail);
+    const control=document.createElement('span'); control.className='settings-toggle-control';
+    const input=document.createElement('input'); input.type='checkbox'; input.id=id; input.checked=checked;
+    input.setAttribute('role','switch'); input.setAttribute('aria-labelledby',name.id);
+    input.setAttribute('aria-describedby',detail.id);
+    const track=document.createElement('span'); track.className='settings-switch'; track.setAttribute('aria-hidden','true');
+    const state=document.createElement('span'); state.className='settings-toggle-state'; state.setAttribute('aria-hidden','true');
+    state.textContent=checked?'켜짐':'꺼짐';
+    input.onchange=()=>{ onChange(input.checked); state.textContent=input.checked?'켜짐':'꺼짐'; };
+    control.append(input,track,state); row.append(copy,control); group.appendChild(row);
+  };
+  const add=(group, label, fn, kind='')=>{
+    let actions=group.querySelector('.settings-actions');
+    if(!actions){ actions=document.createElement('div'); actions.className='settings-actions'; group.appendChild(actions); }
+    const button=document.createElement('button'); button.type='button'; button.className='settings-action '+kind;
+    button.textContent=label; button.onclick=fn; actions.appendChild(button);
+  };
+
+  const play=section('플레이 옵션','settings-wide');
+  toggle(play,'setting-confirm-end-turn','남은 룬 · 자원 확인',
+    '사용하지 않은 룬이나 에너지·힘이 남아 있으면 턴 종료 전에 확인합니다.',
+    PLAY_OPTIONS.confirmEndTurn, value=>PLAY_OPTIONS.set('confirmEndTurn',value));
+  toggle(play,'setting-confirm-resource-abilities','자원 능력 사용 확인',
+    '카드를 낼 때 인장·전설의 에너지·힘 능력을 먼저 사용할지 묻습니다. 끄면 필요할 때 직접 사용하세요.',
+    PLAY_OPTIONS.confirmResourceAbilities, value=>PLAY_OPTIONS.set('confirmResourceAbilities',value));
+  if(inGame && NET.online) toggle(play,'setting-chat','상대 채팅 표시',
+    '상대 메시지와 채팅 입력창을 표시합니다.',!UI.chatMuted,
+    value=>{ UI.setChatMuted(!value); UI.render(); });
+
+  const display=section('화면 설정');
+  toggle(display,'setting-effects','게임 이펙트','카드 사용과 전투 연출을 표시합니다.',
+    UI.fx.on, value=>UI.fx.setOn(value));
+  add(display,`🔍 화면 배율 · ${Math.round(uiScale()*100)}%`,()=>{ closeModal(); showScalePicker(false); });
+  if(PLAYMAT.available()) add(display,'🖼️ 내 플레이매트',()=>PLAYMAT.open());
+  if(PLAYMAT.botAvailable()) add(display,'🖼️ 봇 플레이매트',()=>PLAYMAT.open(true));
+
+  const records=section('기록 및 도움말');
+  if(STATS.URL) toggle(records,'setting-stats','익명 통계',
+    '사람과 대전한 판수와 덱 조합만 익명으로 집계합니다.',STATS.enabled(),
+    value=>{ STATS.setEnabled(value); updateStatsNotice(); });
+  if(inGame) add(records,'🎬 현재까지의 리플레이 저장',()=>{ closeModal(); REPLAY.saveNow(); });
+  if(typeof UI.showHelp==='function') add(records,'❓ 게임 도움말',UI.showHelp);
+
+  if(inGame){
+    const game=section('대전 관리','settings-wide settings-game');
+    if(NET.online){
+      const reqPending=RM.decks[1-NET.seat] && !RM.decks[NET.seat];
+      add(game,reqPending?'🔄 재대결 요청 수락 · 덱 선택':'🔄 상대와 다시 하기 · 덱 선택',
+        ()=>{ closeModal(); RM.openPick(!!reqPending); },'primary');
+      add(game,P2P.active?'🚪 나가기 · 연결 종료':'🚪 로비로 가기',()=>{ closeModal(); gameLeave(); });
+    } else if(isBot){
+      // 선택 모달을 취소하면 현재 판으로 돌아오므로 BOT.active는 새 게임 시작 시에만 바꾼다.
+      add(game,'🔄 다시 하기 · 봇/덱 선택',()=>{ closeModal(); openBotSelect(); },'primary');
+      add(game,'🚪 처음 화면으로',()=>location.reload());
+    } else if(typeof TUT!=='undefined' && TUT.active){
+      add(game,'🔄 튜토리얼 다시 시작',()=>{ closeModal(); TUT.start(); },'primary');
+      add(game,'🚪 처음 화면으로',()=>location.reload());
+    } else {
+      add(game,'🔄 다시 하기 · 핫시트 새 게임',()=>{ closeModal(); startHotseat(); },'primary');
+      add(game,'🚪 처음 화면으로',()=>location.reload());
+    }
+    if(G.winner===null && G.state==='showdown'
+       && !(NET.online && G.actingPlayer!==NET.seat) && canInitiate(G.actingPlayer)){
+      add(game,'⏭ 현재 행동 넘기기 · 패스',()=>{ closeModal(); NET.dispatch({k:'pass'},()=>showdownPass()); });
+    }
+    if(G.winner===null) add(game,'🏳 항복하기',()=>{ closeModal(); confirmSurrender(); },'danger');
   }
-  // 현재 행동 넘기기(패스) — 결전 중 내 응답 차례일 때 (사이드바 패스 버튼과 동일 동작)
-  if(G && G.winner===null && G.state==='showdown'
-     && !(NET.online && G.actingPlayer!==NET.seat) && canInitiate(G.actingPlayer)){
-    add('⏭ 현재 행동 넘기기 (패스)', ()=>{ closeModal();
-      NET.dispatch({k:'pass'}, ()=>showdownPass()); });
-  }
-  if(G && G.winner===null) add('🏳 항복하기 (서렌)', ()=>{ closeModal(); confirmSurrender(); });
-  // 채팅 무시 — 온라인 대전에서만 의미가 있다. 켜면 수신 숨김 + 입력창 숨김 (localStorage로 유지)
-  if(NET.online) add(UI.chatMuted ? '🔊 채팅 무시 해제' : '🔇 채팅 무시하기', ()=>{
-    UI.setChatMuted(!UI.chatMuted); closeModal(); UI.render();
-    UI.toast(UI.chatMuted ? '채팅을 무시합니다 — 상대 메시지가 표시되지 않습니다' : '채팅 무시를 해제했습니다');
-  });
-  add('🎬 리플레이 저장 (지금까지)', ()=>{ closeModal(); REPLAY.saveNow(); });
-  add(UI.fx.on?'✨ 이펙트 끄기':'✨ 이펙트 켜기', ()=>{ UI.fx.setOn(!UI.fx.on); closeModal();
-    UI.toast(UI.fx.on?'이펙트를 켰습니다':'이펙트를 껐습니다'); });
-  add(`🔍 화면 배율 (${Math.round(uiScale()*100)}%)`, ()=>{ closeModal(); showScalePicker(false); });
-  if(PLAYMAT.available()) add('🖼️ 내 플레이매트', ()=>PLAYMAT.open());
-  if(PLAYMAT.botAvailable()) add('🖼️ 봇 플레이매트', ()=>PLAYMAT.open(true));
-  // 도움말은 예전에 사이드바의 ❓ 버튼이었다. 톱니바퀴 하나로 합치면서 이 안으로 들어왔다.
-  if(typeof UI.showHelp==='function') add('❓ 도움말', UI.showHelp);
-  add('계속하기', closeModal);
-  box.appendChild(btns);
   openModal(); markModalDismissable();
 }
 
@@ -1877,11 +2004,16 @@ function initHotseat(){
   });
   document.getElementById('btn-start').onclick=startHotseat;
   document.getElementById('btn-setup-back').onclick=()=>{
-    showScreen(NET.token?'menu-screen':'connect-screen');
+    showScreen(NET.token?'menu-screen':'offline-screen');
   };
 }
 
 // ---------- 초기화 ----------
+function updateStatsNotice(){
+  document.getElementById('home-stats-status').textContent=!STATS.URL ? '' : STATS.enabled()
+    ? '익명 통계 켜짐 · 판수·덱 조합만 집계 · 설정에서 변경'
+    : '익명 통계 꺼짐 · 설정에서 변경';
+}
 window.addEventListener('DOMContentLoaded', ()=>{
   compileAllCards();
   initConnect();
@@ -1933,21 +2065,10 @@ window.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('btn-tourney-editor').onclick=showTourneyDecks;
   if(typeof BUILDINFO!=='undefined')
     document.getElementById('build-tag').textContent=`v${BUILDINFO.version} · ${BUILDINFO.built}`;
-  // 화면 배율: 저장값 적용 + 첫 화면 버튼. 모바일 첫 실행이면 선택 안내를 한 번 띄운다
+  // 화면 배율: 저장값 적용. 시작 화면의 옵션과 인게임 설정에서 공통으로 변경한다.
   applyUiScale(uiScale());
-  document.getElementById('btn-uiscale').onclick=()=>showScalePicker(false);
-  // 익명 통계 — 기본 켜짐, 언제든 끌 수 있다. 버튼 자체가 수집 사실을 알리는 역할도 한다.
-  {
-    const btn=document.getElementById('btn-stats-optout');
-    const paint=()=>{ btn.textContent='📊 익명 통계: '+(STATS.enabled()?'켜짐':'꺼짐'); };
-    if(!STATS.URL){ btn.style.display='none'; }
-    else {
-      paint();
-      btn.onclick=()=>{ STATS.setEnabled(!STATS.enabled()); paint();
-        UI.toast(STATS.enabled()?'익명 통계를 보냅니다 (판수·덱 조합 승률만)':'익명 통계를 보내지 않습니다'); };
-      STATS.launch();
-    }
-  }
+  updateStatsNotice();
+  STATS.launch();
   const isMobileUA=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
   if(isMobileUA && !localStorage.getItem(UISCALE_KEY) && !localStorage.getItem('rb_ui_scale_seen')){
     try{ localStorage.setItem('rb_ui_scale_seen','1'); }catch(e){}

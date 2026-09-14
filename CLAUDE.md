@@ -37,8 +37,9 @@ TCG 리프트바운드 한글판 대전 시뮬레이터. Electron 클라이언�
 | replay.js | 리플레이 기록·저장·재생. **index.html 맨 마지막에 로드**(newGame/UI.log/UI.render/UI.showVictory를 감쌈). 재시뮬레이션이 아니라 상태 스냅샷 방식 | REPLAY, RPStore, rpSerialize, rpBuildFile/rpParseFile |
 | cards.js | **생성물** (카드 DB, 읽기 금지) | tools/build-cards.js가 생성 |
 
-- 스타일: `client/web/css/style.css` 단일 파일. 테마 색은 상단 `:root` 변수(우드 테이블 테마)만 수정.
-- 화면 구조: `client/web/index.html` (connect/login/menu/decks/editor/lobby/p2p/setup/game 스크린).
+- 스타일: `client/web/css/style.css`(게임 화면·공통) + `home.css`(시작 화면·BOT 설정창·결과창·설정창) + `mobile-popups.css`(작은 화면 팝업). 테마 색은 style.css 상단 `:root` 변수(우드 테이블 테마)만 수정.
+- 화면 구조: `client/web/index.html` (connect=시작 화면 / online·offline=시작 화면 위 서브 패널(main.js HOME_PANELS) / login/menu/decks/editor/lobby/p2p/setup/game 스크린). 시작 화면 배경 슬라이드·무입력 메뉴 숨김은 `js/home.js`.
+- **커뮤니티 UI 수정본 2차 반영 (2026-09-14)**: 체인 보기 창(engine `stampChainItem`/`snapshotCastTargets`/`logCastTargets`, 중립 응수는 `G.pendingChain`에 표시용 임시 적재 — 규칙 처리에는 안 씀 · ui `UI.showChain/updateChainView`), 설정창 통합(main `openSystemMenu` 토글 UI, 플레이 옵션 `PLAY_OPTIONS`(ui.js, 기기 저장 `rb_play_*`) — 자원 능력 확인 끄기는 `UI.pickOption` 안(NET.choice 안)에서 `skipResourcePrompt` 옵션을 자동 선택), BOT 설정창(`rb_bot_setup`), 결과창, 전장 레인 가로 스크롤, 앱 시작 자동 로그인 제거(온라인 플레이→서버 접속 시 같은 서버면 자동 로그인). 수정본 engine.js는 v1.0.62 기준이라 **엔진은 통째 교체하지 말고 패치로 이식**했다.
 - 서버: `server/server.js` 단일 파일 (계정 REST + WS 릴레이).
 - 리플레이: 데스크톱은 `client/replay-store.js`(메인 프로세스 fs) + `preload.js`의 `desktop.replay.*` IPC로 `문서\RiftboundSim\Replays\*.rbr`에 저장, 웹/APK는 IndexedDB(`rb_replays`). **client 루트에 파일을 추가하면 package.json의 `build.files`에도 넣을 것** (안 넣으면 패키징에서 빠져 앱이 시작조차 못 함).
 - **RiftJudge 대조 수정 (2026-09-09)**: 판정 2,471건 감사 → 불일치 307건 → 룰북 원문 재대조 후 196건 처리(수정 175·부분 5·이미 14·보류 2). 배치별 회귀 테스트 `tools/tests/test-batch1~7.js`(총 277건) — **엔진을 고치면 `for t in tools/tests/test-*.js; do node $t; done` 전부 통과시킬 것**. 변경 내역 `docs/룰대조-변경내역-2026-09-09.md`, 감사 도구는 아래 항목.

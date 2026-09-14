@@ -4,6 +4,20 @@ let UI = {};
 // 연출은 fx.js가 채운다. 로드 전이나 로드 실패에도 게임이 멈추지 않도록 빈 구현을 먼저 둔다.
 UI.fx = { on:false, unit(){}, cast(){}, chainAdd(){}, turnEnd(){}, priority(){}, score(){}, check(){}, setOn(){} };
 
+// 플레이 편의 설정은 이 기기에 저장한다. 게임 상태나 상대 플레이어의 설정에는 포함하지 않는다.
+const PLAY_OPTIONS = {
+  confirmEndTurn:true,
+  confirmResourceAbilities:true,
+  set(key, enabled){
+    this[key]=!!enabled;
+    try{ localStorage.setItem('rb_play_'+key, enabled?'on':'off'); }
+    catch(e){ UI.toast('설정을 저장하지 못했습니다. 이번 실행에만 적용됩니다.','warn'); }
+  },
+};
+for(const key of ['confirmEndTurn','confirmResourceAbilities']){
+  try{ PLAY_OPTIONS[key]=localStorage.getItem('rb_play_'+key)!=='off'; }catch(e){}
+}
+
 // ---------- 로그/토스트 ----------
 // 「카드명」 → 카드 매핑 (로그 호버 인스펙트용)
 let _name2card=null;
@@ -68,6 +82,7 @@ UI.promptForState = function(){
 };
 UI.promptShowdown = function(){
   const sd=G.showdown; if(!sd) return;
+  UI.updateChainView();
   const bf=G.bfs[sd.bfIdx];
   // 체인 표시: 왼쪽이 먼저 쌓인 것, 오른쪽(마지막)이 먼저 해결됨
   const chainHtml = (sd.chain&&sd.chain.length)
@@ -87,6 +102,164 @@ UI.promptShowdown = function(){
   // 우선권이 나에게 왔고 쓸 수 있는 숨김 카드가 있으면 알려 준다
   setTimeout(()=>{ try{ UI.askHidden(); }catch(e){} }, 0);
 };
+
+// ---------- 체인 보기 (게임 선택/온라인 응답과 독립적인 정보창) ----------
+let _chainReturnFocus=null;
+function visibleChain(){
+  if(!G || G.winner!==null) return [];
+  return [...(G.showdown?.chain||[]), ...(G.pendingChain||[])]
+    .sort((a,b)=>(a.displayId||0)-(b.displayId||0));
+}
+function chainIsOpen(){ return document.getElementById('chain-overlay').style.display!=='none'; }
+UI.showChain = function(){
+  if(!visibleChain().length) return;
+  _chainReturnFocus=document.activeElement;
+  hideMenu(); UI.hideHover();
+  document.getElementById('chain-overlay').style.display='flex';
+  document.getElementById('chain-cards').scrollLeft=0;
+  document.getElementById('chain-cards').scrollTop=0;
+  UI.updateChainView();
+  document.getElementById('btn-chain-close').focus();
+};
+UI.hideChain = function(){
+  if(!chainIsOpen()) return;
+  document.getElementById('chain-overlay').style.display='none';
+  for(const id of ['btn-chain','btn-modal-chain']) document.getElementById(id).setAttribute('aria-expanded','false');
+  UI.hideHover();
+  if(_chainReturnFocus?.isConnected && _chainReturnFocus.offsetParent!==null) _chainReturnFocus.focus();
+  _chainReturnFocus=null;
+};
+function chainCard(it){
+  if(it.kind==='ability'){
+    return card(it.n??it.gear?.n)||(it.unit?unitCard(it.unit):nameToCard(it.srcName));
+  }
+  return card(it.n);
+}
+function chainPreview(c, p, key, compact=false){
+  const el=document.createElement('button');
+  el.type='button'; el.className=compact?'chain-target-card':'chain-source-card';
+  el.dataset.chainKey=key;
+  el.setAttribute('aria-label',`${c.ko} 카드 확대`);
+  const src=artImg(c,p);
+  if(src){
+    const img=document.createElement('img'); img.src=cardImgUrl(src,compact?280:480); img.alt=c.ko;
+    el.appendChild(img);
+  } else {
+    const fallback=document.createElement('span'); fallback.className='chain-card-fallback'; fallback.textContent=c.ko;
+    el.appendChild(fallback);
+  }
+  attachCardHover(el,c);
+  el.onclick=()=>{ UI.hideHover(); UI.showZoom(c,p); };
+  return el;
+}
+function chainTargetEl(target, chain, key){
+  const row=document.createElement('div'); row.className='chain-target';
+  if(target.p===0 || target.p===1) row.classList.add('chain-player-'+target.p);
+  let c=card(target.n), status='', labelText=target.label;
+  if(target.kind==='unit'){
+    const u=everyUnit().find(x=>x.uid===target.uid);
+    if(u){
+      c=unitCard(u);
+      status=`현재: ${pname(u.ctrl)} · ${unitWhere(u)} · 유닛 #${u.uid}`;
+    } else status='현재 보드에 없음';
+    if(!c && target.tokenMight!==undefined)
+      c={n:0,ko:target.name,name:'Token',type:'Unit',super:'Token',m:target.tokenMight,dom:[],tags:[],text:'',tko:'토큰',img:''};
+  } else if(target.kind==='trash'){
+    if(!G.players[target.p].trash.includes(target.n)) status='현재 폐기장에 없음';
+  } else if(target.kind==='chain'){
+    const index=target.itemId!==undefined ? chain.findIndex(it=>it.displayId===target.itemId) : target.index;
+    const item=chain[index];
+    if(index>=0) labelText+=` (체인 #${index+1})`;
+    if(!item || item.n!==target.n || item.p!==target.p) status='현재 체인에 없음';
+    else if(item.countered) status='무효화된 주문';
+  }
+  const info=document.createElement('span'); info.className='chain-target-info';
+  const label=document.createElement('span'); label.textContent=labelText;
+  info.appendChild(label);
+  if(status){ const note=document.createElement('small'); note.textContent=status; info.appendChild(note); }
+  if(c){
+    const preview=chainPreview(c,target.p,key,true); preview.appendChild(info); row.appendChild(preview);
+  } else row.appendChild(info);
+  return row;
+}
+UI.updateChainView = function(){
+  const chain=visibleChain();
+  document.getElementById('modal-shell').classList.toggle('has-chain',chain.length>0);
+  for(const id of ['btn-chain','btn-modal-chain']){
+    const button=document.getElementById(id);
+    button.style.display=chain.length?'':'none';
+    if(id==='btn-chain'){
+      document.getElementById('btn-chain-count').textContent=chain.length;
+      button.title=`체인 보기 (${chain.length})`;
+      button.setAttribute('aria-label',button.title);
+    } else button.textContent=`🔗 체인 보기 (${chain.length})`;
+    button.setAttribute('aria-expanded',String(chainIsOpen() && chain.length>0));
+  }
+  if(!chain.length){ UI.hideChain(); return; }
+  if(!chainIsOpen()) return;
+  document.getElementById('chain-title').textContent=`현재 체인 · ${chain.length}개`;
+  const legend=document.getElementById('chain-legend'); legend.replaceChildren();
+  for(let p=0;p<2;p++){
+    const label=document.createElement('span'); label.className='chain-owner chain-player-'+p;
+    label.textContent=`● ${pname(p)}`; legend.appendChild(label);
+  }
+  const list=document.getElementById('chain-cards');
+  const scrollLeft=list.scrollLeft, scrollTop=list.scrollTop;
+  const focusKey=document.activeElement?.dataset.chainKey;
+  UI.hideHover(); list.replaceChildren();
+  chain.forEach((it,i)=>{
+    const entry=document.createElement('li'); entry.className='chain-entry chain-player-'+it.p;
+    if(it.countered) entry.classList.add('chain-countered');
+    const order=document.createElement('div'); order.className='chain-order'; order.textContent=`#${i+1} 적재`;
+    if(i===chain.length-1){
+      const next=document.createElement('span'); next.className='chain-next'; next.textContent='먼저 해결'; order.appendChild(next);
+    }
+    const owner=document.createElement('div'); owner.className='chain-owner'; owner.textContent=`사용: ${pname(it.p)}`;
+    const c=chainCard(it);
+    const title=document.createElement('h4'); title.textContent=(it.kind==='ability'?'능력 · ':'')+(c?.ko||it.srcName||'카드');
+    entry.append(order,owner,title);
+    if(c) entry.appendChild(chainPreview(c,it.p,`source-${i}`));
+    if(it.kind==='ability' && it.ab?.label){
+      const ability=document.createElement('p'); ability.className='chain-ability'; ability.textContent=it.ab.label; entry.appendChild(ability);
+    }
+    if(it.countered || (it.execAs!==undefined && it.execAs!==it.p)){
+      const state=document.createElement('p'); state.className='chain-state';
+      state.textContent=it.countered?'무효화됨':`현재 통제: ${pname(it.execAs)}`; entry.appendChild(state);
+    }
+    const targets=it.displayTargets || (it.target ? [snapshotChainTarget(it.target,chain)] : snapshotCastTargets(it.pre,it.preAb));
+    const heading=document.createElement('div'); heading.className='chain-target-heading'; heading.textContent='지정 대상'; entry.appendChild(heading);
+    if(targets.length) targets.forEach((target,j)=>{
+      const row=chainTargetEl(target,chain,`target-${i}-${j}`);
+      if(targets.length>1){
+        const number=document.createElement('div'); number.className='chain-target-number'; number.textContent=`대상 ${j+1}`;
+        row.prepend(number);
+      }
+      entry.appendChild(row);
+    });
+    else {
+      const empty=document.createElement('p'); empty.className='chain-hint'; empty.textContent='적재 시 지정된 대상 없음'; entry.appendChild(empty);
+    }
+    list.appendChild(entry);
+  });
+  if(focusKey){
+    const focus=[...list.querySelectorAll('[data-chain-key]')].find(el=>el.dataset.chainKey===focusKey);
+    (focus||document.getElementById('btn-chain-close')).focus({preventScroll:true});
+  }
+  list.scrollLeft=scrollLeft; list.scrollTop=scrollTop;
+};
+// 보기 창에서 Tab/단축키가 뒤의 대상 선택이나 리플레이 조작으로 새지 않게 한다.
+document.addEventListener('keydown',e=>{
+  if(!chainIsOpen()) return;
+  if(document.getElementById('card-zoom')?.style.display==='flex') return;
+  e.stopImmediatePropagation();
+  if(e.key==='Escape'){ e.preventDefault(); UI.hideChain(); return; }
+  if(e.key==='Tab'){
+    const buttons=[...document.querySelectorAll('#chain-panel button')];
+    const first=buttons[0], last=buttons[buttons.length-1];
+    if(e.shiftKey && (document.activeElement===first || !buttons.includes(document.activeElement))){ e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey && (document.activeElement===last || !buttons.includes(document.activeElement))){ e.preventDefault(); first.focus(); }
+  }
+},true);
 
 // ---------- 선택 프리미티브 (Promise 기반) ----------
 // 한 전장 효과의 연속 선택이 끝날 때까지 출처를 유지한다. 게임 상태/선택값에는 포함하지 않는다.
@@ -113,7 +286,22 @@ function appendBattlefieldSource(parent){
   const name=document.createElement('strong'); name.textContent=`「${c.ko}」 · ${timing}`;
   const effect=document.createElement('div'); effect.className='battlefield-source-text';
   effect.innerHTML=renderIcons(esc(c.tko||c.text||''));
-  info.append(name,effect); panel.append(preview,info); parent.appendChild(panel);
+  info.append(name,effect);
+  // 결전 중인 전장의 효과라면 지금 맞붙은 양측 유닛을 함께 보여 준다 — 「약탈자의 거리」 방어 시 기지로 뺄 유닛을 고를 때
+  // 어떤 유닛이 들어왔는지 보이지 않는다는 요청(2026-09-14). 표시 전용 — 선택값·게임 상태에는 관여하지 않는다.
+  const sd=G && G.showdown;
+  if(sd && G.bfs[sd.bfIdx] && G.bfs[sd.bfIdx].n===_battlefieldSource.n){
+    const side=(p,role,icon)=>{
+      const us=G.bfs[sd.bfIdx].units.filter(u=>u.ctrl===p);
+      if(!us.length) return `${icon} ${esc(pname(p))}: 유닛 없음`;
+      const m=u=>{ try{ return might(u, role); }catch(e){ return u.m; } };
+      return `${icon} ${esc(pname(p))} ${role==='attacker'?'공격':'방어'} ${us.map(u=>`${esc(unitName(u))}(${m(u)})`).join(', ')} · 합계 ${us.reduce((s,u)=>s+m(u),0)}`;
+    };
+    const combat=document.createElement('div'); combat.className='battlefield-source-combat';
+    combat.innerHTML=[side(sd.attacker,'attacker','⚔'), side(sd.defender,'defender','🛡')].join('<br>');
+    info.appendChild(combat);
+  }
+  panel.append(preview,info); parent.appendChild(panel);
 }
 let _resolver = null;
 function settle(v){ if(_resolver){ const r=_resolver; _resolver=null; clearPicking(); r(v); } }
@@ -194,6 +382,10 @@ function cardifyInto(el, text){
 UI.pickOption = function(p, title, options, boardPick=false){
   return routedPick(p,
     async()=>{
+      // 설정을 끈 사람만 확인창 대신 기본 선택을 보낸다. 온라인에서도 NET.choice 안에서 처리해야
+      // 상대의 설정과 달라도 선택 순번과 결과가 양쪽에서 같고, 봇은 기존 정책을 그대로 사용한다.
+      const skip=options.findIndex(o=>o.skipResourcePrompt);
+      if(skip>=0 && !PLAY_OPTIONS.confirmResourceAbilities) return skip;
       if(!boardPick) return _pickOptionLocal(p,title,options);
       // 목적지가 고정된 이동은 보드에서 유닛만 선택한다.
       // 기존 옵션 인덱스를 반환해 온라인 동기화와 봇의 이동 평가를 유지한다.
@@ -278,7 +470,7 @@ function _confirmLocal(p, text, previewCard){
     box.innerHTML=`<h3>👉 ${esc(pname(p))}</h3>`;
     appendBattlefieldSource(box);
     const body=document.createElement('div');
-    body.style.cssText='font-size:15px;line-height:1.65;max-width:420px;margin-bottom:8px';
+    body.className='modal-copy confirm-copy';
     cardifyInto(body, text);                      // 확인 창의 「카드명」도 호버로 확인 가능
     box.appendChild(body);
     if(previewCard){
@@ -380,28 +572,28 @@ function peekCardAt(x,y){
   return document.elementsFromPoint(x,y).find(el=>el._card && el.closest('#game-screen'))?._card||null;
 }
 document.addEventListener('click',e=>{
-  if(!modalPeeking() || e.target.closest('#modal-visibility-toggle, #card-zoom')) return;
+  if(!modalPeeking() || e.target.closest('#modal-visibility-toggle, #btn-modal-chain, #chain-overlay, #card-zoom')) return;
   e.preventDefault(); e.stopImmediatePropagation();
   const c=peekCardAt(e.clientX,e.clientY); if(c) UI.showZoom(c);
 },true);
 document.addEventListener('contextmenu',e=>{
-  if(!modalPeeking() || e.target.closest('#card-zoom')) return;
+  if(!modalPeeking() || e.target.closest('#btn-modal-chain, #chain-overlay, #card-zoom')) return;
   e.preventDefault(); e.stopImmediatePropagation();
   const c=peekCardAt(e.clientX,e.clientY); if(c) UI.showZoom(c);
 },true);
 document.addEventListener('pointermove',e=>{
-  if(!modalPeeking() || e.target.closest('#modal-visibility-toggle, #card-zoom')) return;
+  if(!modalPeeking() || e.target.closest('#modal-visibility-toggle, #btn-modal-chain, #chain-overlay, #card-zoom')) return;
   const c=peekCardAt(e.clientX,e.clientY); if(c) UI.inspect(c);
 });
 document.addEventListener('keydown',e=>{
-  if(!modalPeeking() || e.target.closest('#card-zoom')) return;
-  if(e.target.closest('#modal-visibility-toggle') && ['Enter',' '].includes(e.key)) return;
+  if(!modalPeeking() || e.target.closest('#chain-overlay, #card-zoom')) return;
+  if(e.target.closest('#modal-visibility-toggle, #btn-modal-chain') && ['Enter',' ','Tab'].includes(e.key)) return;
   e.preventDefault(); e.stopImmediatePropagation();
   if(e.key==='Escape') UI.hideZoom();
   document.getElementById('modal-visibility-toggle').focus();
 },true);
 document.addEventListener('focusin',e=>{
-  if(modalPeeking() && !e.target.closest('#modal-visibility-toggle, #card-zoom'))
+  if(modalPeeking() && !e.target.closest('#modal-visibility-toggle, #btn-modal-chain, #chain-overlay, #card-zoom'))
     document.getElementById('modal-visibility-toggle').focus();
 });
 function openModal(){
@@ -411,8 +603,10 @@ function openModal(){
   toggle.hidden=!document.getElementById('game-screen').offsetParent;
   toggle.onclick=()=>{ setModalPeeking(!modalPeeking()); toggle.focus(); };
   ov.style.display='flex'; delete ov.dataset.dismiss;   // 기본: 닫기 불가(선택 대기 모달 보호)
+  document.getElementById('modal-box').scrollTop=0;
   document.body.classList.add('modal-open');
   hideMenu();                                          // 열려 있던 선택 메뉴가 모달 위에 남지 않게
+  UI.updateChainView();
 }
 function closeModal(){ setModalPeeking(false); UI.hideHover(); document.getElementById('modal-overlay').style.display='none'; document.body.classList.remove('modal-open'); }
 // 정보성 모달(도움말/밴 리스트/대회 덱 등): 모바일 뒤로 가기로 닫아도 안전함을 표시
@@ -431,8 +625,8 @@ function _pickMulliganLocal(p){
       ? '<b style="color:#ffe990">🎲 당신이 선공입니다</b>'
       : `<b style="color:#9fc8ff">🎲 선공: ${esc(pname(G.turn))}</b> — 당신은 후공입니다`;
     box.innerHTML=`<h3>🔄 ${esc(pname(p))}: 멀리건</h3>
-      <div style="font-size:14px;margin-bottom:8px">${firstTxt}</div>
-      <div style="font-size:13px;color:#9aa4bd;margin-bottom:10px">
+      <div class="modal-copy">${firstTxt}</div>
+      <div class="modal-note">
       교체할 카드를 <b>최대 2장</b> 선택하세요. 그 수만큼 새로 뽑은 뒤, 선택한 카드는 덱 맨 아래로 갑니다. (1회)</div>`;
     const wrap=document.createElement('div'); wrap.className='modal-cards';
     const sel=new Set();
@@ -740,7 +934,7 @@ UI.inspectUnit = function(u){
 // 무슨 효과인지 볼 수가 없었다 — 모달 위에 뜨는 별도 패널을 쓴다.
 // (터치 기기는 hover가 없으므로 attachZoom의 롱프레스가 같은 역할을 한다)
 UI.showHover = function(c, x, y){
-  if(!c) return;
+  if(!c || window.matchMedia('(hover: none)').matches) return;
   let el = document.getElementById('card-hover');
   if(!el){ el = document.createElement('div'); el.id = 'card-hover'; document.body.appendChild(el); }
   if(el._for !== c){ el.innerHTML = UI.cardInfoHTML(c); el._for = c; }
@@ -817,7 +1011,7 @@ function showTrashList(p){
   const arr=G.players[p].trash;
   const box=document.getElementById('modal-box');
   box.innerHTML=`<h3>🗑 ${esc(pname(p))}의 폐기장 — ${arr.length}장</h3>
-    <div style="font-size:12px;color:#9aa4bd;margin-bottom:8px">
+    <div class="modal-note">
     번호는 버려진 순서입니다 (1 = 가장 먼저, ${arr.length||1} = 가장 최근 · 더미 맨 위)</div>`;
   if(!arr.length){
     box.innerHTML+='<div style="color:#5a6a90;padding:14px 4px">비어 있습니다</div>';
@@ -934,7 +1128,12 @@ UI.showZoom = function(c, owner){
   if(c.m!==null && c.m!==undefined) statBits.push(`위력 ${c.m}`);
   if(c.e!==null && c.e!==undefined) statBits.push(`비용 ${c.e}${c.p?'+힘'+c.p:''}`);
   ov.innerHTML = `
-    <div class="cz-box">
+    <div class="cz-box" role="dialog" aria-label="카드 상세 설명">
+      <div class="cz-toolbar">
+        <span>카드 상세 설명</span>
+        <button type="button" class="cz-close" aria-label="카드 설명 닫기">닫기 <span aria-hidden="true">×</span></button>
+      </div>
+      <div class="cz-body">
       ${artImg(c,owner)?`<img class="cz-img" src="${cardImgUrl(artImg(c,owner))}" alt="">`:'<div class="cz-noimg">🃏</div>'}
       <div class="cz-info">
         <div class="cz-name">${esc(c.ko||'')}</div>
@@ -945,10 +1144,12 @@ UI.showZoom = function(c, owner){
         ${kwNote}
         ${c.tags&&c.tags.length?`<div class="cz-tags">태그: ${c.tags.map(esc).join(', ')}</div>`:''}
         <div id="cz-arts" class="cz-arts"></div>
-        <div class="cz-hint">바깥을 클릭하거나 Esc로 닫기</div>
+        <div class="cz-hint">위쪽 닫기 버튼 · 바깥 클릭 · Esc로 닫기</div>
+      </div>
       </div>
     </div>`;
   UI.renderZoomArts(c);   // 편집기에서 열었으면 일러스트 선택 버튼이 붙는다
+  ov.querySelector('.cz-close').addEventListener('click', UI.hideZoom);
   ov.querySelector('.cz-box').addEventListener('click', e=>e.stopPropagation()); // CSP가 인라인 onclick 차단 → 리스너로 연결
   ov.style.display = 'flex';
 };
@@ -983,6 +1184,7 @@ UI.hideZoom = function(){
 // 카드 요소에 롱프레스/Alt+클릭 확대를 연결
 let _lpTimer = null, _suppressClick = false;
 function attachZoom(el){
+  el.classList.add('card-zoom-trigger');
   const start = (e)=>{
     // Alt+클릭(또는 우클릭 아님) 즉시 확대는 아래 click 핸들러에서 처리. 여기선 롱프레스만.
     if(e.button!==undefined && e.button!==0) return; // 좌클릭/터치만
@@ -1000,6 +1202,7 @@ function attachZoom(el){
   // 터치 롱프레스
   el.addEventListener('touchstart', start, {passive:true});
   el.addEventListener('touchend', cancel);
+  el.addEventListener('touchcancel', cancel);
   el.addEventListener('touchmove', cancel);
   // Alt+클릭 즉시 확대
   el.addEventListener('click', (e)=>{
@@ -1016,7 +1219,12 @@ function attachZoom(el){
 
 // 롱프레스 직후의 클릭을 한 번 무시 (플레이/선택 오동작 방지)
 document.addEventListener('click', (e)=>{
-  if(_suppressClick){ _suppressClick=false; e.stopImmediatePropagation(); e.preventDefault(); }
+  if(_suppressClick){
+    _suppressClick=false;
+    // 기기에 따라 롱프레스 뒤 click이 생략된다. 다음 닫기 터치까지 막지 않는다.
+    if(e.target.closest('#card-zoom .cz-close')) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+  }
 }, true);
 // Esc: 확대/메뉴/정보 팝업 닫기 → 아무것도 없으면 게임 화면에서 시스템 메뉴(재대결·나가기)
 document.addEventListener('keydown', (e)=>{
@@ -1120,8 +1328,13 @@ function showUnitMenu(u, e){
   openMenuAt(menu, e);
 }
 function hideMenu(){ document.getElementById('ctx-menu').style.display='none'; }
-// 선택 메뉴 표시 — 모달과 같은 정책: 바깥을 클릭해도 닫히지 않는다(선택을 잃지 않게).
-// 닫는 방법은 [✖ 닫기] · Esc · 모바일 뒤로 가기, 또는 다른 카드를 눌러 메뉴를 바꾸는 것.
+// 캡처 단계에서 닫아 카드/보드의 stopPropagation과 관계없이 바깥 터치를 처리한다.
+// 메뉴를 여는 click보다 먼저 실행되므로 방금 연 메뉴가 즉시 닫히지 않는다.
+document.addEventListener('pointerdown', e=>{
+  const menu=document.getElementById('ctx-menu');
+  if(menu && menu.style.display==='block' && !menu.contains(e.target)) hideMenu();
+}, true);
+// 선택 메뉴 표시 — 바깥 터치 · [✖ 닫기] · Esc · 모바일 뒤로 가기로 닫기.
 function openMenuAt(menu, e){
   const close=document.createElement('div');
   close.className='ctx-item ctx-close'; close.textContent='✖ 닫기';
@@ -1130,6 +1343,11 @@ function openMenuAt(menu, e){
   menu.style.display='block';
   const x=(e&&e.clientX)||0, y=(e&&e.clientY)||0;
   const sp=fixedLayoutSpace(x, y);
+  // 실제 배율을 반영한 공간 안에서 먼저 크기를 제한한 뒤 위치를 계산한다.
+  menu.style.maxWidth=Math.min(420,sp.width-12)+'px';
+  menu.style.maxHeight=Math.max(40,sp.height-12)+'px';
+  menu.style.overflowY='auto';
+  menu.style.left='0px'; menu.style.top='0px';
   menu.style.left=Math.max(4, Math.min(sp.x, sp.width-menu.offsetWidth-6))+'px';
   menu.style.top =Math.max(4, Math.min(sp.y, sp.height-menu.offsetHeight-6))+'px';
 }
@@ -1186,7 +1404,7 @@ UI.askHidden = function(){
   const box = document.getElementById('modal-box');
   const where = G.state==='showdown' ? '결전 중입니다' : '내 행동 단계입니다';
   box.innerHTML = `<h3>🕶 숨겨 둔 카드가 있습니다</h3>
-    <div style="font-size:13px;color:#9aa4bd;margin-bottom:10px">${where} — 지금 공개해서 쓸 수 있습니다.</div>`;
+    <div class="modal-note">${where} — 지금 공개해서 쓸 수 있습니다.</div>`;
   const btns = document.createElement('div');
   btns.className = 'modal-btns';
   btns.style.flexDirection = 'column';
@@ -1318,12 +1536,15 @@ function updateRuneOverlap(zone){
   const style=getComputedStyle(zone);
   const available=zone.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
   const slots=[...zone.querySelectorAll('.rune-slot')];
+  const rowCount=Number(style.getPropertyValue('--rune-rows'))||0;
   const groups=[];
   let group=[], halfWidth=0, previousWidth=0;
   for(const slot of slots){
     const width=slot.offsetWidth;
     const nextWidth=group.length ? halfWidth-previousWidth/2+width : width;
-    if(group.length && (group.length===10 || nextWidth>available)){
+    // 위 행의 표시 공간을 먼저 채우고 다음 행으로 넘긴다. 모바일은 두 행을 유지한다.
+    if(group.length && (group.length>=10 || nextWidth>available)
+        && (!rowCount || groups.length<rowCount-1)){
       groups.push(group); group=[]; halfWidth=0;
     }
     halfWidth=group.length ? halfWidth-previousWidth/2+width : width;
@@ -1344,26 +1565,42 @@ function updateRuneOverlap(zone){
   // 기존 카드 노드를 옮겨 클릭 핸들러와 원래 룬 인덱스를 그대로 유지한다.
   if(focused && zone.contains(focused) && document.activeElement!==focused) focused.focus({preventScroll:true});
 }
+function updateBattlefieldScroll(root=document){
+  root.querySelectorAll('.bf-lane').forEach(lane=>{
+    const row=lane.querySelector('.bf-row');
+    lane.classList.toggle('has-overflow',row.scrollWidth>lane.clientWidth+1);
+    lane._syncScroll();
+  });
+}
 window.addEventListener('DOMContentLoaded',()=>{
   const observer=new ResizeObserver(entries=>entries.forEach(entry=>updateRuneOverlap(entry.target)));
   for(const p of [0,1]) observer.observe(document.getElementById('runes-'+p));
+  new ResizeObserver(()=>updateBattlefieldScroll()).observe(document.getElementById('battlefields'));
+
 });
 
 // 계속 일렁이는 가장자리 표시. 일반 턴·결전 우선권·효과 선택의 실제 행동 주체를 따른다.
 function updateTurnGlow(){
   const el=document.getElementById('turn-glow');
   let side='';
+  let host=document.getElementById('game-screen');
   if(G && G.winner===null && UI.fx.on && !(typeof REPLAY!=='undefined' && REPLAY.viewing)){
     const mine=NET.online ? NET.seat : (typeof BOT!=='undefined' && BOT.active) ? 1-BOT.seat : 0;
     const pick=_turnGlowPick?.game===G ? _turnGlowPick.p : null;
     const actor=(pick===0 || pick===1) ? pick : G.state==='showdown' ? G.actingPlayer
       : G.phase==='setup' ? null : G.turn;
-    if(actor===0 || actor===1) side=actor===mine?'mine':'opponent';
+    if(actor===0 || actor===1){
+      side=actor===mine?'mine':'opponent';
+      host=document.getElementById('parea-'+actor);
+    }
   }
+  // 크기·화면 회전·온라인 좌석 변경은 부모 구역의 배치를 그대로 따라간다.
+  if(el.parentElement!==host) host.appendChild(el);
   if(el.dataset.side!==side) el.dataset.side=side;
 }
 UI.render = function(){
   updateTurnGlow();
+  UI.updateChainView();
   if(!G) return;
   orientBoard();
   PLAYMAT.apply();
@@ -1500,7 +1737,8 @@ UI.render = function(){
     // 폐기장은 들어온 순서대로 저장된다. 남아 있는 마지막 카드를 매 렌더마다 갱신한다.
     const trashTop=Pl.trash.length ? card(Pl.trash[Pl.trash.length-1]) : null;
     const trashImage=trashTop ? artImg(trashTop,p) : null;
-    trashPile.style.backgroundImage=trashImage ? `url("${cardImgUrl(trashImage,280)}")` : '';
+    // CSS 변수는 스타일시트 위치에서 URL을 해석하므로 카드 경로를 문서 기준으로 확정한다.
+    trashPile.style.setProperty('--pile-image',trashImage ? `url("${new URL(cardImgUrl(trashImage,280),document.baseURI).href}")` : 'none');
     trashPile.classList.toggle('has-card-image',!!trashImage);
     // 기지
     const bz=document.getElementById('base-'+p);
@@ -1559,10 +1797,13 @@ UI.render = function(){
     if(bf.controller!==null) el.classList.add('controlled-'+bf.controller);
     if(G.showdown&&G.showdown.bfIdx===i) el.classList.add('contested');
     const bc=card(bf.n);
+    const rowScroll=[0,0];
+    el.querySelectorAll('.bf-row').forEach(row=>{ rowScroll[+row.dataset.player]=row.scrollLeft; });
     el.innerHTML='';
     const head=document.createElement('div'); head.className='bf-header';
     if(bc.img){
       const im=document.createElement('img'); im.src=cardImgUrl(bc.img,280);
+      im.alt=bc.ko;
       im.onmouseenter=()=>UI.inspect(bc);
       // 전장 카드 클릭 → 확대 (단, 이동 목적지 선택 중에는 이동 우선)
       im.onclick=(e)=>{
@@ -1573,22 +1814,42 @@ UI.render = function(){
       im._card=bc; attachZoom(im);                 // 꾹 누르기/Alt+클릭 확대
       head.appendChild(im);
     }
-    const info=document.createElement('div');
+    const info=document.createElement('div'); info.className='bf-info';
+    info.title=bc.ko+' · '+(bf.controller===null?'무주공산':'통제: '+pname(bf.controller));
     info.innerHTML=`<div class="bf-name">${esc(bc.ko)}</div>
-      <div class="bf-status">${bf.controller===null?'무주공산':'통제: '+esc(pname(bf.controller))}${bf.hiddenCards.length?' · 🕶숨김카드×'+bf.hiddenCards.length:''}</div>`;
+      <div class="bf-status">${bf.controller===null?'무주공산':'통제: '+esc(pname(bf.controller))}</div>`;
     head.appendChild(info);
-    el.appendChild(head);
-    const uwrap=document.createElement('div'); uwrap.className='bf-units';
-    for(let p=0;p<2;p++){
-      const us=bf.units.filter(u=>u.ctrl===p);
-      if(!us.length) continue;
-      const row=document.createElement('div'); row.className='bf-row';
-      const lbl=document.createElement('div'); lbl.className='bf-row-label'; lbl.textContent=pname(p);
-      row.appendChild(lbl);
-      us.forEach(u=>row.appendChild(unitEl(u)));
-      uwrap.appendChild(row);
+    if(bf.hiddenCards.length){
+      const hidden=document.createElement('span'); hidden.className='bf-hidden-count';
+      hidden.textContent='🕶'+bf.hiddenCards.length;
+      hidden.title='숨김카드 '+bf.hiddenCards.length+'장';
+      head.appendChild(hidden);
     }
-    el.appendChild(uwrap);
+    // 보드 방향과 같이 상대는 위, 나는 아래. 빈 진영도 남겨 중앙 카드가 밀리지 않게 한다.
+    for(const p of [1-UI._orient,UI._orient]){
+      const lane=document.createElement('div'); lane.className='bf-lane';
+      const row=document.createElement('div'); row.className='bf-row';
+      row.dataset.player=String(p);
+      row.setAttribute('role','group'); row.setAttribute('aria-label',pname(p)+'의 전장 카드');
+      bf.units.filter(u=>u.ctrl===p).forEach(u=>row.appendChild(unitEl(u)));
+      const arrows=[-1,1].map(dir=>{
+        const btn=document.createElement('button'); btn.type='button'; btn.className='bf-scroll';
+        btn.textContent=dir<0?'‹':'›';
+        btn.setAttribute('aria-label',pname(p)+'의 전장 카드 '+(dir<0?'왼쪽':'오른쪽')+' 보기');
+        btn.onclick=e=>{ e.stopPropagation(); row.scrollBy({left:dir*row.clientWidth*.8}); };
+        return btn;
+      });
+      lane._syncScroll=()=>{
+        arrows[0].disabled=row.scrollLeft<=1;
+        arrows[1].disabled=row.scrollLeft+row.clientWidth>=row.scrollWidth-1;
+      };
+      row.addEventListener('scroll',lane._syncScroll);
+      lane.append(arrows[0],row,arrows[1]);
+      el.appendChild(lane);
+      if(p!==UI._orient) el.appendChild(head);
+    }
+    updateBattlefieldScroll(el);
+    el.querySelectorAll('.bf-row').forEach(row=>{ row.scrollLeft=rowScroll[+row.dataset.player]; row.parentElement._syncScroll(); });
     attachDropZone(el, i); // 드래그 이동: 이 전장으로
     // 클릭: 이동 목적지 / 숨김 카드 플레이
     el.onclick=(e)=>{
@@ -1730,11 +1991,32 @@ UI.showVictory = function(p){
   updateTurnGlow();
   const box=document.getElementById('modal-box');
   const isBot = typeof BOT!=='undefined' && BOT.active && !NET.online;
-  box.innerHTML=`<div class="victory-box">
-    <h2>🎉 ${esc(pname(p))} 승리!</h2>
-    <p>${G.victory}점을 선취했습니다.</p>
-    <div class="modal-btns" id="victory-btns"></div>
-  </div>`;
+  const isTutorial=typeof TUT!=='undefined' && TUT.active;
+  // 핫시트와 관전은 특정 사용자의 좌석을 가정하지 않는다.
+  const me=replayLock()?null:NET.online?NET.seat:isBot?opp(BOT.seat):isTutorial?0:null;
+  const lost=me!==null && me!==p;
+  const left=me??p, right=opp(left);
+  const title=me===null?'경기 종료':lost?'패배':'승리';
+  const message=me===null?`<strong>${esc(pname(p))}</strong> 승리`
+    :lost?`<strong>${esc(pname(p))}</strong>에게 패배했습니다.`
+    :`<strong>${esc(pname(opp(p)))}</strong>에게 승리했습니다.`;
+  box.innerHTML=`<section class="victory-box match-result ${lost?'is-defeat':'is-victory'}" role="dialog" aria-modal="true" aria-labelledby="result-title" aria-describedby="result-message">
+    <div class="result-hero">
+      <span class="result-kicker">${me===null?'MATCH RESULT':lost?'DEFEAT':'VICTORY'}</span>
+      <h2 id="result-title">${title}</h2>
+      <p id="result-message">${message}</p>
+    </div>
+    <div class="result-content">
+      <div class="result-scoreboard" aria-label="최종 점수">
+        ${[left,right].map(seat=>`<div class="result-player ${seat===p?'is-winner':''}">
+          <span class="result-player-label">${me===null?(seat===p?'승리':'패배'):(seat===me?'나':'상대')}</span>
+          <span class="result-player-name">${esc(pname(seat))}</span>
+          <strong class="result-points">${G.players[seat].points}<small>점</small></strong>
+        </div>`).join('<span class="result-vs" aria-hidden="true">:</span>')}
+      </div>
+      <div class="modal-btns result-actions" id="victory-btns"></div>
+    </div>
+  </section>`;
   const btns=box.querySelector('#victory-btns');
   const add=(label,fn,primary)=>{ const b=document.createElement('button'); if(primary) b.className='primary';
     b.textContent=label; b.onclick=fn; btns.appendChild(b); };
@@ -1765,6 +2047,10 @@ UI.showVictory = function(p){
 
 // ---------- 버튼 바인딩 ----------
 window.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('btn-chain').onclick=UI.showChain;
+  document.getElementById('btn-modal-chain').onclick=UI.showChain;
+  document.getElementById('btn-chain-close').onclick=UI.hideChain;
+  document.getElementById('chain-overlay').onclick=e=>{ if(e.target.id==='chain-overlay') UI.hideChain(); };
   document.getElementById('btn-endturn').onclick=()=>{
     if(G.state==='showdown'||G.winner!==null) return;
     if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
@@ -1774,7 +2060,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     const readyRunes=P.runes.filter(r=>!r.ex).length;
     const pool=(P.energy||0)+(P.energySpell||0)+(P.powerSpell||0)
              + Object.values(P.power||{}).reduce((s,v)=>s+v,0);
-    if(readyRunes||pool){ confirmEndTurn(readyRunes, pool); return; }
+    if(PLAY_OPTIONS.confirmEndTurn && (readyRunes||pool)){ confirmEndTurn(readyRunes, pool); return; }
     NET.dispatch({k:'endTurn'}, ()=>endTurn());
   };
   // 로컬 확인창 — 게임 상태를 건드리지 않으므로 온라인 선택 동기화를 타지 않는다
@@ -1782,7 +2068,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     const box=document.getElementById('modal-box');
     box.innerHTML='<h3>턴을 끝낼까요?</h3>';
     const t=document.createElement('div');
-    t.style.cssText='font-size:14px;line-height:1.8;margin-bottom:6px';
+    t.className='modal-copy';
     const lines=[];
     if(readyRunes) lines.push(`· 준비된 룬이 ${readyRunes}개 남아 있습니다 — 이번 턴에는 더 쓸 수 없게 됩니다.`);
     if(pool) lines.push(`· 풀에 남은 에너지·힘 ${pool}은 턴이 끝나면 사라집니다.`);
@@ -1815,7 +2101,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   UI.showHelp=()=>{
     const box=document.getElementById('modal-box');
     box.innerHTML=`<h3>도움말</h3>
-    <div style="font-size:13px;line-height:1.9">
+    <div class="modal-copy help-copy">
     · <b>승리</b>: 8점 선취. 전장 <b>정복</b>(빼앗기) 1점, 유닛을 주둔시켜 자기 개시 단계까지 <b>유지</b> 1점.<br>
     · 전장에 유닛이 하나도 없으면 <b>통제를 잃고 무주공산</b>이 됩니다 — 비워두면 유지 득점도 없습니다.<br>
     · 마지막 1점은 유지로만, 또는 그 턴에 모든 전장을 득점한 경우의 정복으로만 얻습니다.<br>
@@ -1828,7 +2114,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     · <b>전투</b>: 양측 위력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 기지 귀환.<br>
     · <b>손패 카드 클릭</b> → 플레이/숨기기. 손패의 <b>유닛·도구는 드래그</b>하여 배치 가능한 위치에 플레이할 수 있습니다 (도구는 자기 기지). 등장 효과는 배치 후 이어서 처리합니다.<br>
     · <b>유닛 클릭/우클릭</b> → 능력 발동.<br>
-    · <b>선택 창·선택 메뉴는 바깥을 클릭해도 닫히지 않습니다</b> (실수로 선택을 잃지 않도록). 닫으려면 메뉴의 <b>[✖ 닫기]</b>나 <b>Esc</b>를 쓰세요.<br>
+    · <b>카드 플레이·능력 메뉴</b>는 바깥 터치, <b>[✖ 닫기]</b>, <b>Esc</b>로 닫습니다. 효과·대상 선택 창은 창 안의 버튼으로 선택을 완료하세요.<br>
     · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>우클릭</b>, <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 바깥 클릭/Esc). 유닛은 우클릭이 능력 메뉴라 꾹 누르기/Alt+클릭.<br>
     · 자동화가 안 되는 효과는 ⚙️ 알림이 뜹니다.<br>
     · <b>밴 리스트</b>: 덱 관리/덱 편집 화면의 [🚫 밴 리스트] 버튼에서 확인. 온라인 방·P2P에서 <b>양쪽 모두 '밴 적용'을 선택</b>하면 밴 카드 포함 덱은 사용할 수 없습니다.<br>
