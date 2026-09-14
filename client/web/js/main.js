@@ -1013,10 +1013,15 @@ function edLegend(){ return edIsCustom() ? null : card(+document.getElementById(
 function edAutoChampN(){
   const inDeck=[...new Set(ED.main.filter(n=>{ const c=card(n); return c.type==='Unit'&&c.super==='Champion'; }))]
     .sort((a,b)=>((card(a).e||0)-(card(b).e||0)) || (a-b));
-  if(inDeck.length) return inDeck[0];
   const legend=edLegend();
-  if(!legend) return null;
+  // 선발 챔피언은 전설과 같은 챔피언 태그여야 한다(룰 103 "Must be a champion unit with a champion tag that matches the tag on
+  // your Champion Legend"). 예전엔 덱의 챔피언 중 비용만 봐서 마스터 이 덱에 키아나를 함께 넣으면 키아나가 잡혔고, 마스터 이가
+  // 없으면 아무 챔피언이나 선발이 됐다 (제보 2026-09-14). 이제 전설 태그와 맞는 챔피언만 후보 — 덱에 없으면 카드 풀에서
+  // 가장 싼 것을 돌려주고 저장 검증이 "메인 덱에 넣어 달라"고 막는다. 나만의 덱(전설 없음)만 덱의 최저 비용 챔피언.
+  if(!legend) return inDeck.length ? inDeck[0] : null;
   const tag=legend.name.split(' - ')[0];
+  const own=inDeck.filter(n=>card(n).tags.includes(tag));
+  if(own.length) return own[0];
   const cu=CARDS.filter(c=>c.type==='Unit'&&c.super==='Champion'&&c.tags.includes(tag))
     .sort((a,b)=>(a.e||0)-(b.e||0));
   return cu.length?cu[0].n:null;
@@ -1310,6 +1315,14 @@ function initEditor(){
     if(!champN){
       msg.textContent = edIsCustom() ? '나만의 덱은 선발 챔피언을 골라야 합니다' : '이 전설의 챔피언 유닛을 찾을 수 없습니다';
       return;
+    }
+    // 직접 선택한 선발 챔피언도 전설과 같은 챔피언이어야 한다 (룰 103) — 마스터 이 전설에 키아나 선발은 불가
+    if(!edIsCustom()){
+      const tag=edLegend().name.split(' - ')[0];
+      if(!card(champN).tags.includes(tag)){
+        msg.textContent=`선발 챔피언 「${card(champN).ko}」는 전설 「${edLegend().ko}」와 다른 챔피언입니다 — 선발 챔피언은 전설과 같은 챔피언(${tag}) 유닛이어야 합니다 (룰 103). 선발 챔피언을 '자동'으로 두거나 ${tag} 챔피언 유닛을 고르세요.`;
+        return;
+      }
     }
     const deck={
       name:document.getElementById('ed-name').value.trim()||'이름없는 덱',

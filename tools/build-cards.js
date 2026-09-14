@@ -47,11 +47,11 @@ fs.writeFileSync(path.join(ROOT, 'client', 'web', 'js', 'cards.js'),
   '// Riftbound OGN card DB (data via Riftcodex API, KR fan translation)\n' +
   'const CARDS=' + JSON.stringify(db) + ';\nconst CARD_BY_N={};CARDS.forEach(c=>CARD_BY_N[c.n]=c);\n');
 
-// 서버 검증용 — 시그니처 카드는 전설 태그 일치 검사가 필요해서 태그를 함께 싣는다
+// 서버 검증용 — 시그니처 카드와 선발 챔피언은 전설 태그 일치 검사가 필요해서 태그를 함께 싣는다 (룰 103)
 fs.writeFileSync(path.join(ROOT, 'server', 'cards.json'),
   JSON.stringify(db.map(c => {
     const e = { n: c.n, type: c.type, super: c.super };
-    if (c.super === 'Signature' || c.type === 'Legend') e.tags = c.tags;
+    if (c.super === 'Signature' || c.type === 'Legend' || (c.type === 'Unit' && c.super === 'Champion')) e.tags = c.tags;
     return e;
   })));
 

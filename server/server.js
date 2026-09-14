@@ -192,7 +192,7 @@ const VALID = { legend: new Set(), champ: new Set(), main: new Set(), rune: new 
         else if (['Unit', 'Spell', 'Gear'].includes(c.type) && c.super !== 'Token') {
           VALID.main.add(c.n);
           if (c.super === 'Signature') { VALID.sig.add(c.n); if (c.tags) VALID.tags[c.n] = c.tags; }
-          if (c.type === 'Unit' && c.super === 'Champion') VALID.champ.add(c.n);
+          if (c.type === 'Unit' && c.super === 'Champion') { VALID.champ.add(c.n); if (c.tags) VALID.tags[c.n] = c.tags; }
         }
       }
       VALID.size = arr.length;
@@ -356,6 +356,11 @@ function validDeck(d) {
   if (VALID.legend.size && !VALID.legend.has(d.legendN)) return '유효하지 않은 전설';
   if (!Number.isInteger(d.champN)) return '챔피언이 없습니다';
   if (VALID.champ.size && !VALID.champ.has(d.champN)) return '유효하지 않은 챔피언';
+  // 선발 챔피언은 전설과 같은 챔피언 태그여야 한다 (룰 103) — 마스터 이 전설에 키아나 선발 불가. 태그 정보가 있을 때만 검사.
+  {
+    const ct = VALID.tags[d.champN], lt = VALID.tags[d.legendN];
+    if (ct && lt && !ct.some(t => lt.includes(t))) return '선발 챔피언은 전설과 같은 챔피언 유닛이어야 합니다 (룰 103)';
+  }
   if (!Array.isArray(d.main) || d.main.length !== 40) return '메인 덱은 40장이어야 합니다';
   if (!Array.isArray(d.runes) || d.runes.length !== 12) return '룬은 12개여야 합니다';
   if (!Array.isArray(d.bfs) || d.bfs.length !== 3) return '전장은 3개여야 합니다';
