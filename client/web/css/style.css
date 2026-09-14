@@ -1012,31 +1012,32 @@ body.modal-peeking #inspector { z-index:auto; }
 .cz-hint { margin-top:16px; font-size:12px; color:#5a6a90; }
 
 /* ══════════ 튜토리얼 패널 ══════════ */
+/* 데스크톱은 예전(430px·13px)의 2배 — 글자가 작아 잘 안 보인다는 요청(2026-09-14). 작은 화면은 mobile-popups.css가 따로 정한다. */
 #tut-panel {
   position:absolute; top:12px; left:12px; z-index:90;
-  width:430px; max-width:42vw; max-height:70vh; overflow-y:auto;
-  background:#141c30f2; border:1px solid #d8c27a; border-radius:14px;
-  padding:14px 16px; box-shadow:0 8px 30px #000b; font-size:13px;
+  width:860px; max-width:60vw; max-height:80vh; overflow-y:auto;
+  background:#141c30f2; border:2px solid #d8c27a; border-radius:20px;
+  padding:28px 32px; box-shadow:0 8px 30px #000b; font-size:26px;
 }
-.tut-head { color:#ffe6a0; font-weight:bold; font-size:15px; margin-bottom:8px; }
+.tut-head { color:#ffe6a0; font-weight:bold; font-size:30px; margin-bottom:16px; }
 .tut-step {
-  background:#6a4a1a; border-radius:10px; padding:1px 8px; font-size:11px;
-  margin-right:6px; color:#ffe6a0;
+  background:#6a4a1a; border-radius:20px; padding:2px 16px; font-size:22px;
+  margin-right:12px; color:#ffe6a0;
 }
 .tut-body { line-height:1.75; color:#e8e6e0; }
 .tut-body b { color:#ffd27f; }
 .tut-hint {
-  margin-top:10px; background:#1a2a4a; border-left:3px solid #7fc8ff;
-  padding:6px 10px; border-radius:6px; color:#bfe0ff; font-size:12px;
+  margin-top:20px; background:#1a2a4a; border-left:6px solid #7fc8ff;
+  padding:12px 20px; border-radius:12px; color:#bfe0ff; font-size:24px;
 }
-.tut-btns { margin-top:12px; display:flex; gap:8px; align-items:center; }
+.tut-btns { margin-top:24px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
 .tut-btn {
-  padding:7px 16px; border-radius:8px; border:1px solid #4a6a9a;
-  background:#22335a; color:#dde; font-size:13px;
+  padding:14px 32px; border-radius:16px; border:2px solid #4a6a9a;
+  background:#22335a; color:#dde; font-size:26px;
 }
 .tut-btn.primary { background:#6a4a1a; border-color:#d8c27a; color:#ffe6a0; font-weight:bold; }
 .tut-btn:hover { filter:brightness(1.2); }
-.tut-wait { color:#8a94b0; font-size:12px; flex:1; }
+.tut-wait { color:#8a94b0; font-size:24px; flex:1; }
 
 /* ══════════ 페이즈 시작 배너 ══════════ */
 #phase-banner {
