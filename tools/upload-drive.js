@@ -5,6 +5,10 @@
 //   node tools/upload-drive.js --dry-run       무엇을 올리고 지울지만 보여준다
 //   node tools/upload-drive.js --remote "gdrive:다른폴더/"
 //
+// 느리면(200MB에 10분 이상) 십중팔구 rclone의 '공유 client_id' 속도 제한이다 — rclone이 2026년 중
+// 은퇴한다고 경고하는 그것. rclone config에서 gdrive 원격에 자체 client_id/secret을 넣으면 풀린다
+// (https://rclone.org/drive/#making-your-own-client-id). 코드로는 해결할 수 없다.
+//
 // 올리는 것: 무설치판 exe + 같은 내용의 zip + 패치노트.
 //   zip을 함께 두는 이유는 브라우저·메신저가 .exe 다운로드를 막는 경우가 있어서다.
 // 지우는 것: 남길 개수를 넘는 옛 RiftboundSim-*.exe/.zip 만.
@@ -39,10 +43,13 @@ const verCmp = (a, b) => {
   return 0;
 };
 
-function rclone(args, { quiet } = {}) {
-  const r = spawnSync('rclone', args, { encoding: 'utf8' });
+// stream: true면 rclone 출력을 그대로 화면에 흘린다 (업로드 진행 상황용). 목록 조회처럼 결과를
+// 읽어야 하는 호출은 기본값(캡처)으로 둔다.
+function rclone(args, { quiet, stream } = {}) {
+  const r = spawnSync('rclone', args, stream ? { stdio: 'inherit' } : { encoding: 'utf8' });
   if (r.error) die('rclone을 찾을 수 없습니다 — 설치하고 gdrive 원격을 설정하세요');
   if (r.status !== 0 && !quiet) die('rclone 실패: ' + (r.stderr || '').trim());
+  if (stream) return [];
   return (r.stdout || '').split('\n').map(s => s.trim()).filter(Boolean)
     .filter(l => !/NOTICE/.test(l));
 }
@@ -80,7 +87,9 @@ for (const f of uploads) {
   const mb = (fs.statSync(f).size / 1024 / 1024).toFixed(0);
   if (DRY) { say(`  [건너뜀] 업로드: ${path.basename(f)} (${mb}MB)`); continue; }
   say(`  업로드: ${path.basename(f)} (${mb}MB)`);
-  rclone(['copy', f, REMOTE, '--retries', '5', '--low-level-retries', '20']);
+  // 128MB 청크: 기본 8MB보다 왕복이 훨씬 적어 큰 파일이 빨리 올라간다. --stats로 15초마다 진행률을 찍는다.
+  rclone(['copy', f, REMOTE, '--retries', '5', '--low-level-retries', '20',
+          '--drive-chunk-size', '128M', '--stats', '15s', '--stats-one-line', '-v'], { stream: true });
 }
 say('');
 
