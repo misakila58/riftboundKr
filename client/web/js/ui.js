@@ -557,6 +557,8 @@ function setModalPeeking(peeking){
   const ov=document.getElementById('modal-overlay');
   const box=document.getElementById('modal-box');
   const toggle=document.getElementById('modal-visibility-toggle');
+  // 보드 보기는 눈 버튼으로만 빠져나온다 — 버튼이 숨겨져 있으면 들어가는 순간 화면이 잠긴다
+  if(peeking && (toggle.hidden || ov.style.display==='none')) peeking=false;
   ov.classList.toggle('modal-peeking',peeking);
   document.body.classList.toggle('modal-peeking',peeking);
   box.inert=peeking;
@@ -566,7 +568,26 @@ function setModalPeeking(peeking){
   toggle.setAttribute('aria-label',toggle.title);
   UI.hideHover();
 }
-function modalPeeking(){ return document.getElementById('modal-overlay').classList.contains('modal-peeking'); }
+function modalPeeking(){
+  const ov=document.getElementById('modal-overlay');
+  if(!ov.classList.contains('modal-peeking')) return false;
+  // 오버레이는 닫혔는데 클래스만 남으면 캡처 리스너가 화면 전체를 영원히 삼킨다 — 여기서 풀어 준다
+  if(ov.style.display==='none'){ setModalPeeking(false); return false; }
+  return true;
+}
+// 눈 버튼을 실제로 누를 수 있는가 (숨겨지지 않았고 뷰포트 안에 있다)
+function peekToggleReachable(){
+  const t=document.getElementById('modal-visibility-toggle');
+  if(!t || t.hidden || !t.offsetParent) return false;
+  const r=t.getBoundingClientRect();
+  return r.width>0 && r.right>0 && r.bottom>0 && r.left<innerWidth && r.top<innerHeight;
+}
+// 어떤 키가 눌리든 앱을 되살릴 수 있어야 한다 — 새로고침·개발자 도구는 절대 삼키지 않는다
+function isRescueKey(e){
+  if(e.key==='F5' || e.key==='F12') return true;
+  const mod=e.ctrlKey||e.metaKey;
+  return mod && (e.key==='r' || e.key==='R' || (e.shiftKey && (e.key==='i' || e.key==='I')));
+}
 // 투명한 오버레이는 그대로 입력을 차단한다. 뒤의 공개 카드 데이터만 상세보기로 전달한다.
 function peekCardAt(x,y){
   return document.elementsFromPoint(x,y).find(el=>el._card && el.closest('#game-screen'))?._card||null;
@@ -574,6 +595,8 @@ function peekCardAt(x,y){
 document.addEventListener('click',e=>{
   if(!modalPeeking() || e.target.closest('#modal-visibility-toggle, #btn-modal-chain, #chain-overlay, #card-zoom')) return;
   e.preventDefault(); e.stopImmediatePropagation();
+  // 눈 버튼이 화면 밖이거나 숨겨져 있으면 빠져나올 길이 없다 — 어디를 눌러도 선택창을 복원한다
+  if(!peekToggleReachable()){ setModalPeeking(false); return; }
   const c=peekCardAt(e.clientX,e.clientY); if(c) UI.showZoom(c);
 },true);
 document.addEventListener('contextmenu',e=>{
@@ -587,9 +610,15 @@ document.addEventListener('pointermove',e=>{
 });
 document.addEventListener('keydown',e=>{
   if(!modalPeeking() || e.target.closest('#chain-overlay, #card-zoom')) return;
+  if(isRescueKey(e)) return;                                   // F5·F12·Ctrl+R·Ctrl+Shift+I는 언제나 통과
   if(e.target.closest('#modal-visibility-toggle, #btn-modal-chain') && ['Enter',' ','Tab'].includes(e.key)) return;
   e.preventDefault(); e.stopImmediatePropagation();
-  if(e.key==='Escape') UI.hideZoom();
+  if(e.key==='Escape'){
+    // 확대창이 떠 있으면 그것만 닫고, 아니면 보드 보기를 끝내고 선택창을 되돌린다
+    const zoom=document.getElementById('card-zoom');
+    if(zoom && zoom.style.display==='flex') UI.hideZoom(); else setModalPeeking(false);
+    return;
+  }
   document.getElementById('modal-visibility-toggle').focus();
 },true);
 document.addEventListener('focusin',e=>{

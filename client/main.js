@@ -31,6 +31,15 @@ function createWindow() {
   });
 
   win.setMenuBarVisibility(false);
+  // 되살리기 단축키는 페이지가 아니라 메인 프로세스에서 받는다. 렌더러의 캡처 리스너가 키를 전부
+  // 삼키는 상태(보드 보기 잠김 등)에 빠져도 F5로 새로고침, F12로 개발자 도구를 열 수 있어야 한다.
+  // (메뉴를 숨겨 두어 기본 가속키도 없다 — 이게 없으면 창을 끄는 것 말고 방법이 없었다)
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const key = input.key, mod = input.control || input.meta;
+    if (key === 'F5' || (mod && !input.shift && key.toLowerCase() === 'r')) { event.preventDefault(); win.webContents.reload(); }
+    else if (key === 'F12' || (mod && input.shift && key.toLowerCase() === 'i')) { event.preventDefault(); win.webContents.toggleDevTools(); }
+  });
   win.loadFile(path.join(__dirname, 'web', 'index.html'));
 
   // 외부 링크는 기본 브라우저로. kakaoopen:은 카카오톡 앱 딥링크(오픈톡방 참여)라 함께 허용
