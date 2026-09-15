@@ -290,13 +290,31 @@ function designateUnits(sd, units){
   return fresh;
 }
 // 지정 격발 해결 — 방어측이 먼저(초기 체인은 공격자가 먼저 얹고 LIFO로 방어자 것이 먼저 해결 — 절충 ①, #5266).
+// 같은 순간 격발한 능력이 한쪽에 여럿이면 그 통제자가 순서를 정한다 (룰 376.4.b.2.b).
+// 보드 순서로 고정하면 애니비아(3피해)+워윅(피해 입은 적 처치)이 함께 공격할 때 워윅이 먼저 돌아 아무것도 못 죽인다.
+// 격발이 실제로 있는 유닛이 둘 이상일 때만 묻고, 하나씩 골라 나머지는 다시 묻는다.
+async function orderByController(p, units, keys, what){
+  const has = u => keys.some(k => (unitFx(u).triggers?.[k]||[]).length);
+  const withT = units.filter(has), without = units.filter(u=>!has(u));
+  if(withT.length < 2) return units;
+  const ordered=[]; let rest=[...withT];
+  while(rest.length > 1){
+    const sel = await UI.pickOption(p, `${what} — 먼저 격발할 유닛 (룰 376.4.b.2.b · 남은 ${rest.length}기)`,
+      rest.map((u,i)=>({v:i, label:unitLabel(u), card:unitCard(u)})));
+    const i = (typeof sel==='number' && rest[sel]) ? sel : 0;
+    ordered.push(rest[i]); rest.splice(i,1);
+  }
+  return [...ordered, ...rest, ...without];
+}
 async function fireDesignationTriggers(sd, fresh){
   const defender=sd.defender;
-  for(const u of fresh.filter(u=>u.ctrl===defender)){
+  const defs = await orderByController(defender, fresh.filter(u=>u.ctrl===defender), ['onDefend','onAttackOrDefend'], '[방어 시] 격발');
+  for(const u of defs){
     await runTriggerList(unitFx(u).triggers?.onDefend, {p:u.ctrl, unit:u, bfIdx:sd.bfIdx});
     await runTriggerList(unitFx(u).triggers?.onAttackOrDefend, {p:u.ctrl, unit:u, bfIdx:sd.bfIdx});
   }
-  for(const u of fresh.filter(u=>u.ctrl===sd.attacker)){
+  const atks = await orderByController(sd.attacker, fresh.filter(u=>u.ctrl===sd.attacker), ['onAttack','onAttackOrDefend'], '[공격 시] 격발');
+  for(const u of atks){
     await runTriggerList(unitFx(u).triggers?.onAttack, {p:u.ctrl, unit:u, bfIdx:sd.bfIdx});
     await runTriggerList(unitFx(u).triggers?.onAttackOrDefend, {p:u.ctrl, unit:u, bfIdx:sd.bfIdx});
     // 「아리 - 구미호」 등 "적 유닛이 내가 통제하는 전장을 공격할 때" — 공격자 지정이 있을 때만(#8244)
@@ -2061,7 +2079,14 @@ async function startShowdown(bfIdx, attacker, hasCombat){
   G.actingPlayer=attacker;
   UI.log(`⚔️ 결전 개시! 「${card(bf.n).ko}」 — 공격: ${pname(attacker)}`, 'combat');
   // 공격/방어 지정과 그 격발은 '전투'가 있을 때만 (전투 1단계 — 무혈 결전에는 공격자도 방어자도 없다 #4707).
-  if(hasCombat) await openCombat(G.showdown, attacker);
+  if(hasCombat){
+    await openCombat(G.showdown, attacker);
+    // 지정 격발의 피해(애니비아 "이곳의 모든 적에게 3")는 곧바로 다음 클린업이 치명 판정한다
+    // (320.1 "repeating until no new change"). 승격 경로(cleanup→openCombat)에는 있었는데 여기엔 빠져 있어
+    // 0이 된 유닛이 전투 피해 단계까지 살아서 공격자를 때렸다.
+    if(G.winner===null) await cleanupDeaths();
+    if(G.winner!==null) return;
+  }
   UI.render();
   UI.promptShowdown();
 }
@@ -2165,6 +2190,8 @@ async function resolveShowdown(){
   if(!sd.hasCombat && atkUnits().length && defUnits().length){
     UI.log(`양측 유닛이 남아 전투가 개시됩니다 (경합 유지)`, 'combat');
     await openCombat(sd, bf.contestedBy ?? sd.attacker);
+    if(G.winner!==null || G.showdown!==sd) return;
+    await cleanupDeaths();                      // 지정 격발 피해의 치명 판정 (startShowdown과 같은 이유)
     if(G.winner!==null || G.showdown!==sd) return;
     sd.passes=0; G.actingPlayer=sd.attacker;   // 전투가 열리며 공격자가 포커스 (464 3단계)
     UI.render(); UI.promptShowdown();
