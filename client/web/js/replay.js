@@ -84,7 +84,9 @@ function rpHeaderOf(rec){
     mode: rec.meta.modeText,
     manual: !!rec.meta.manual,
     victory: rec.meta.victory,
-    players: rec.meta.players.map(p=>({ name:p.name, legendN:p.legendN })),
+    players: rec.meta.players.map(p=>({ name:p.name, legendN:p.legendN, champN:p.champN })),
+    modeKey: rec.meta.modeKey || null,      // bot / hotseat / p2p / online / tutorial (서버 집계·분석 도구용)
+    bot: rec.meta.bot || null,              // 봇전이면 { level, seat }
     result: rec.result,
     frames: rec.frames.length,
     states: rec.states.length,
@@ -317,11 +319,59 @@ REPLAY._onVictory = function(p){
   if(!REPLAY.recording || !REPLAY.rec) return;
   REPLAY.capture();
   REPLAY.rec.meta.modeText = REPLAY._modeText();
+  REPLAY.rec.meta.modeKey = rpModeKey();
+  REPLAY.rec.meta.bot = (typeof BOT!=='undefined' && BOT.active && !NET.online) ? { level:BOT.level, seat:BOT.seat } : null;
   REPLAY.rec.result = { winner:p, points:G.players.map(P=>P.points), turns:Math.ceil(G.turnCount/2) };
   REPLAY.recording = false;
   if(REPLAY.rec.meta.tutorial) return;             // 튜토리얼은 보관함을 어지럽히지 않도록 자동 저장 제외
   REPLAY.willSave = true;                          // 승리 모달 문구용 (저장은 비동기)
   REPLAY.save(true);
+  REPLAY.share(REPLAY.rec);                        // 봇 개선용 제공 (설정에서 끌 수 있음 · 실패해도 무시)
+};
+
+// ══════════ 봇 개선용 리플레이 제공 ══════════
+// 경기가 끝나면 리플레이 파일(.rbr)을 서버(/api/replay)로 보낸다. 봇이 진 판을 사람의 플레이와 비교해
+// 판단을 고치는 자료다(tools/replay-extract.js · replay-analyze.js). 기본 켜짐이며 설정에서 끌 수 있다.
+//   · 닉네임은 '플레이어 1/2'로 바꿔 보낸다 (봇 이름은 그대로). 튜토리얼·수동 모드·미완 경기는 보내지 않는다.
+//   · 온라인·친구 대전은 양쪽이 같은 판을 보내지 않도록 좌석 0만 보낸다.
+//   · 전송은 fire-and-forget — 실패해도 게임에 영향이 없다.
+REPLAY.KEY_SHARE_OFF = 'rb_replay_share_off';
+REPLAY.shareEnabled = function(){
+  if(typeof STATS==='undefined' || !STATS.URL) return false;
+  try{ return localStorage.getItem(REPLAY.KEY_SHARE_OFF) !== '1'; }catch(e){ return false; }
+};
+REPLAY.setShare = function(on){ try{ localStorage.setItem(REPLAY.KEY_SHARE_OFF, on ? '0' : '1'); }catch(e){} };
+function rpModeKey(){
+  if(REPLAY.rec && REPLAY.rec.meta.tutorial) return 'tutorial';
+  if(typeof NET!=='undefined' && NET.online) return (typeof P2P!=='undefined' && P2P.active) ? 'p2p' : 'online';
+  if(typeof BOT!=='undefined' && BOT.active) return 'bot';
+  return 'hotseat';
+}
+// 이름을 바꾼 사본을 만든다. 1글자 이름('나')은 문장 속 글자와 구분할 수 없어 그대로 둔다(식별 정보가 아니다).
+function rpAnonymize(rec){
+  const alias = rec.meta.players.map((p,i)=> (rec.meta.bot && i===rec.meta.bot.seat) ? p.name : `플레이어 ${i+1}`);
+  const subs = rec.meta.players.map((p,i)=>[p.name, alias[i]]).filter(([a,b])=>a && a!==b && a.length>=2);
+  const swapText = s => { for(const [a,b] of subs) s = s.split(a).join(b); return s; };
+  const swapJson = s => { for(const [a,b] of subs) s = s.split(JSON.stringify(a)).join(JSON.stringify(b)); return s; };
+  return {
+    ...rec,
+    meta: { ...rec.meta, modeText: swapText(rec.meta.modeText||''), players: rec.meta.players.map((p,i)=>({ ...p, name: alias[i] })) },
+    frames: rec.frames.map(f => f.l===undefined ? f : { ...f, l: swapText(f.l) }),
+    states: rec.states.map(swapJson),
+  };
+}
+REPLAY.share = async function(rec){
+  try{
+    if(!REPLAY.shareEnabled() || !rec || !rec.result || rec.meta.tutorial || rec.meta.manual) return;
+    const mode = rec.meta.modeKey || 'hotseat';
+    if((mode==='online' || mode==='p2p') && !(typeof NET!=='undefined' && NET.seat===0)) return;
+    const bytes = await rpBuildFile(rpAnonymize(rec));
+    if(bytes.length > 1500000) return;               // 서버 상한(1.5MB) — 비정상적으로 긴 경기는 보내지 않는다
+    await fetch(STATS.URL.replace(/\/+$/,'') + '/api/replay', {
+      method:'POST', headers:{'content-type':'application/octet-stream'}, body: bytes,
+      ...(bytes.length < 60000 ? { keepalive:true } : {}),   // keepalive는 64KB 이하 본문만 허용된다
+    });
+  }catch(e){}                                        // 실패는 조용히 — 게임에 영향 없음
 };
 
 // 저장 (auto=true면 조용히, 실패해도 게임 흐름을 막지 않음)

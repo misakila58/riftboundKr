@@ -1911,6 +1911,9 @@ function openSystemMenu(){
   if(STATS.URL) toggle(records,'setting-stats','익명 통계',
     '사람과 대전한 판수와 덱 조합만 익명으로 집계합니다.',STATS.enabled(),
     value=>{ STATS.setEnabled(value); updateStatsNotice(); });
+  if(STATS.URL) toggle(records,'setting-replay-share','봇 개선용 리플레이 제공',
+    '경기가 끝나면 리플레이를 개발자에게 보내 봇의 판단을 사람 플레이와 비교·개선하는 데 씁니다. 닉네임은 지우고 보내며 튜토리얼·수동 모드는 제외합니다.',
+    REPLAY.shareEnabled(), value=>{ REPLAY.setShare(value); updateStatsNotice(); });
   if(inGame) add(records,'🎬 현재까지의 리플레이 저장',()=>{ closeModal(); REPLAY.saveNow(); });
   if(typeof UI.showHelp==='function') add(records,'❓ 게임 도움말',UI.showHelp);
 
@@ -2023,9 +2026,29 @@ function initHotseat(){
 
 // ---------- 초기화 ----------
 function updateStatsNotice(){
-  document.getElementById('home-stats-status').textContent=!STATS.URL ? '' : STATS.enabled()
-    ? '익명 통계 켜짐 · 판수·덱 조합만 집계 · 설정에서 변경'
-    : '익명 통계 꺼짐 · 설정에서 변경';
+  const el=document.getElementById('home-stats-status');
+  if(!STATS.URL){ el.textContent=''; return; }
+  el.textContent=[
+    STATS.enabled() ? '익명 통계 켜짐' : '익명 통계 꺼짐',
+    REPLAY.shareEnabled() ? '봇 개선용 리플레이 제공 켜짐' : '리플레이 제공 꺼짐',
+  ].join(' · ')+' · 설정에서 변경';
+}
+// 첫 실행 안내(기기당 한 번): 기본으로 켜져 있는 익명 통계·리플레이 제공을 알리고 그 자리에서 끌 수 있게 한다.
+function showFirstRunNotice(then){
+  const box=document.getElementById('modal-box');
+  box.innerHTML=`<h3>👋 시작하기 전에</h3>
+    <div class="modal-copy">이 시뮬레이터는 더 나은 봇과 밸런스를 위해 두 가지를 <b>기본으로 보냅니다</b>.<br>
+    · <b>익명 통계</b> — 사람과 대전한 판수와 덱 조합(전설·선발 챔피언)만 셉니다. 닉네임·계정·IP는 보내지 않습니다.<br>
+    · <b>봇 개선용 리플레이</b> — 경기가 끝나면 리플레이 파일을 개발자에게 보냅니다. 봇이 진 판을 분석해 판단을 고치는 데 씁니다.
+    닉네임은 '플레이어 1/2'로 바꿔 보내고, 튜토리얼·수동 모드 경기는 보내지 않습니다.</div>
+    <div class="modal-note">둘 다 [설정]에서 언제든 끌 수 있습니다.</div>`;
+  const btns=document.createElement('div'); btns.className='modal-btns';
+  const ok=document.createElement('button'); ok.className='primary'; ok.textContent='알겠습니다';
+  ok.onclick=()=>{ closeModal(); if(then) then(); };
+  const off=document.createElement('button'); off.textContent='리플레이 제공 끄기';
+  off.onclick=()=>{ REPLAY.setShare(false); updateStatsNotice(); UI.toast('리플레이 제공을 껐습니다 — 설정에서 다시 켤 수 있습니다'); closeModal(); if(then) then(); };
+  btns.appendChild(ok); btns.appendChild(off); box.appendChild(btns);
+  openModal(); markModalDismissable();
 }
 window.addEventListener('DOMContentLoaded', ()=>{
   compileAllCards();
@@ -2083,9 +2106,13 @@ window.addEventListener('DOMContentLoaded', ()=>{
   updateStatsNotice();
   STATS.launch();
   const isMobileUA=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
-  if(isMobileUA && !localStorage.getItem(UISCALE_KEY) && !localStorage.getItem('rb_ui_scale_seen')){
-    try{ localStorage.setItem('rb_ui_scale_seen','1'); }catch(e){}
-    setTimeout(()=>showScalePicker(true), 400);
-  }
+  const needScale = isMobileUA && !localStorage.getItem(UISCALE_KEY) && !localStorage.getItem('rb_ui_scale_seen');
+  if(needScale){ try{ localStorage.setItem('rb_ui_scale_seen','1'); }catch(e){} }
+  // 첫 실행 안내(익명 통계·리플레이 제공)는 기기당 한 번. 모바일 첫 실행이면 안내를 닫은 뒤 배율 선택으로 이어진다.
+  const needNotice = !!STATS.URL && !localStorage.getItem('rb_notice_v1');
+  if(needNotice){ try{ localStorage.setItem('rb_notice_v1','1'); }catch(e){} }
+  const scaleNext = needScale ? ()=>setTimeout(()=>showScalePicker(true), 200) : null;
+  if(needNotice) setTimeout(()=>showFirstRunNotice(scaleNext), 400);
+  else if(needScale) setTimeout(()=>showScalePicker(true), 400);
   showScreen('connect-screen');
 });

@@ -346,6 +346,83 @@ function readBody(req) {
     req.on('error', () => reject(new Error('REQ_ERROR')));
   });
 }
+// 이진 본문(리플레이 파일) 읽기 — JSON readBody와 달리 상한을 호출자가 정한다
+function readRawBody(req, max) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let size = 0, over = false;
+    req.on('data', c => {
+      if (over) return;
+      size += c.length;
+      if (size > max) { over = true; reject(new Error('TOO_LARGE')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => { if (!over) resolve(Buffer.concat(chunks)); });
+    req.on('error', () => reject(new Error('REQ_ERROR')));
+  });
+}
+
+// ---------- 봇 개선용 리플레이 수집 (/api/replay) ----------
+// 클라이언트가 경기 종료 시 보내는 .rbr 파일을 data/replays/<YYYY-MM>/ 에 그대로 보관하고 index.jsonl에 한 줄씩 적는다.
+// 닉네임은 클라이언트가 '플레이어 1/2'로 바꿔 보내며(replay.js rpAnonymize), 서버는 IP를 저장하지 않는다(속도 제한에만 잠시 씀).
+// 분석은 tools/replay-extract.js · tools/replay-analyze.js — 파일은 scp로 내려받는다.
+const REPLAY_DIR = path.join(DATA_DIR, 'replays');
+const REPLAY_LIMITS = { MAX_BYTES: 1500 * 1024, MAX_FILES: 20000, MAX_TOTAL: 1024 * 1024 * 1024, PER_IP_WINDOW_MS: 3600e3, PER_IP_MAX: 40 };
+const REPLAYS = { files: 0, bytes: 0 };
+(function scanReplays() {
+  try {
+    if (!fs.existsSync(REPLAY_DIR)) return;
+    for (const d of fs.readdirSync(REPLAY_DIR)) {
+      const dp = path.join(REPLAY_DIR, d);
+      if (!fs.statSync(dp).isDirectory()) continue;
+      for (const f of fs.readdirSync(dp)) {
+        if (!f.endsWith('.rbr')) continue;
+        REPLAYS.files++; REPLAYS.bytes += fs.statSync(path.join(dp, f)).size;
+      }
+    }
+    if (REPLAYS.files) console.log(`리플레이 보관: ${REPLAYS.files}개 (${(REPLAYS.bytes / 1048576).toFixed(1)}MB)`);
+  } catch (e) {}
+})();
+// .rbr 앞부분의 비압축 헤더 JSON만 읽는다 ("RBRP" + 포맷 1B + 압축 1B + 헤더길이 4B LE + 헤더)
+function replayHeader(buf) {
+  if (buf.length < 10 || buf.toString('latin1', 0, 4) !== 'RBRP' || buf[4] !== 1) return null;
+  const hl = buf.readUInt32LE(6);
+  if (hl <= 0 || hl > 64 * 1024 || 10 + hl > buf.length) return null;
+  try { return JSON.parse(buf.toString('utf8', 10, 10 + hl)); } catch (e) { return null; }
+}
+function replayStore(buf, h) {
+  const day = new Date().toISOString().slice(0, 10), month = day.slice(0, 7);
+  const dir = path.join(REPLAY_DIR, month);
+  fs.mkdirSync(dir, { recursive: true });
+  const name = `${day}_${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}.rbr`;
+  fs.writeFileSync(path.join(dir, name), buf);
+  REPLAYS.files++; REPLAYS.bytes += buf.length;
+  const idx = {
+    file: `${month}/${name}`, day, app: h.app || null, mode: h.modeKey || null, bot: h.bot || null,
+    players: h.players.map(p => ({ legend: p.legendN | 0, champ: p.champN | 0 })),
+    winner: h.result.winner, turns: h.result.turns, size: buf.length,
+  };
+  fs.appendFileSync(path.join(REPLAY_DIR, 'index.jsonl'), JSON.stringify(idx) + '\n');
+  return idx;
+}
+// 봇전 집계 — 익명 통계에는 없던 "어떤 덱이 어느 난이도의 봇을 얼마나 이기는가". 헤더의 숫자만 쓴다.
+function replayStats(h) {
+  const b = h.bot;
+  if (!b || !(b.seat === 0 || b.seat === 1)) return;
+  const lv = String(b.level || 'unknown').replace(/[^a-z]/g, '') || 'unknown';
+  const human = h.players[1 - b.seat];
+  if (!human) return;
+  const humanWon = h.result.winner === (1 - b.seat);
+  statsBump(`bot:${lv}:games`);
+  if (humanWon) statsBump(`bot:${lv}:humanwin`);
+  if (Number.isInteger(h.result.turns) && h.result.turns >= 0 && h.result.turns <= 500) {
+    statsBump(`bot:${lv}:turnsum`, h.result.turns); statsBump(`bot:${lv}:turncnt`);
+  }
+  const deck = `${human.legendN | 0}-${human.champN | 0}`;
+  statsBump(`botdeck:${lv}:${deck}:games`);
+  if (humanWon) statsBump(`botdeck:${lv}:${deck}:wins`);
+  statsSave();
+}
+
 const ID_RE = /^[a-zA-Z0-9가-힣_]{2,16}$/;
 function validDeck(d) {
   if (!d || typeof d !== 'object' || Array.isArray(d)) return '덱 형식 오류';
@@ -468,6 +545,7 @@ const server = http.createServer(async (req, res) => {
       `WAITING|${waiting}`,
       ...live.map(r => `GAME|${mins(r.startedAt)}분째|${r.players.map(pl => mask(pl.id)).join(' vs ')}|v${r.players[0]?.ver || '?'}`),
       `GAMES|${s.total}판${parts.length ? ' (' + parts.join(' · ') + ')' : ''}`,
+      `REPLAYS|${REPLAYS.files}개 (${(REPLAYS.bytes / 1048576).toFixed(1)}MB)`,
       `BUILD|${BUILD.commit}${BUILD.date ? ' (' + BUILD.date + ')' : ''}${BUILD.subject ? ' ' + BUILD.subject : ''}`,
       `COMMIT|${BUILD.commit}`,
       ...(WEB_VERSION ? [`WEBVER|${WEB_VERSION}`] : []),
@@ -484,6 +562,22 @@ const server = http.createServer(async (req, res) => {
   }
   // 집계 조회 (숫자만 있어 민감하지 않다)
   if (p === '/api/stats' && req.method === 'GET') return json(res, 200, STATS);
+
+  // 봇 개선용 리플레이 수신 — 계정 없이 보낼 수 있다. 완료된 자동 모드 경기만 받고, 응답은 항상 200(게임에 영향 없음).
+  if (p === '/api/replay' && req.method === 'POST') {
+    if (!rateHit('replay:' + clientIp(req), REPLAY_LIMITS.PER_IP_WINDOW_MS, REPLAY_LIMITS.PER_IP_MAX))
+      return json(res, 200, { ok: false, why: 'rate' });
+    return readRawBody(req, REPLAY_LIMITS.MAX_BYTES).then(buf => {
+      const h = replayHeader(buf);
+      if (!h || !h.result || !Array.isArray(h.players) || h.players.length !== 2 || h.manual
+          || !(h.result.winner === 0 || h.result.winner === 1))
+        return json(res, 200, { ok: false, why: 'invalid' });
+      if (REPLAYS.files >= REPLAY_LIMITS.MAX_FILES || REPLAYS.bytes + buf.length > REPLAY_LIMITS.MAX_TOTAL)
+        return json(res, 200, { ok: false, why: 'full' });
+      replayStore(buf, h); replayStats(h);
+      json(res, 200, { ok: true });
+    }).catch(() => json(res, 200, { ok: false }));
+  }
 
   // 정적 웹앱 제공 (모바일/브라우저용). 화이트리스트만 — data/·소스는 노출 안 함
   if (!p.startsWith('/api/')) {
