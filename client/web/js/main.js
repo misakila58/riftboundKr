@@ -1955,6 +1955,7 @@ function startOnlineGame(m){
   // 선후공은 mulliganPhase 앞의 decideFirstPlayer가 시드 주사위로 정한다 (양쪽 동일)
   newGame({
     seed: m.seed,
+    reviewSetup: true,
     manual: m.manual,
     players: m.players.map(pl=>({
       name: pl.id, legendN: pl.deck.legendN, champN: pl.deck.champN,

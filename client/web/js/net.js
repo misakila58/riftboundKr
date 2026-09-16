@@ -189,6 +189,7 @@ NET._execAction = async function(a){
     case 'hide':      await hideCard(a.p, a.handIdx); break;
     case 'playHidden':await playHidden(a.p, a.bfIdx); break;
     case 'move': {
+      if(typeof UI.finishCombatMove==='function') UI.finishCombatMove();
       const units = a.uids.map(uid=>everyUnit().find(u=>u.uid===uid)).filter(Boolean);
       if(units.length) await moveUnits(a.p, units, a.dest);
       break; }
@@ -226,6 +227,9 @@ NET._execAction = async function(a){
 NET.dispatch = function(action, localFn){
   // 리플레이 관전 중에는 어떤 행동도 게임 상태를 바꾸지 못하게 한다 (최종 차단선)
   if(typeof REPLAY!=='undefined' && REPLAY.viewing) return;
+  if(UI.placementPending){ UI.toast('강조된 위치의 선택을 먼저 마쳐 주세요','warn'); return; }
+  if(UI.unitSelectionPending){ UI.toast('카드 선택을 먼저 마쳐 주세요','warn'); return; }
+  if(typeof UI.combatMoveBlocks==='function' && UI.combatMoveBlocks(action)) return;
   if(NET.online){
     NET.sendAction(action);
   } else {
