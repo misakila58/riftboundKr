@@ -623,10 +623,10 @@ const rooms = new Map();
 let roomSeq = 1;
 function wsSend(ws, obj) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
 function roomInfo(r) { return { id: r.id, name: r.name, host: r.players[0]?.id, count: r.players.length, started: r.started, banRule: !!r.banRule }; }
-// 밴 리스트 (한국 KR 기준 = 글로벌 공통, 2026-07-29 확인) — client/web/js/banlist.js와 반드시 함께 갱신할 것
+// 밴 리스트 (한국 KR 기준 = 글로벌 공통, 2026-09-18 개정 확인) — client/web/js/banlist.js와 반드시 함께 갱신할 것
 // 168 투쟁 혹은 도피 · 177 은밀한 추적자 · 182 고철 더미 · 276 지망자의 등반
-// 284 힘의 오벨리스크 · 285 약탈자의 거리 · 290 투기장 최고의 강자 · 292 꿈꾸는 나무
-const BANNED = new Set([168, 177, 182, 276, 284, 285, 290, 292]);
+// 284 힘의 오벨리스크 · 285 약탈자의 거리 · 290 투기장 최고의 강자 · 292 꿈꾸는 나무 · 110 에코 - 회귀자 · 183 조작된 덱
+const BANNED = new Set([110, 168, 177, 182, 183, 276, 284, 285, 290, 292]);   // 2026-09-18 개정: 에코 - 회귀자(110)·조작된 덱(183) 추가
 function deckBannedNs(d) {
   const all = [d.legendN, d.champN, ...(d.main || []), ...(d.bfs || [])];
   return [...new Set(all)].filter(n => n != null && BANNED.has(n));
