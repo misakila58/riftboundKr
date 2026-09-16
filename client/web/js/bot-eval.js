@@ -18,7 +18,8 @@ const BOT_W = {
   // 여기에 큰 값을 주면 "카드를 내는 것"이 손해로 계산되어 봇이 아무것도 하지 않게 된다.
   // 남는 가치는 상대 턴 [반응]에 쓸 가능성뿐이므로 아주 작게 잡는다.
   rune:         0.04,
-  runeDeck:     0.05,   // 룬 덱에 남은 장수 (장기 자원)
+  runeTotal:    0.09,   // 탈진 여부와 관계없이 다음 각성에 다시 사용할 기반
+  runeDeck:     0.015,   // 룬 덱에 남은 장수 (장기 자원)
   unitBase:     0.20,   // 기지 유닛의 위력 1당 (예비 전력)
   unitBf:       0.30,   // 전장 유닛의 위력 1당 (즉시 압박)
   buff:         0.20,   // 버프 1개
@@ -48,6 +49,105 @@ function evalHolds(p){
   return G.bfs.filter(bf => bf.controller === p && bf.units.some(u => u.ctrl === p)).length;
 }
 
+// 공개 보드로 알 수 있는 다음 유지의 득점/특수 승리. 일시적은 유지 전에 사라진다.
+// 일반 유지 수입과 분리해 대광장 승리를 가짜 점수로 환산하지 않는다.
+function evalHoldForecast(p,bfs=G.bfs){
+  let points=0, holds=0, special=false;
+  for(let i=0;i<bfs.length;i++){
+    const bf=bfs[i];
+    const units=bf.units.filter(u=>u.ctrl===p&&!effKw(u).temporary);
+    if(bf.controller!==p || !units.length) continue;
+    holds++; points++;
+    for(const u of units){
+      for(const trigger of unitFx(u).triggers?.onHold||[]){
+        const ctx={p,unit:u,it:u,bfIdx:i};
+        if(trigger.cond&&!trigger.cond(ctx,u)) continue;
+        points+=(trigger.ops||[]).filter(op=>op.op==='scorePoint').length;
+      }
+    }
+    const ops=(FX[bf.n]?.triggers?.onHoldHere||[]).flatMap(t=>t.ops||[]);
+    if(ops.some(op=>op.op==='winIf7Here')&&units.length>=7) special=true;
+  }
+  return {holds,points,special,win:special||G.players[p].points+points>=G.victory};
+}
+function evalHoldThreatValue(p,bfs=G.bfs){
+  const mine=evalHoldForecast(p,bfs).win, theirs=evalHoldForecast(opp(p),bfs).win;
+  // 현재 행동자가 턴을 끝내면 상대 개시가 먼저 온다. 양측이 사거리여도 순서를 구분한다.
+  return (mine?(G.turn===p?15:100):0)-(theirs?(G.turn===p?100:15):0);
+}
+
+// 전장 득점 표시가 찍힌 뒤 addPoints가 최종 점수 조건을 확인하는 순서와 같다.
+function evalConquestReward(p,bfIdx){
+  const bf=G.bfs[bfIdx], P=G.players[p];
+  if(bf.scored[p]) return {point:false,draw:false,value:0};
+  const point=!BOT_W.finalRule || P.points<G.victory-1
+    || G.bfs.every((b,i)=>i===bfIdx || P.scoredBf[i]);
+  let drawValue=P.hand.length<6?BOT_W.card:BOT_W.cardGlut;
+  if(!P.deck.length){
+    drawValue=(!P.trash.length || G.players[opp(p)].points>=G.victory-1)
+      ? -999 : drawValue-BOT_W.point;
+  }
+  return {point,draw:!point,value:point?BOT_W.point:drawValue};
+}
+// 관측자 자신의 남은 유닛 구성만 계산한다. 상대 덱/손패 내용은 참조하지 않는다.
+function evalGearValue(q,observer){
+  const P=G.players[q];
+  let value=P.gear.reduce((s,g)=>s+0.10+Math.min(0.15,(card(g.n).e||0)*0.015),0);
+  const auroras=P.gear.filter(g=>g.n===160&&!g.temporary).length;
+  if(!auroras || !P.deck.length) return value;
+  let count, average;
+  if(q===observer){
+    const remaining=new Map();
+    for(const n of P.deckList||[]) if(card(n).type==='Unit') remaining.set(n,(remaining.get(n)||0)+1);
+    const remove=n=>{if(remaining.has(n)) remaining.set(n,Math.max(0,remaining.get(n)-1));};
+    for(const n of [...P.hand,...P.trash,...P.banish]) remove(n);
+    if(P.champInZone) remove(P.champN);
+    for(const u of everyUnit()) if(!u.isToken && (u.owner??u.ctrl)===q) remove(u.n);
+    for(const bf of G.bfs) for(const h of bf.hiddenCards) if(h.by===q) remove(h.n);
+    count=[...remaining.values()].reduce((a,b)=>a+b,0);
+    average=count?[...remaining].reduce((s,[n,k])=>s+(card(n).m||0)*k,0)/count:0;
+  }else{
+    // 덱에 유닛이 남았는지는 모른다. 공개 병력의 평균(없으면 6)을 보수적 대용값으로 쓴다.
+    const shown=everyUnit().filter(u=>u.ctrl===q&&!u.isToken);
+    average=shown.length?shown.reduce((s,u)=>s+(card(u.n).m||0),0)/shown.length:6;
+    count=Math.min(P.deck.length,auroras*2);
+  }
+  const horizon=Math.min(2,evalTau(q),evalTau(opp(q)));
+  let premium=0;
+  // 오로라는 유닛이 나올 때까지 공개한다. 밀도를 발동 성공 확률로 오해하지 않는다.
+  for(let turn=0;turn<horizon;turn++){
+    const summons=Math.min(count,auroras); count-=summons;
+    premium+=summons*average*BOT_W.unitBase*0.5/(turn+1);
+  }
+  // 기지 병력이 이미 쌓였으면 추가 무료 소환의 당장 쓸 가치는 줄어든다.
+  const baseMight=P.base.reduce((s,u)=>s+might(u),0);
+  return value+Math.min(4,premium)/(1+baseMight/12);
+}
+
+// 전개 기반·당장 쓸 에너지·내 손패의 후속 행동 가능성을 따로 센다.
+// 상대 손패는 내용 대신 공개 자원만 평가한다.
+function evalResourceValue(q,observer){
+  const P=G.players[q], W=BOT_W;
+  let value=P.runes.length*W.runeTotal+P.runeDeck.length*W.runeDeck
+    +(readyRunes(q).length+(P.energy||0))*W.rune+(P.energySpell||0)*W.rune*0.5;
+  if(q!==observer) return value;
+  let followup=false, reaction=false;
+  for(const n of new Set(P.hand)){
+    const c=card(n), fx=FX[n]||{};
+    if(!canPay(q,applyCostMods(q,c,c.e||0),powerPips(c),c.type==='Spell')) continue;
+    if(fx.kw?.reaction) reaction=true;
+    else if(c.type==='Unit'||c.type==='Gear') followup=true;
+  }
+  if(followup) value+=0.08;
+  if(reaction) value+=0.10;
+  if(typeof polMfResponseReserve==='function'&&polMfResponseReserve(q)) value+=0.45;
+  if(typeof polMfBuildingAurora==='function' && polMfBuildingAurora(q)){
+    const turns=polMfAuroraTurns(q,null,true);
+    value+=Number.isFinite(turns)?0.6/(turns+1):0;
+  }
+  return value;
+}
+
 // ══════════ 국면 점수 ══════════
 // 반환값이 클수록 p에게 좋다. 상대 관점 점수를 빼서 '차이'로 만든다.
 function evalState(G_, p){
@@ -70,8 +170,7 @@ function evalState(G_, p){
   s += (myHold - opHold) * W.control * Math.min(tau, 3) / 2;
 
   // ③ 승리 사거리 — 유지만으로 이기는 상태면 큰 가산 (최종 점수 제한은 유지에 적용되지 않는다)
-  if(P.points + myHold >= G.victory) s += W.nearWinBonus;
-  if(O.points + opHold >= G.victory) s -= W.nearWinBonus * 1.2;   // 상대 리썰은 더 무겁게
+  s += evalHoldThreatValue(p);
 
   // ④ 전장별 위력 균형 — 전역 합이 아니라 전장마다 따로
   G.bfs.forEach((bf, i) => {
@@ -90,8 +189,9 @@ function evalState(G_, p){
   // ⑥ 카드·자원
   const handVal = h => Math.min(h,6)*W.card + Math.max(0,h-6)*W.cardGlut;
   s += handVal(P.hand.length) - handVal(O.hand.length);
-  s += (readyRunes(p).length - readyRunes(o).length) * W.rune;
-  s += (P.runeDeck.length - O.runeDeck.length) * W.runeDeck;
+  s += evalResourceValue(p,p)-evalResourceValue(o,p);
+
+  s += evalGearValue(p,p)-evalGearValue(o,p);
 
   // ⑦ 부가 자원
   const buffs = q => everyUnit().filter(u=>u.ctrl===q).reduce((a,u)=>a+u.buff,0);
@@ -114,6 +214,11 @@ function evalState(G_, p){
 // extraDef: 아직 그 전장에 없지만 '보낸다면' 방어에 합류할 유닛들.
 // 수비 보강의 값을 매기려면 "보강한 뒤에도 상대가 이길까"를 물어야 하는데,
 // G를 실제로 건드리지 않고 물어보려면 이 인자가 필요하다.
+// 엔진 피해 후보 순서: 피해 면역 제외 → 마지막 배분 제외 → 탱커 → 치사량.
+function evalDamageOrder(entries){
+  return entries.filter(x=>!x.immune).slice().sort((a,b)=>
+    Number(a.last)-Number(b.last) || Number(b.tank)-Number(a.tank) || a.lethal-b.lethal);
+}
 function evalCombat(p, bfIdx, units, extraDef){
   const bf = G.bfs[bfIdx];
   const o = opp(p);
@@ -125,10 +230,10 @@ function evalCombat(p, bfIdx, units, extraDef){
   // 처치: 치사량이 작은 것부터 채우면 수가 최대가 된다. 어떤 유닛이 죽는지도 함께 반환해
   // 교환 손익 계산이 실제 처치 대상과 어긋나지 않게 한다 (예전엔 정렬 전 목록의 앞 N개를 합산했다)
   const kills = (total, targets, role) => {
-    const order = targets.map(u=>({u, l:Math.max(1, might(u,role,{forKill:true})-u.dmg)}))  // 기절 유닛도 원래 위력만큼 필요 (룰 410.1.c)
-      .sort((a,b)=>a.l-b.l);
+    const order = evalDamageOrder(targets.map(u=>({u, lethal:Math.max(1,might(u,role,{forKill:true})-u.dmg),
+      tank:!!effKw(u).tank,last:!!unitFx(u).combatLast,immune:!canTakeCombatDamage(u)})));
     let rest = total; const dead=[];
-    for(const t of order){ if(rest >= t.l){ rest -= t.l; dead.push(t.u); } else break; }
+    for(const t of order){ if(rest >= t.lethal){ rest -= t.lethal; dead.push(t.u); } else break; }
     return dead;
   };
   const defDead = kills(atkM, def, 'defender');
@@ -142,17 +247,9 @@ function evalCombat(p, bfIdx, units, extraDef){
   else if(atkLeft > 0)  result = 'conquer';     // 공격 성공 — 통제 확립
   else                  result = 'mutual';      // 양측 전멸 — 아무도 통제하지 못함, 득점 없음
 
-  // 이번 턴 이미 득점한 전장이면 정복해도 점수는 없다 (통제 자체는 여전히 가치가 있다)
-  let scoresPoint = (result === 'conquer') && !bf.scored[p];
-  // 최종 점수 제한(공식 RUP4, engine addPoints 231행): 승리까지 1점 남은 뒤의 정복은
-  // '이번 턴 모든 전장을 득점'했을 때만 점수가 된다 — 아니면 카드 1장으로 대체된다.
-  // 이걸 모르면 봇이 마지막 1점을 유령 점수로 착각하고 헛공격에 병력을 태운다.
-  if(scoresPoint && typeof BOT_W.finalRule !== 'undefined' && BOT_W.finalRule){
-    const P = G.players[p];
-    if(P.points >= G.victory - 1)
-      scoresPoint = G.bfs.every((b, i) => i === bfIdx || P.scoredBf[i]);
-  }
-  return { result, atkM, defM, defKilled, atkKilled, defLeft, atkLeft, scoresPoint,
+  const reward=result==='conquer'?evalConquestReward(p,bfIdx):{point:false,draw:false,value:0};
+  const scoresPoint=reward.point, drawsCard=reward.draw;
+  return { result, atkM, defM, defKilled, atkKilled, defLeft, atkLeft, scoresPoint, drawsCard,
            defDead, atkDead,
            lostMight: atkDead.reduce((s,u)=>s+might(u),0) };
 }
@@ -163,7 +260,7 @@ function evalAttackValue(p, bfIdx, units, extraDef){
   const bf = G.bfs[bfIdx];
   let v = 0;
   if(c.result === 'conquer'){
-    if(c.scoresPoint) v += BOT_W.point;                       // 정복 1점
+    v += evalConquestReward(p,bfIdx).value;                       // 정복 점수 또는 대체 드로우
     if(bf.controller !== p) v += BOT_W.control * Math.min(evalTau(p),3)/2;  // 통제 획득
   } else if(c.result === 'repelled'){
     v -= 0.15;                                                // 헛공격 — 템포 손실
@@ -173,5 +270,16 @@ function evalAttackValue(p, bfIdx, units, extraDef){
   // 교환 손익 (내 잃은 위력 vs 상대 잃은 위력) — 실제 처치 대상 기준
   const defLost = c.defDead.reduce((s,u)=>s+might(u),0);
   v += (defLost * BOT_W.unitBf) - (c.lostMight * BOT_W.unitBf);
+  // 전장을 빼앗지 못하는 희생 공격도 유지 승리 조건을 깨면 살아남는 수다.
+  // 출격으로 비워지는 원래 전장과 살아남은 유닛까지 함께 비교한다.
+  const moving=new Set(units.map(u=>u.uid)), dead=new Set(c.defDead);
+  const projected=G.bfs.map((b,i)=>{
+    if(i!==bfIdx) return {...b,units:b.units.filter(u=>!moving.has(u.uid))};
+    const survivors=b.units.filter(u=>!moving.has(u.uid)&&!dead.has(u));
+    survivors.push(...(extraDef||[]).filter(u=>!dead.has(u)));
+    if(c.result==='conquer') survivors.push(...units.filter(u=>!c.atkDead.includes(u)));
+    return {...b,units:survivors,controller:c.result==='conquer'?p:c.result==='mutual'?null:b.controller};
+  });
+  v += evalHoldThreatValue(p,projected)-evalHoldThreatValue(p);
   return v;
 }

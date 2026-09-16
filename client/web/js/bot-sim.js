@@ -40,6 +40,16 @@ function cloneG(g){
     if(typeof v === 'function') return v;
     if(fx.has(v)) return v;                 // 카드 효과 정의는 공유
     if(seen.has(v)) return seen.get(v);     // 같은 객체는 같은 사본으로 (유닛 참조 유지)
+    if(v instanceof Map){
+      const m=new Map();seen.set(v,m);
+      for(const [k,x] of v) m.set(cl(k),cl(x));
+      return m;
+    }
+    if(v instanceof Set){
+      const s=new Set();seen.set(v,s);
+      for(const x of v) s.add(cl(x));
+      return s;
+    }
     if(Array.isArray(v)){
       const a = []; seen.set(v, a);
       for(const x of v) a.push(cl(x));
@@ -61,17 +71,18 @@ function simUI(policy){
     hideZoom:noop, showZoom:noop, logEntryEl:()=>null,
     isPicking:()=>false,
     fx:{ unit:noop, cast:noop, chainAdd:noop, score:noop, turnEnd:noop, priority:noop, check:noop, setOn:noop, on:false },
-    confirmP:     (p,t,c)     => simAnswer(()=>policy.confirm(p,t,c)),
-    pickUnitFrom: (p,c,t,o)   => simAnswer(()=>policy.unit(p,c,t,o)),
+    confirmP:     (p,t,c,x)   => simAnswer(()=>policy.confirm(p,t,c,x)),
+    pickUnitFrom: (p,c,t,o,x) => simAnswer(()=>policy.unit(p,c,t,o,x)),
     pickOption:   (p,t,o)     => simAnswer(()=>policy.option(p,t,o)),
     pickReaction: (p,t,o)     => simAnswer(()=>policy.reaction(p,t,o)),
     // 무한루프 방지: dealSplit은 0을 받으면 while(remain>0)에서 빠져나오지 못한다
-    pickNumber:   (p,t,mn,mx) => simAnswer(()=>{
+    pickNumber:   (p,t,mn,mx,x) => simAnswer(()=>{
       const lo=Math.min(mn,mx), hi=Math.max(mn,mx);
-      const v = policy.number(p,t,mn,mx);
+      const v = policy.number(p,t,mn,mx,x);
       return Math.max(lo, Math.min(hi, (typeof v==='number'&&!isNaN(v)) ? v : hi));
     }),
     pickHandCard: (p,t)       => simAnswer(()=>policy.hand(p,t)),
+    pickBuffs:    (p,t,c)     => simAnswer(()=>policy.buffs(p,t,c)),
     pickMulligan: (p)         => simAnswer(()=>policy.mulligan(p)),
   };
 }
@@ -96,10 +107,15 @@ function simEnter(policy, movementProbe){
   const saved = {
     simActive:SIM.active, simLock:SIM.lock, picks:SIM.picks,
     movementDepth:SIM.movementDepth||0, returned:SIM.returned,
+    perspective:SIM.perspective, policy:SIM.policy, settling:SIM.settling,
+    policyState:Object.fromEntries(['_mfEmergency','_mfBulletPlan','_mfGankTarget','_sdSeen','_sdKey','_sdTried','_playScore','turnPlan','think'].map(k=>[k,{exists:Object.hasOwn(policy,k),value:policy[k]}])),
+    ownerPolicy:policy,
     G, UID: (typeof UID!=='undefined'?UID:1),
     rng: (typeof _rngState!=='undefined'?_rngState:1),
     ctxBf: (typeof _ctxBf!=='undefined'?_ctxBf:null),
     ctxUnit: (typeof _ctxUnit!=='undefined'?_ctxUnit:null),
+    hiddenBf: (typeof _hiddenBf!=='undefined'?_hiddenBf:null),
+    preTarget: (typeof _preTarget!=='undefined'?_preTarget:undefined),
     curKind: (typeof _curKind!=='undefined'?_curKind:'effect'),
     UI: UI,
     hash: null,
@@ -113,17 +129,28 @@ function simEnter(policy, movementProbe){
   try {
     UI = simUI(policy);                     // 슬롯 자체를 교체 (래퍼를 얹지 않는다)
     G = cloneG(saved.G);
+    SIM.policy=policy; SIM.settling=false;
+    for(const k of ['_mfBulletPlan','_mfGankTarget','_sdSeen','_sdKey']) policy[k]=null;
+    policy._sdTried=new Set();
+    policy.turnPlan=cloneG(policy.turnPlan);
+
   } catch(e){ simExit(saved); throw e; }
   SIM.picks = 0;
   return saved;
 }
 function simExit(saved){
+  for(const [k,state] of Object.entries(saved.policyState)){
+    if(state.exists) saved.ownerPolicy[k]=state.value; else delete saved.ownerPolicy[k];
+  }
+  SIM.perspective=saved.perspective; SIM.policy=saved.policy; SIM.settling=saved.settling;
   UI = saved.UI;
   G = saved.G;
   if(typeof UID!=='undefined') UID = saved.UID;
   if(typeof _rngState!=='undefined') _rngState = saved.rng;
   if(typeof _ctxBf!=='undefined') _ctxBf = saved.ctxBf;
   if(typeof _ctxUnit!=='undefined') _ctxUnit = saved.ctxUnit;
+  _hiddenBf = saved.hiddenBf;
+  _preTarget = saved.preTarget;
   if(typeof _curKind!=='undefined') _curKind = saved.curKind;
   SIM.lock = saved.simLock===undefined ? false : saved.simLock;
   SIM.active = saved.simActive===undefined ? false : saved.simActive;
@@ -146,12 +173,14 @@ function simHash(g){
 // ── 후보 수를 하나 두어 보고 결과를 평가한다 ──
 // act: async () => void  (클론된 G 위에서 실행됨)
 // 반환: 평가 점수 (실패·예산초과면 null)
-async function simTry(p, act, policy, movementProbe){
+async function simTry(p, act, policy, movementProbe, ownActions=true){
   const pol = policy || POLICY;
   let saved;
-  try { saved = simEnter(pol, movementProbe); }
+  const settleProbe=SIM.lock && SIM.settling && !movementProbe;
+  try { saved = simEnter(pol, movementProbe||settleProbe); }
   catch(e){ return null; }
   try {
+    SIM.perspective=settleProbe||!ownActions?null:p;
     SIM.stats.runs++;
     await act();
     await simSettle();          // 결전을 끝까지 진행한 뒤 평가 (안 하면 공격이 공짜로 보인다)
@@ -185,14 +214,25 @@ function simReturnedHandValue(p){
 // 이동으로 결전이 열렸다면 전투까지 실제로 해결시킨다.
 // 이걸 하지 않으면 "유닛을 전장에 보냈다"는 상태만 보고 평가하게 되어,
 // 전멸당하는 공격도 이득으로 계산된다.
-async function simSettle(){
+async function simSettle(p=SIM.perspective, policy=SIM.policy||POLICY){
   for(let guard=0; guard<40; guard++){
-    if(!G || G.winner!==null) return;
-    if(G.state !== 'showdown') return;
-    const before = G.showdown;
+    if(!G || G.winner!==null || G.state!=='showdown') return;
+    if(SIM.deadline && Date.now()>SIM.deadline) throw new SimBudget('deadline');
+    // 내 손패만 실제 정책으로 사용한다. 상대 비공개 응수는 추측하지 않는다.
+    if(G.actingPlayer===p){
+      const before=simHash(G);
+      let act; const wasSettling=SIM.settling;
+      SIM.settling=true;
+      try { act=await policy.showdownAction(p); } finally { SIM.settling=wasSettling; }
+      if(act){
+        const ok=await policy.runAction(p,act);
+        if(ok!==false && simHash(G)!==before) continue;
+      }
+    }
     await showdownPass();
-    if(G.showdown === before && G.state === 'showdown' && G.showdown.passes === 0) return; // 진전 없음
   }
+  // 체인 해결로 passes가 0이 되어도 결전은 진행 중이다. 미완료 상태는 채점하지 않는다.
+  if(G && G.winner===null && G.state==='showdown') throw new SimBudget('showdown limit');
 }
 
 // 샌드박스 안에서 한 좌석의 턴을 휴리스틱으로 끝까지 진행한다 (탐색 재귀 방지: think=0 고정)

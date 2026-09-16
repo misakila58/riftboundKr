@@ -1,0 +1,19 @@
+.setup-review { position:fixed; inset:0; z-index:900; overflow:auto; background:#070e19f5; color:#edf3ff; padding:20px; display:flex; align-items:safe center; justify-content:center; }
+.setup-review-box { width:min(900px,100%); text-align:center; }
+.setup-review h2 { margin:0 0 8px; color:#eed598; }
+.setup-review p { margin:8px 0 16px; color:#b4c2d7; }
+.setup-review-players { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.setup-review-player { padding:14px; border:1px solid #405570; border-radius:14px; background:#142035; min-width:0; }
+.setup-review h3 { margin:0 0 12px; overflow-wrap:anywhere; }
+.setup-review-cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.setup-review figure { margin:0; min-width:0; font-size:12px; }
+.setup-review figure img { display:block; width:100%; height:clamp(100px,20vh,200px); object-fit:contain; margin:8px 0; }
+.setup-review figcaption { overflow-wrap:anywhere; color:#d8e2f1; }
+.setup-review-status { min-height:24px; margin:16px 0 8px; color:#b9e3cf; }
+.setup-review-confirm { --progress:0; position:relative; width:104px; height:104px; padding:14px; border:0; border-radius:50%; background:#253c57; color:#fff; font-weight:700; cursor:pointer; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+.setup-review-confirm:focus-visible { outline:2px solid white; outline-offset:4px; }
+.setup-review-confirm:disabled { cursor:default; opacity:1; color:#bceacb; }
+.setup-review-confirm svg { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); pointer-events:none; }
+.setup-review-confirm circle { fill:none; stroke:#8be7b0; stroke-width:4; stroke-linecap:round; stroke-dasharray:1; stroke-dashoffset:calc(1 - var(--progress)); }
+.setup-review-confirm span { position:relative; pointer-events:none; }
+@media(max-width:600px) { .setup-review { padding:12px; } .setup-review-players { grid-template-columns:1fr; gap:10px; } .setup-review-player { padding:10px; } .setup-review h3 { font-size:14px; margin-bottom:8px; } .setup-review figure img { height:110px; } .setup-review p { font-size:12px; } .setup-review-status { font-size:13px; margin-top:10px; } }

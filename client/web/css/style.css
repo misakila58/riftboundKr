@@ -284,9 +284,10 @@ button { cursor:pointer; font-family:inherit; }
   .legend-slot .card-mini .cm-name, .champ-slot .card-mini .cm-name { font-size:10px; }
 }
 .base-zone {
-  flex:1 2 220px; max-width:360px; border-radius:10px; padding:8px 10px;
+  --base-card-width:74px; --base-card-height:104px;
+  flex:1 2 220px; max-width:360px; border-radius:10px; padding:4px;
   background:rgba(24,34,56,.75);
-  display:flex; flex-wrap:wrap; gap:4px; align-content:flex-start; position:relative;
+  display:flex; flex-wrap:wrap; gap:3px; align-items:flex-start; align-content:flex-start; position:relative;
   min-height:0; overflow-y:auto;
 }
 .zone-label { position:absolute; top:4px; right:10px; font-size:11px; color:#7a8ab0; pointer-events:none; font-weight:bold; }
@@ -339,9 +340,10 @@ button { cursor:pointer; font-family:inherit; }
   display:grid; grid-template-rows:minmax(0,1fr) var(--bf-divider-height) minmax(0,1fr);
   container: battlefield / inline-size;
 }
-.battlefield.contested { border-color:#e05a5a; box-shadow:0 0 14px #e05a5a55; }
 .battlefield.controlled-0 { border-color:#5a9de0; }
 .battlefield.controlled-1 { border-color:#e0a05a; }
+.battlefield.contested { border-color:#83e4ff; box-shadow:0 0 14px #66dfff88,inset 0 0 14px #66dfff33; }
+.battlefield.contested::after { content:''; position:absolute; inset:-2px; border:3px solid #83e4ff; border-radius:inherit; background:#4bc9ed22; pointer-events:none; z-index:2; }
 .bf-header { position:relative; z-index:0; display:flex; justify-content:center; align-items:center; min-width:0; }
 .bf-header::before {
   content:""; position:absolute; left:0; right:0; top:50%; height:1px; pointer-events:none;
@@ -383,6 +385,12 @@ button { cursor:pointer; font-family:inherit; }
   @container battlefield (min-width:420px) { .bf-info { display:block; } }
 }
 #center-info { flex:0 0 130px; min-height:0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; }
+#placement-overlay { position:fixed; inset:0; z-index:10000; background:#04091655; touch-action:none; }
+#placement-overlay .placement-zone { position:absolute; margin:0; padding:0; border:3px solid #83e4ff; border-radius:10px; background:#4bc9ed22; box-shadow:0 0 14px #66dfff88,inset 0 0 14px #66dfff33; cursor:pointer; }
+#placement-overlay .placement-zone:hover, #placement-overlay .placement-zone:focus-visible { background:#4bc9ed44; outline:2px solid white; outline-offset:-6px; }
+.placement-zone span { position:absolute; left:4px; top:4px; padding:3px 6px; border-radius:4px; background:#102c40; color:#c7f5ff; font-size:12px; pointer-events:none; }
+.placement-center { position:absolute; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:stretch; gap:8px; padding:8px 3px; border-radius:8px; background:#101a2bf5; text-align:center; color:#e0f7ff; font-size:12px; }
+.placement-center button { min-height:44px; padding:8px 5px; border:1px solid #ffcc83; border-radius:7px; background:#593b20; color:#fff0d7; font-size:14px; cursor:pointer; }
 #pool-display {
   font-size:12px; text-align:center; color:#9fd8ff; line-height:1.6;
   background:radial-gradient(ellipse at center,rgba(14,27,47,.8),rgba(14,27,47,.12));
@@ -412,8 +420,17 @@ button { cursor:pointer; font-family:inherit; }
 .card-mini.selected { border-color:#7fe07f; box-shadow:0 0 10px #7fe07f88; }
 .card-mini.exhausted { transform:rotate(90deg) scale(0.82); margin:0 14px; }
 .card-mini.exhausted:hover { transform:rotate(90deg) scale(0.9); }
+/* 회전 후 실제로 보이는 크기만 차지하게 해 기지의 가로/세로 빈칸을 줄인다. */
+.base-zone > .card-mini { width:var(--base-card-width); height:var(--base-card-height); }
+.base-zone > .card-mini.exhausted {
+  margin:calc((var(--base-card-width) * .82 - var(--base-card-height)) / 2)
+    calc((var(--base-card-height) * .82 - var(--base-card-width)) / 2);
+}
+.base-zone > .card-mini.exhausted:hover { transform:rotate(90deg) scale(.82); }
 .card-mini.playable { border-color:#7fc8ff; box-shadow:0 0 8px #7fc8ff66; }
 .card-mini.targetable { border-color:#ffe07f; box-shadow:0 0 12px #ffe07faa; animation:pulse .8s infinite alternate; }
+.board-pick-alternative { display:inline-flex; align-items:center; gap:6px; text-align:left; }
+.board-pick-alternative img { width:30px; height:42px; object-fit:cover; border-radius:3px; }
 .card-mini.stunned::after { content:'💫'; position:absolute; top:-6px; right:-6px; }
 .card-mini.hidden-card { background:#1a2238 url('../assets/playcard_back.png') 50.318471% 45.662100% / 117.386489% 117.312253% no-repeat !important; display:flex; align-items:center; justify-content:center; font-size:22px; }
 @keyframes pulse { from{box-shadow:0 0 6px #ffe07f66;} to{box-shadow:0 0 16px #ffe07fee;} }
@@ -591,6 +608,11 @@ body.modal-open #inspector {
 .act-btn.primary { background:#6a4a1a; border-color:#d8c27a; color:#ffe6a0; font-weight:bold; }
 .act-btn:disabled { opacity:.35; cursor:default; }
 .act-btn.armed { background:#2a5a2a; border-color:#7fe07f; }
+.act-btn.combat-confirm { background:#654417; border-color:#ffd078; color:#fff0cf; }
+.battlefield.move-pending { outline:2px solid #ffd078; outline-offset:-2px; }
+.bf-move-pending { position:absolute; top:2px; left:50%; transform:translateX(-50%); z-index:2; padding:2px 5px; border-radius:3px; background:#302313; color:#ffd078; font-size:11px; font-weight:bold; white-space:nowrap; pointer-events:none; }
+.card-mini.move-pending { border-color:#ffd078; box-shadow:0 0 8px #ffd07888; }
+.cm-move-pending { position:absolute; top:2px; left:2px; padding:2px 4px; border-radius:3px; background:#654417; color:#fff0cf; font-size:10px; }
 
 /* 푸른 마력 질감: 구슬 외곽 없이 버튼 내부만 채운다. 글자와 클릭 영역은 원래 버튼 그대로다. */
 .act-btn.arcane-button {
@@ -1160,7 +1182,7 @@ body.modal-peeking #inspector { z-index:auto; }
   #battlefields{ --bf-unit-height:82px; --bf-card-width:120px; --bf-divider-height:24px; gap:6px; }
   .battlefield{ padding:4px; }
   /* 좁은 화면에서는 예전 배분(기지가 남는 폭을 차지)이 더 낫다 — 데스크톱 전용 배분을 되돌린다 */
-  .base-zone{ flex:1 1 auto; max-width:none; }
+  .base-zone{ --base-card-width:58px; --base-card-height:82px; flex:1 1 auto; max-width:none; }
   .hand-zone{ flex:0 0 auto; max-width:100%; padding:5px; }
   .card-mini{ width:58px; height:82px; }
   .runes-zone{ --rune-width:26px; --rune-height:36px; }
@@ -1199,6 +1221,7 @@ body.modal-peeking #inspector { z-index:auto; }
 }
 /* 가로가 매우 좁은 소형 폰 */
 @media (max-width:480px){
+  .base-zone{ --base-card-width:50px; --base-card-height:70px; }
   #battlefields{ --bf-unit-height:70px; --bf-card-width:84px; --bf-divider-height:20px; }
   .card-mini{ width:50px; height:70px; }
   .cm-name{ font-size:8px; }
@@ -1240,7 +1263,7 @@ body.modal-peeking #inspector { z-index:auto; }
   /* ── 보드: 상대/전장/나 3행이 항상 모두 보이게 비례 축소 ── */
   .player-area{ flex:1 1 0; min-height:0; gap:3px; }
   .side-zone{ flex:0 0 150px; padding:3px; gap:2px; overflow-y:auto; }
-  .base-zone{ flex:1 1 auto; max-width:none; padding:3px 4px; gap:2px; }
+  .base-zone{ --base-card-width:40px; --base-card-height:56px; flex:1 1 auto; max-width:none; padding:3px 4px; gap:2px; }
   /* 모바일 가로는 높이가 빠듯해 줄바꿈 대신 기존처럼 가로 스크롤 유지 */
   .hand-zone{ flex:0 0 auto; max-width:42%; padding:3px; gap:2px; flex-wrap:nowrap; overflow-x:auto; }
   .zone-label{ font-size:8px; top:2px; right:5px; }
@@ -1288,6 +1311,47 @@ body.modal-peeking #inspector { z-index:auto; }
   #modal-box{ max-height:94vh; padding:10px; }
   .modal-cards .card-mini{ width:64px; height:90px; }
   .modal-cards .card-mini .cm-name{ font-size:8px; }
+}
+
+/* 모바일 전장: 가운데 정보 카드만 남기고 두 진영이 전장 높이 전체를 사용한다. */
+@media (max-width:820px), (orientation:landscape) and (max-height:520px) {
+  #center-info { flex-basis:76px; gap:4px; }
+  #pool-display { padding:4px 2px; font-size:10px; overflow-wrap:anywhere; }
+  #showdown-banner { padding:4px 2px; font-size:10px; }
+  .battlefield { max-width:none; padding:0; grid-template-rows:repeat(2,minmax(0,1fr)); }
+  .bf-header {
+    position:absolute; z-index:2; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:56px; height:44px; pointer-events:none;
+  }
+  .bf-header::before { content:none; }
+  .bf-header img { width:56px; height:40px; border-radius:4px; pointer-events:auto; }
+  .bf-header .bf-info { display:none; }
+  .bf-hidden-count { left:0; top:0; font-size:8px; }
+  .bf-row {
+    --bf-packed:1;
+    position:relative; display:block; padding:0; pointer-events:auto; scrollbar-width:none; scroll-snap-type:x mandatory;
+  }
+  .bf-row::-webkit-scrollbar { display:none; }
+  .bf-row::after { content:""; display:block; width:var(--bf-content-width,100%); height:1px; }
+  .bf-page-stop { position:absolute; top:0; width:100%; height:1px; scroll-snap-align:start; pointer-events:none; }
+  .bf-row .card-mini {
+    position:absolute; left:var(--bf-x); top:var(--bf-y); margin:0; border-width:1px;
+    height:var(--bf-packed-height); width:calc(var(--bf-packed-height) * 74 / 104);
+  }
+  .bf-row .card-mini, .bf-row .card-mini:hover { transform:translate(-50%,-50%); }
+  .bf-row .card-mini.exhausted, .bf-row .card-mini.exhausted:hover { transform:translate(-50%,-50%) rotate(90deg); }
+  .bf-row .cm-name { font-size:clamp(6px,calc(var(--bf-packed-height) * .13),9px); }
+  .bf-row :is(.cm-might,.cm-dmg,.cm-buff) {
+    min-width:clamp(10px,calc(var(--bf-packed-height) * .25),16px);
+    height:clamp(10px,calc(var(--bf-packed-height) * .25),16px);
+    padding:0 1px; font-size:clamp(7px,calc(var(--bf-packed-height) * .16),10px);
+  }
+  .bf-row .cm-might { left:-2px; bottom:-2px; }
+  .bf-row .cm-dmg { right:-2px; bottom:-2px; }
+  .bf-row .cm-buff { right:-2px; top:-2px; }
+  .bf-lane > .bf-scroll { position:absolute; z-index:4; bottom:0; width:18px; height:22px; font-size:16px; background:#12233bdf; }
+  .bf-lane > .bf-scroll:first-child { left:0; }
+  .bf-lane > .bf-scroll:last-child { right:0; }
 }
 
 /* 모바일: 폐기 바로 아래 오른쪽 정렬한 세로 룬 덱, 왼쪽에는 가로로 이어지는 룬 두 행. */
