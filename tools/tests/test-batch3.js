@@ -17,10 +17,11 @@ var CONFIRM=()=>false; // confirmP 응답 함수(prompt)
 var PICKS=[], OPTS=[], NUMS=[], CONFIRMS=[];   // 프롬프트 기록
 var UI = { log(){}, render(){}, toast(){}, fx:{ unit(){}, cast(){}, chainAdd(){}, score(){}, turnEnd(){}, priority(){}, check(){}, setOn(){}, on:false },
   confirmP:(p,t)=>{ CONFIRMS.push(String(t||'')); return Promise.resolve(!!CONFIRM(String(t||''))); },
-  pickUnitFrom:(p,c,t)=>{ PICKS.push(String(t||'')); return Promise.resolve(PICK ? (c.find(u=>PICK(u))||c[0]) : (c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0])); },
+  pickUnitFrom:(p,c,t,o,x)=>{ if(x&&x.costConfirmation){ const ct=String(x.costConfirmation.text||''); CONFIRMS.push(ct); if(!CONFIRM(ct)) return Promise.resolve(null); } PICKS.push(String(t||'')); return Promise.resolve(PICK ? (c.find(u=>PICK(u))||c[0]) : (c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0])); },
   pickOption:(p,t,o)=>{ OPTS.push(String(t||'')); return Promise.resolve(OPT ? OPT(String(t||''),o) : o[0].v); },
   pickReaction:()=>Promise.resolve(null),
   pickNumber:(p,t,mn,mx)=>{ NUMS.push(String(t||'')); return Promise.resolve(NUM ? NUM(mn,mx) : mx); },
+  pickBuffs:(p,t,c)=>{ const total=c.reduce((s,u)=>s+u.buff,0); let n=NUM?NUM(0,total):total; return Promise.resolve(c.map(u=>{ const k=Math.min(n,u.buff); n-=k; return {uid:u.uid,count:k}; }).filter(x=>x.count>0)); },
   pickHandCard:()=>Promise.resolve(0), pickMulligan:()=>Promise.resolve([]),
   isPicking(){return false;}, logEntryEl(){return null;}, prompt(){}, promptShowdown(){}, manualNotice(){}, showVictory(){}, inspect(){}, inspectUnit(){}, hideZoom(){}, showZoom(){} };
 var NET = { online:false, seat:null, dispatch(a,fn){ if(fn) fn(); } };
@@ -45,6 +46,8 @@ const unit=(n,p,loc,o)=>{ const u=makeUnit(n,p,{loc,ready:true}); placeUnit(u,lo
 const gear=(n,p)=>{ G.players[p].gear.push({n,ex:false,attachedTo:null}); };
 const play=async(n,p)=>{ p=p||0; G.players[p].hand=[n]; return await playCardFromHand(p,0,{}); };
 const resolve=async()=>{ await showdownPass(); await showdownPass(); };
+// 전투 격발은 체인에 적재된다(465 4단계) — 쌓인 격발을 전부 해결하고 결전은 유지한다
+const settle=async()=>{ for(let i=0;i<8;i++){ const sd=G.showdown; if(!sd) return; if(sd.pendingTriggers&&sd.pendingTriggers.length) await flushCombatTriggers(sd); if(!sd.chain.length) return; await showdownPass(); await showdownPass(); } };
 const tempSum=u=>u.tempM.reduce((s,t)=>s+t.v,0);
 (async()=>{
   // ══ ① 결전 정리 ══
@@ -133,18 +136,18 @@ const tempSum=u=>u.tempM.reduce((s,t)=>s+t.v,0);
   const ya=unit(76,0,'base'); await moveUnits(0,[ya],0);
   const b1=unit(219,1,'base'); await effectMove(1, b1, 0);
   ok('무혈 결전 중엔 아직 [공격 시] 없음', b1.dmg===0, 'dmg='+b1.dmg);
-  await resolve();
+  await resolve(); await settle();
   ok('전투 전환 시 공격자 야스오 [공격 시] 6피해', b1.dmg===6, 'dmg='+b1.dmg);
   // ── 한 전투에서 [공격 시]는 한 번 — 나갔다 다시 들어와도 재격발 없음(#2091) ──
   fresh(); G.bfs[0].controller=1;   // 통제자의 유닛은 경합을 걸지 않는다 — 진입하는 A가 공격자
   const t1=unit(219,1,0), t2=unit(219,1,0); const yb=unit(76,0,'base'); PICK=u=>u===t1;
-  await moveUnits(0,[yb],0);
+  await moveUnits(0,[yb],0); await settle();
   ok('적 전장 진입 → 전투 결전 + [공격 시]', G.showdown && G.showdown.hasCombat && t1.dmg===6, 'dmg='+t1.dmg);
   await effectMove(0, yb, 'base'); await effectMove(0, yb, 0);
   ok('재진입: [공격 시] 재격발 없음', t2.dmg===0 && t1.dmg===6, 't2='+t2.dmg);
   // ── 진행 중인 전투에 합류한 방어자 티모(121)의 [방어 시] 격발(#5199·#9174) ──
   fresh(); openSd(1); unit(219,1,0); G.bfs[0].controller=0;
-  const tm=unit(121,0,'base'); await effectMove(0, tm, 0);
+  const tm=unit(121,0,'base'); await effectMove(0, tm, 0); await settle();
   ok('전투 중 합류한 방어측 유닛: [방어 시] 격발(덱 5장 공개 프롬프트)', PICKS.some(t=>/대상 적 유닛/.test(t)), JSON.stringify(PICKS));
   // ── 예지의 가면(60): 무혈 결전엔 없음(#4707) · 장수만큼(#6946) · 약탈자의 거리 귀환 전 스냅샷(#8304) ──
   fresh(); gear(60,0); gear(60,0);
@@ -152,11 +155,12 @@ const tempSum=u=>u.tempM.reduce((s,t)=>s+t.v,0);
   ok('가면: 무혈 결전엔 +0', tempSum(m1)===0, 'temp='+tempSum(m1));
   await resolve();
   fresh(); gear(60,0); gear(60,0); unit(210,1,0);
-  const m2=unit(219,0,'base'); await moveUnits(0,[m2],0);
+  const m2=unit(219,0,'base'); await moveUnits(0,[m2],0); await settle();
   ok('가면 2장: 혼자 공격 +2', tempSum(m2)===2, 'temp='+tempSum(m2));
   fresh([285,297]); gear(60,1); G.bfs[0].controller=1;
   const r1=unit(219,1,0), r2=unit(219,1,0); const m3=unit(210,0,'base');
-  await moveUnits(0,[m3],0);
+  CONFIRM=t=>/약탈자의 거리/.test(t);   // "you may" — 격발 적재 때 묻는다 (383.4)
+  await moveUnits(0,[m3],0); await settle(); CONFIRM=()=>false;
   ok('약탈자의 거리: 방어 유닛 하나 귀환', (r1.loc==='base')!==(r2.loc==='base'), 'r1='+r1.loc+' r2='+r2.loc);
   ok('가면: 귀환 전 스냅샷(둘이었으므로) +0', tempSum(r1)===0 && tempSum(r2)===0, 'temp='+tempSum(r1)+'/'+tempSum(r2));
 

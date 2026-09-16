@@ -337,9 +337,12 @@ async function routedPick(p, interactiveFn, serialize, deserialize){
 
 // 유닛 선택 (보드에서 클릭)
 UI.unitSelectionPending=false;
+// 보드 선택 잠금은 실제로 이 자리에서 고르는 좌석에만 건다. 온라인에서 상대가 고르는 동안 대기 측까지 잠그면
+// 항복·채팅·👁 보드 보기 등 아무것도 누를 수 없다 (routedPick은 상대 좌석이면 NET.choice로 결과만 기다린다).
+function lockUnitSelection(p){ UI.unitSelectionPending = !(NET.online && p!==NET.seat); }
 UI.pickUnitFrom = async function(p, candidates, promptText, optional){
   if(!candidates.length) return Promise.resolve(null);
-  UI.unitSelectionPending=true;
+  lockUnitSelection(p);
   try{
     return await routedPick(p,
       ()=>_pickUnitLocal(p,candidates,promptText,optional),
@@ -464,7 +467,7 @@ function _pickCardOptionLocal(p,title,options,targets,cancel=true){
   });
 }
 async function pickCardOption(p,title,options,targets,cancel=true){
-  UI.unitSelectionPending=true;
+  lockUnitSelection(p);
   try{
     const idx=await routedPick(p,()=>_pickCardOptionLocal(p,title,options,targets,cancel),v=>v,v=>v);
     return idx===null?null:options[idx].v;
@@ -569,6 +572,7 @@ async function pickPlacementOption(p,title,options,movement=false,verb='배치')
         center.style.width=Math.max(54,r.width/sx-6)+'px';
       };
       const keys=e=>{
+        if(isRescueKey(e)) return;                                   // F5·F12·Ctrl+R·Ctrl+Shift+I는 언제나 통과
         if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(optional) finish(null);return;}
         if(e.key==='Tab'){
           e.preventDefault(); e.stopImmediatePropagation();
@@ -728,7 +732,7 @@ UI.confirmP = function(p, text, previewCard, context){
   return routedPick(p, ()=>_confirmLocal(p,text,previewCard), v=>v, v=>v);
 };
 async function confirmBoardCard(p,text,previewCard,target){
-  UI.unitSelectionPending=true;
+  lockUnitSelection(p);
   try{
     const options=[{v:true,label:text,card:previewCard},{v:false,label:'소모하지 않음'}];
     return await routedPick(p,async()=>{
@@ -811,7 +815,7 @@ UI.pickHandCard = function(p, title){
     G.players[p].hand.map((_,i)=>({kind:'hand',p,index:i})),false);
 };
 UI.pickBuffs = async function(p,title,candidates){
-  UI.unitSelectionPending=true;
+  lockUnitSelection(p);
   try{
     return await routedPick(p,async()=>{
       const counts=new Map();

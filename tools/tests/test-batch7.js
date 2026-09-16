@@ -35,10 +35,11 @@ var REACT=null;       // pickReaction 응답 함수 (p,title,options)→v (null�
 var PICKS=[], OPTS=[], NUMS=[], CONFIRMS=[], OPTLIST=[], REACTS=[];   // 프롬프트 기록
 var UI = { log(){}, render(){}, toast(){}, fx:{ unit(){}, cast(){}, chainAdd(){}, score(){}, turnEnd(){}, priority(){}, check(){}, setOn(){}, on:false },
   confirmP:(p,t)=>{ CONFIRMS.push(String(t||'')); return Promise.resolve(!!CONFIRM(String(t||''),p)); },
-  pickUnitFrom:(p,c,t)=>{ PICKS.push(String(t||'')); return Promise.resolve(PICK ? (c.find(u=>PICK(u,p))||c[0]) : (c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0])); },
+  pickUnitFrom:(p,c,t,o,x)=>{ if(x&&x.costConfirmation){ const ct=String(x.costConfirmation.text||''); CONFIRMS.push(ct); if(!CONFIRM(ct)) return Promise.resolve(null); } PICKS.push(String(t||'')); return Promise.resolve(PICK ? (c.find(u=>PICK(u,p))||c[0]) : (c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0])); },
   pickOption:(p,t,o)=>{ OPTS.push(String(t||'')); OPTLIST.push({t:String(t||''),o,p,state:G.state}); return Promise.resolve(OPT ? OPT(String(t||''),o,p) : o[0].v); },
   pickReaction:(p,t,o)=>{ REACTS.push(String(t||'')); return Promise.resolve(REACT ? REACT(p,String(t||''),o) : null); },
   pickNumber:(p,t,mn,mx)=>{ NUMS.push(String(t||'')); return Promise.resolve(NUM ? NUM(mn,mx) : mx); },
+  pickBuffs:(p,t,c)=>{ const total=c.reduce((s,u)=>s+u.buff,0); let n=NUM?NUM(0,total):total; return Promise.resolve(c.map(u=>{ const k=Math.min(n,u.buff); n-=k; return {uid:u.uid,count:k}; }).filter(x=>x.count>0)); },
   pickHandCard:()=>Promise.resolve(0), pickMulligan:()=>Promise.resolve([]),
   isPicking(){return false;}, logEntryEl(){return null;}, prompt(){}, promptShowdown(){}, manualNotice(){}, showVictory(){}, inspect(){}, inspectUnit(){}, hideZoom(){}, showZoom(){} };
 var NET = { online:false, seat:null, dispatch(a,fn){ if(fn) fn(); } };
@@ -64,6 +65,8 @@ const unit=(n,p,loc,o)=>{ const u=makeUnit(n,p,{loc,ready:true}); placeUnit(u,lo
 const gear=(n,p)=>{ const g={n,ex:false,attachedTo:null}; G.players[p].gear.push(g); return g; };
 const play=async(n,p)=>{ p=p||0; G.players[p].hand=[n]; return await playCardFromHand(p,0,{}); };
 const resolve=async()=>{ await showdownPass(); await showdownPass(); };
+// 전투 격발은 체인에 적재된다(465 4단계) — 쌓인 격발을 전부 해결하고 결전은 유지한다
+const settle=async()=>{ for(let i=0;i<8;i++){ const sd=G.showdown; if(!sd) return; if(sd.pendingTriggers&&sd.pendingTriggers.length) await flushCombatTriggers(sd); if(!sd.chain.length) return; await showdownPass(); await showdownPass(); } };
 const find=(p,n)=>allUnits(p).find(u=>u.n===n);
 const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
 (async()=>{
@@ -215,7 +218,7 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
 
   // ══ ⑭ 요새화된 진지(279) — 적 유닛에게도 보호막 ══
   fresh([279,297]); G.bfs[0].controller=1; let atk=unit(210,0,0), dfd=unit(219,1,0); PICK=u=>u===atk;
-  await startShowdown(0,0,true);
+  await startShowdown(0,0,true); await settle();
   ok('요새화된 진지: 방어자가 적(공격) 유닛을 골라 [보호막 2] 부여 가능', (effKw(atk).shield||0)===2 && !(effKw(dfd).shield), 'atk.shield='+effKw(atk).shield);
 
   // ══ ⑮ 히라나 수도원(282) + 세트(164) — 정복 시점 버프 · 격발 순서 ══
@@ -235,7 +238,8 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   // ══ ⑯ 약탈자의 거리(285) — 무주공산 전장의 방어자 ══
   fresh([285,297]); G.bfs[0].controller=null; let p1=unit(210,0,0); let p2=unit(219,1,0);
   ok('약탈자의 거리: 먼저 들어간 A가 경합 적용자', G.bfs[0].contestedBy===0);
-  await cleanup(1);
+  CONFIRM=t=>/약탈자의 거리/.test(t);   // "you may" — 격발 적재 때 묻는다 (383.4)
+  await cleanup(1); await settle(); CONFIRM=()=>false;
   ok('약탈자의 거리: 통제자가 아니어도 방어자(B)가 유닛을 기지로(#4985)', G.state==='showdown' && G.showdown.defender===1 && p2.loc==='base', 'state='+G.state+' def='+(G.showdown&&G.showdown.defender)+' p2.loc='+p2.loc);
 
   // ══ ⑰ 폭풍의 인장(287) — 룬 선택·에너지 유지 ══

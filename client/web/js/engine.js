@@ -2288,7 +2288,9 @@ async function resolveShowdown(){
   const sd=G.showdown; const bf=G.bfs[sd.bfIdx];
   await cleanupDeaths();
   await flushCombatTriggers(sd);
-  if(G.winner!==null || G.showdown!==sd || sd.chain.length) return;
+  if(G.winner!==null || G.showdown!==sd) return;
+  // 정리 중 지정된 유닛의 격발이 체인에 올라갔으면 전투로 가지 않고 응수 창을 다시 연다 (465 4단계 — 체인이 생기면 닫힘)
+  if(sd.chain.length){ sd.passes=0; UI.render(); UI.promptShowdown(); return; }
   const atkUnits = ()=>bf.units.filter(u=>u.ctrl===sd.attacker);
   const defUnits = ()=>bf.units.filter(u=>u.ctrl===sd.defender);
   let deferred=[];   // 전투 사망의 보류 격발 (종소리 등) — 전투 정리(치유·귀환) 뒤, 승패 판정 전에 해결

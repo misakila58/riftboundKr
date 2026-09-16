@@ -55,11 +55,13 @@ var UI = {
   showVictory(){}, inspect(){}, inspectUnit(){}, hideZoom(){}, showZoom(){},
   isPicking(){ return false; }, logEntryEl(){ return null; },
   fx:{ unit(){}, cast(){}, chainAdd(){}, score(){}, turnEnd(){}, priority(){}, check(){}, setOn(){}, on:false },
-  confirmP:     (p,t,c)    => Promise.resolve(SEATP(p).confirm(p,t,c)),
-  pickUnitFrom: (p,c,t,o)  => Promise.resolve(SEATP(p).unit(p,c,t,o)),
+  confirmP:     (p,t,c,x)  => Promise.resolve(SEATP(p).confirm(p,t,c,x)),
+  pickUnitFrom: (p,c,t,o,x)=> Promise.resolve(SEATP(p).unit(p,c,t,o,x)),
+  // 버프 소모 개수 지정(유닛별) — 옛 동결 봇(baseline)에는 없으므로 그때는 소모하지 않는다
+  pickBuffs:    (p,t,c)    => Promise.resolve(SEATP(p).buffs ? SEATP(p).buffs(p,t,c) : []),
   pickOption:   (p,t,o)    => Promise.resolve(SEATP(p).option(p,t,o)),
   pickReaction: (p,t,o)    => Promise.resolve(SEATP(p).reaction(p,t,o)),
-  pickNumber:   (p,t,mn,mx)=> Promise.resolve(SEATP(p).number(p,t,mn,mx)),
+  pickNumber:   (p,t,mn,mx,x)=> Promise.resolve(SEATP(p).number(p,t,mn,mx,x)),
   pickHandCard: (p,t)      => Promise.resolve(SEATP(p).hand(p,t)),
   pickMulligan: (p)        => Promise.resolve(SEATP(p).mulligan(p)),
 };
@@ -164,10 +166,11 @@ function mkPolicy(level, ab, wover){
       POLICY.think = d.think; POLICY.budget = d.budget; POLICY.peek = d.peek;
       Object.assign(POLICY.ab, AB_BASE, ab || {});
       if(wover) Object.assign(BOT_W, wover); else Object.assign(BOT_W, BOT_W_BASE); },
-    unit:(p,c,t,o)=>POLICY.unit(p,c,t,o),
+    unit:(p,c,t,o,x)=>POLICY.unit(p,c,t,o,x),
+    buffs:(p,t,c)=>POLICY.buffs(p,t,c),
     option:(p,t,o)=>POLICY.option(p,t,o),
-    confirm:(p,t,c)=>POLICY.confirm(p,t,c),
-    number:(p,t,mn,mx)=>POLICY.number(p,t,mn,mx),
+    confirm:(p,t,c,x)=>POLICY.confirm(p,t,c,x),
+    number:(p,t,mn,mx,x)=>POLICY.number(p,t,mn,mx,x),
     hand:(p,t)=>POLICY.hand(p,t),
     reaction:(p,t,o)=>POLICY.reaction(p,t,o),
     mulligan:(p)=>POLICY.mulligan(p),

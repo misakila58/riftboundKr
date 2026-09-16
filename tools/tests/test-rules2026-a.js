@@ -18,10 +18,11 @@ var REACT=null;       // pickReaction 응답 함수 (p,title,options)→v (null�
 var PICKS=[], OPTS=[], NUMS=[], CONFIRMS=[], OPTLIST=[], REACTS=[];   // 프롬프트 기록
 var UI = { log(){}, render(){}, toast(){}, fx:{ unit(){}, cast(){}, chainAdd(){}, score(){}, turnEnd(){}, priority(){}, check(){}, setOn(){}, on:false },
   confirmP:(p,t)=>{ CONFIRMS.push(String(t||'')); return Promise.resolve(!!CONFIRM(String(t||''),p)); },
-  pickUnitFrom:(p,c,t)=>{ PICKS.push(String(t||'')); return Promise.resolve(PICK ? (c.find(u=>PICK(u,p))||c[0]) : (c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0])); },
+  pickUnitFrom:(p,c,t,o,x)=>{ if(x&&x.costConfirmation){ const ct=String(x.costConfirmation.text||''); CONFIRMS.push(ct); if(!CONFIRM(ct)) return Promise.resolve(null); } PICKS.push(String(t||'')); return Promise.resolve(PICK ? (c.find(u=>PICK(u,p))||c[0]) : (c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0])); },
   pickOption:(p,t,o)=>{ OPTS.push(String(t||'')); OPTLIST.push({t:String(t||''),o,p,state:G.state}); return Promise.resolve(OPT ? OPT(String(t||''),o,p) : o[0].v); },
   pickReaction:(p,t,o)=>{ REACTS.push(String(t||'')); return Promise.resolve(REACT ? REACT(p,String(t||''),o) : null); },
   pickNumber:(p,t,mn,mx)=>{ NUMS.push(String(t||'')); return Promise.resolve(NUM ? NUM(mn,mx) : mx); },
+  pickBuffs:(p,t,c)=>{ const total=c.reduce((s,u)=>s+u.buff,0); let n=NUM?NUM(0,total):total; return Promise.resolve(c.map(u=>{ const k=Math.min(n,u.buff); n-=k; return {uid:u.uid,count:k}; }).filter(x=>x.count>0)); },
   pickHandCard:()=>Promise.resolve(0), pickMulligan:()=>Promise.resolve([]),
   isPicking(){return false;}, logEntryEl(){return null;}, prompt(){}, promptShowdown(){}, manualNotice(){}, showVictory(){}, inspect(){}, inspectUnit(){}, hideZoom(){}, showZoom(){} };
 var NET = { online:false, seat:null, dispatch(a,fn){ if(fn) fn(); } };
@@ -46,6 +47,8 @@ const onBoard=u=>everyUnit().includes(u);
 const unit=(n,p,loc,o)=>{ const u=makeUnit(n,p,{loc,ready:true}); placeUnit(u,loc); Object.assign(u,o||{}); return u; };
 const play=async(n,p)=>{ p=p||0; G.players[p].hand=[n]; return await playCardFromHand(p,0,{}); };
 const resolve=async()=>{ await showdownPass(); await showdownPass(); };
+// 전투 격발은 체인에 적재된다(465 4단계) — 쌓인 격발을 전부 해결하고 결전은 유지한다
+const settle=async()=>{ for(let i=0;i<8;i++){ const sd=G.showdown; if(!sd) return; if(sd.pendingTriggers&&sd.pendingTriggers.length) await flushCombatTriggers(sd); if(!sd.chain.length) return; await showdownPass(); await showdownPass(); } };
 // releaseEmptyBattlefields 호출 시점의 상태 기록 (닫힌 상태 표시와 1번 전장 통제자)
 var REL=[]; const _rel=releaseEmptyBattlefields;
 releaseEmptyBattlefields=function(){ const e={rw:G._rwFor??null, chain:G.showdown?G.showdown.chain.length:-1, ctrl:G.bfs[1].controller}; REL.push(e); const ret=_rel(); e.after=G.bfs[1].controller; return ret; };
@@ -61,10 +64,12 @@ releaseEmptyBattlefields=function(){ const e={rw:G._rwFor??null, chain:G.showdow
   PICK=u=>u===b1; OPT=(t,o)=>{ const s=o.find(x=>x.movement&&x.movement.dest===0); return s?s.v:o[0].v; };
   G.actingPlayer=1; ok('승격: B가 결전 중 「바람 타기」 적재', await play(173,1)===true && sd0.chain.length===1, 'chain='+sd0.chain.length);
   await resolve();
+  ok('승격: 해결 뒤 클린업에서 같은 결전이 전투 결전이 된다 (격발은 체인에 적재)', G.showdown===sd0 && sd0.hasCombat===true && sd0.chain.length===2, 'chain='+(G.showdown&&sd0.chain.length));
+  await settle();   // 요새화된 진지(B) → 야스오 [공격 시](A) 순으로 해결 (공격자가 먼저 적재 — 465 4단계)
   ok('승격: 해결 뒤 클린업에서 같은 결전이 전투 결전이 된다 (새 결전 없음)', G.showdown===sd0 && sd0.hasCombat===true && sd0.attacker===0 && sd0.defender===1, JSON.stringify(G.showdown&&[G.showdown===sd0,G.showdown.hasCombat,G.showdown.attacker]));
   ok('승격: 공격자 야스오 [공격 시] 즉시 격발 → 하사 6피해 사망 (같은 클린업의 치명 판정)', !onBoard(b1) && b1.loc===0, 'onBoard='+onBoard(b1)+' dmg='+b1.dmg);
   ok('승격: 전장 「요새화된 진지」 [방어 시] 격발 — 방어자 B가 유닛을 골라 이번 전투 [보호막 2]', (G._combatGrants||[]).length===1 && PICKS.some(t=>/보호막|유닛/.test(t)), 'grants='+JSON.stringify(G._combatGrants&&G._combatGrants.map(g=>g.key)));
-  ok('승격: 체인이 닫히며 포커스는 체인 시작자(B)의 상대(A) — 추가 패스 라운드 없이 결전 계속', G.state==='showdown' && G.actingPlayer===0 && sd0.passes===0, 'acting='+G.actingPlayer+' passes='+sd0.passes);
+  ok('승격: 격발 체인이 닫혀도 포커스는 그대로(A) (344.2·347.1.a) — 추가 패스 라운드 없이 결전 계속', G.state==='showdown' && G.actingPlayer===0 && sd0.passes===0, 'acting='+G.actingPlayer+' passes='+sd0.passes);
   await resolve();
   ok('승격: 이어지는 전투 — 방어자 없음 → A 정복 득점', G.state==='neutral' && G.bfs[0].controller===0 && G.players[0].points===1, 'ctrl='+G.bfs[0].controller+' pts='+G.players[0].points);
   // ── 폴백: 클린업 없이 들어온 유닛(effectMove 직접) → 빈 체인 양측 패스 시 결전을 닫지 않고 승격 ──
