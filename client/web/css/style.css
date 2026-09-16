@@ -103,8 +103,8 @@ button { cursor:pointer; font-family:inherit; }
 }
 .deck-card h3 { color:#d8c27a; font-size:15px; margin-bottom:4px; }
 .deck-card .dk-info { font-size:12px; color:#9aa4bd; line-height:1.6; margin-bottom:8px; }
-.deck-card .dk-btns { display:flex; gap:6px; }
-.deck-card .dk-btns button { flex:1; padding:5px; font-size:12px; border-radius:6px; border:1px solid #4a6a9a; background:#22335a; color:#dde; }
+.deck-card .dk-btns { display:flex; flex-wrap:wrap; gap:6px; }
+.deck-card .dk-btns button { flex:1 1 30%; white-space:nowrap; padding:5px; font-size:12px; border-radius:6px; border:1px solid #4a6a9a; background:#22335a; color:#dde; }
 .deck-card .dk-btns button:hover { background:#2e4370; }
 .room-card { width:280px; }
 .room-card .join-btn { background:#2a5a2a !important; border-color:#7fe07f !important; }

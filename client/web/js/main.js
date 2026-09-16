@@ -823,13 +823,17 @@ function renderDeckList(){
     const bl=document.createElement('button'); bl.textContent='📄 목록 복사';
     bl.title='카드 이름·장수 목록(레시피)을 복사합니다 — 사람이 읽을 수 있고 덱 가져오기에도 붙여넣을 수 있습니다';
     bl.onclick=()=>{ copyOrShow(deckToList(d), `「${d.name}」 덱 목록을 복사했습니다`, '덱 목록 (레시피)'); };
+    // 덱 전체를 그림 한 장(PNG)으로 — 카드 그림과 장수가 보이는 공유용
+    const bi=document.createElement('button'); bi.textContent='🖼 이미지 저장';
+    bi.title='덱을 PNG 이미지로 만듭니다 — 카드 그림과 장수가 한 장에 보입니다 (저장 또는 클립보드 복사)';
+    bi.onclick=()=>exportDeckImage(d);
     // 반대편 저장소로 바로 복사 (서버 계정 ↔ 이 컴퓨터)
     const other = DeckStore.local ? '서버 계정' : '이 컴퓨터';
     const bx=document.createElement('button');
     bx.textContent = DeckStore.local ? '⬆ 서버로 복사' : '⬇ 이 컴퓨터로 복사';
     bx.title = `이 덱을 ${other}에도 저장합니다 (원본은 그대로)`;
     bx.onclick=()=>copyDeckToOtherStore(d);
-    btns.appendChild(be); btns.appendChild(bc); btns.appendChild(bl); btns.appendChild(bx); btns.appendChild(bd);
+    btns.appendChild(be); btns.appendChild(bc); btns.appendChild(bl); btns.appendChild(bi); btns.appendChild(bx); btns.appendChild(bd);
     div.appendChild(btns);
     el.appendChild(div);
   });
