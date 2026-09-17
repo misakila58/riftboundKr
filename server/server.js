@@ -602,11 +602,14 @@ const server = http.createServer(async (req, res) => {
     if (!full.startsWith(WEB_ROOT + path.sep) && full !== path.join(WEB_ROOT, 'index.html')) { res.writeHead(403); return res.end(); }
     return fs.readFile(full, (err, data) => {
       if (err) { res.writeHead(404, CORS); return res.end(); }
-      const ext = path.extname(full);
-      const mime = ext === '.html' ? 'text/html' : ext === '.js' ? 'text/javascript'
-                 : ext === '.css' ? 'text/css' : ext === '.webmanifest' ? 'application/manifest+json'
-                 : ext === '.png' ? 'image/png' : 'application/octet-stream';
-      res.writeHead(200, { 'Content-Type': mime + '; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
+      const ext = path.extname(full).toLowerCase();
+      // 카드 이미지(webp)를 서버가 직접 제공하면서 이미지 MIME이 필요해졌다 (octet-stream + nosniff면 브라우저가 거부할 수 있다)
+      const TEXT = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.svg': 'image/svg+xml', '.txt': 'text/plain' };
+      const BIN = { '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff' };
+      const mime = TEXT[ext] ? TEXT[ext] + '; charset=utf-8' : (BIN[ext] || 'application/octet-stream');
+      // 카드 이미지·플레이매트는 내용이 바뀌지 않는 파일이라 하루 캐시 — 덱 편집기가 매번 수백 장을 다시 받지 않게
+      const cache = rel.startsWith('assets/') ? 'public, max-age=86400' : 'no-cache';
+      res.writeHead(200, { 'Content-Type': mime, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': cache });
       res.end(data);
     });
   }
