@@ -25,8 +25,9 @@
 <!-- ══════════ 시작 화면 ══════════ -->
 <div id="connect-screen" class="start-screen home-screen">
   <div class="home-background" aria-hidden="true">
-    <img src="assets/riftboundbackground.png" alt="">
-    <img id="home-playmat" class="home-playmat" alt="">
+    <!-- 시작 화면 배경은 JPEG 축약본(200~300KB)을 쓴다 — PNG 원본(2~3MB)은 모바일에서 첫 화면 버튼이 눌리기까지 시간을 끌었다 -->
+    <img src="assets/riftboundbackground.jpg" alt="" decoding="async">
+    <img id="home-playmat" class="home-playmat" alt="" decoding="async">
   </div>
   <header class="home-header">
     <span class="home-edition">ORIGINS <span>한글판</span></span>

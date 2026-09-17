@@ -649,6 +649,9 @@ async function decideFirstPlayer(){
   const first = (v==='second') ? opp(w) : w;
   G.turn=first; G.actingPlayer=first;
   UI.log(`${pname(w)}: ${v==='second'?'후공':'선공'} 선택 → 선공: ${pname(first)} — 후공은 첫 전개 단계에 룬을 1개 더 전개합니다`, 'sys');
+  // 봇이 주사위를 이겨 고른 경우 사람은 선택창을 못 보므로 결과를 토스트로도 알린다 ("항상 내가 선공" 오해 방지, 제보 2026-09-17)
+  if(typeof BOT!=='undefined' && BOT.active && !NET.online && w===BOT.seat)
+    UI.toast(`🎲 주사위 ${Math.max(d0,d1)}:${Math.min(d0,d1)} — 봇이 이겨 ${v==='second'?'후공':'선공'}을 골랐습니다 (선공: ${pname(first)})`);
   if(typeof UI.turnOrderDecided==='function') UI.turnOrderDecided();
   UI.render();
 }

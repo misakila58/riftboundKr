@@ -5,7 +5,8 @@
   const base = home.querySelector('.home-background img');
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   let current = PLAYMAT.names[Math.floor(Math.random() * PLAYMAT.names.length)];
-  playmat.src = PLAYMAT.url(current);
+  // 첫 화면 배경은 축약본(JPEG)을, 그것도 첫 그리기가 끝난 뒤에 붙인다 — 메뉴 버튼이 먼저 살아나도록 (모바일 제보 2026-09-17)
+  setTimeout(() => { if(!playmat.src) playmat.src = PLAYMAT.homeUrl(current); }, 0);
   // 첫 화면의 이미지도 이번 순환에서 한 번 보여 준 것으로 센다.
   let remaining = PLAYMAT.names.filter(name => name !== current);
   let changing = false;
@@ -76,7 +77,8 @@
     const next = choices[Math.floor(Math.random() * choices.length)];
     try {
       const preload = new Image();
-      preload.src = PLAYMAT.url(next);
+      preload.decoding = 'async';
+      preload.src = PLAYMAT.homeUrl(next);
       playmat.classList.add('is-faded');
       // 1초 페이드 아웃 → 기본 배경에서 0.01초 대기. 다음 이미지는 그동안 불러온다.
       await Promise.all([base.decode(), preload.decode(), wait(1010)]);
@@ -87,7 +89,7 @@
       current = next;
       remaining.splice(remaining.indexOf(next), 1);
     } catch(error) {
-      playmat.src = PLAYMAT.url(current);
+      playmat.src = PLAYMAT.homeUrl(current);
       playmat.classList.remove('is-faded');
       console.warn('시작 화면 배경을 불러오지 못했습니다.', error);
     } finally {

@@ -3,7 +3,7 @@
   background:
     linear-gradient(180deg,rgba(5,10,23,.42),rgba(5,10,23,.2) 36%,rgba(5,10,23,.9) 94%),
     radial-gradient(ellipse at center,rgba(8,17,36,.45),transparent 70%),
-    url('../assets/playmat/바이징크스.png') center / cover no-repeat;
+    url('../assets/playmat/home/바이징크스.jpg') center / cover no-repeat;
 }
 .home-screen {
   height:100%; display:flex; flex-direction:column; overflow-y:auto;

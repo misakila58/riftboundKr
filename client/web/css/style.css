@@ -295,8 +295,10 @@ button { cursor:pointer; font-family:inherit; }
 .hand-zone {
   position:relative;
   flex:2 1 340px; max-width:none; min-width:0; display:flex; gap:3px;
-  flex-wrap:wrap; align-items:center; align-content:center;
-  overflow-x:hidden; overflow-y:auto; padding:8px; background:rgba(24,34,56,.75); border-radius:10px;
+  /* 'safe center': 손패가 칸보다 높아지면(모바일 세로) 위쪽으로 넘친 줄이 스크롤로 닿지 않는 문제를 막는다 —
+     넘칠 때는 위 정렬로 바뀌어 첫 줄부터 스크롤된다 (제보 2026-09-17: 모바일에서 손패 맨 위 카드가 안 보여 선택 불가) */
+  flex-wrap:wrap; align-items:center; align-content:safe center;
+  overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; padding:8px; background:rgba(24,34,56,.75); border-radius:10px;
 }
 .hand-zone.opp .card-mini { filter:grayscale(0.2); }
 /* 양쪽 진영의 별도 개수 칸을 없애고 남는 가로 공간은 기지에 배분한다. */
