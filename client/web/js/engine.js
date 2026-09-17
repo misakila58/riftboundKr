@@ -2565,7 +2565,9 @@ async function killUnit(u, opts){
               const alsoDying = others.length
                 ? `\n(지금 함께 죽는 버프 유닛: ${others.map(x=>unitName(x)).join(', ')} — 전설 탈진은 한 번뿐입니다)`
                 : '';
-              const yes = await UI.confirmP(u.ctrl, `[세트 - 대장] ✳1 지불+전설 탈진+버프 소모로 「${unitName(u)}」을(를) 회수할까요?${alsoDying}`, unitCard(u),{boardCard:{kind:'unit',uid:u.uid}});
+              // 예/아니오가 나란히 보이는 모달로 묻는다. 보드의 유닛을 눌러 확정하는 방식(boardCard)은 '아니오' 버튼이
+              // 사이드바 안내 칸에만 작게 놓여 "무조건 회수해야 넘어간다"로 보였다 (제보 2026-09-17, v1.0.69).
+              const yes = await UI.confirmP(u.ctrl, `[세트 - 대장] ✳1 지불+전설 탈진+버프 소모로 「${unitName(u)}」을(를) 회수할까요? (아니오를 누르면 그대로 죽습니다)${alsoDying}`, unitCard(u));
               if(!yes) return false;
               payCost(u.ctrl,0,['Any']); P.legendEx=true; u.buff=Math.max(0,u.buff-1);
               recall('세트 - 대장'); return true;

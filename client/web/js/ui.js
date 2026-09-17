@@ -1014,11 +1014,30 @@ function artImg(c, owner){
 function artList(c){ return c ? [c.img, ...(c.alts || [])].filter(Boolean) : []; }
 
 // ---------- 카드 미니 요소 ----------
+// 카드 배경 이미지 — CSS background-image는 실패해도 아무 신호가 없어, 이미지가 막힌 환경(엣지 추적 방지·광고 차단·CDN 장애)
+// 에서는 이름도 없는 빈 상자만 남았다(제보 2026-09-17, 엣지 덱 편집기). URL마다 한 번만 Image로 확인해 실패하면 .noimg를
+// 붙여 카드 이름을 크게 보여 준다. 결과는 URL별로 기억하므로 같은 카드가 수백 번 그려져도 요청은 한 번뿐이다.
+const _bgImgState=new Map();   // url → 'ok' | 'bad' | 'loading'
+function setCardBg(el, url){
+  el.style.backgroundImage=`url("${url}")`;
+  const st=_bgImgState.get(url);
+  if(st==='bad'){ el.classList.add('noimg'); return; }
+  if(st!==undefined) return;
+  _bgImgState.set(url,'loading');
+  const im=new Image();
+  im.onload=()=>_bgImgState.set(url,'ok');
+  im.onerror=()=>{
+    _bgImgState.set(url,'bad');
+    const key=`url("${url}")`;
+    document.querySelectorAll('.card-mini').forEach(x=>{ if(x.style.backgroundImage===key) x.classList.add('noimg'); });
+  };
+  im.src=url;
+}
 function cardMiniEl(c, opts={}){
   const el=document.createElement('div');
   el.className='card-mini';
   const _mi=artImg(c, opts.owner);
-  if(_mi) el.style.backgroundImage=`url("${cardImgUrl(_mi,280)}")`;
+  if(_mi) setCardBg(el, cardImgUrl(_mi,280));
   const name=document.createElement('div'); name.className='cm-name'; name.textContent=c.ko;
   el.appendChild(name);
   if(c.e!==null && c.e!==undefined && c.type!=='Rune' && c.type!=='Battlefield'){
@@ -1050,7 +1069,7 @@ function unitEl(u){
     el.style.background='linear-gradient(135deg,#2a3a2a,#1a2a1a)';
   } else {
     const _ui=artImg(c, u.owner!==undefined?u.owner:u.ctrl);
-    if(_ui) el.style.backgroundImage=`url("${cardImgUrl(_ui,280)}")`;
+    if(_ui) setCardBg(el, cardImgUrl(_ui,280));
   }
   const name=document.createElement('div'); name.className='cm-name'; name.textContent=unitName(u);
   el.appendChild(name);

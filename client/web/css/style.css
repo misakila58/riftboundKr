@@ -462,6 +462,12 @@ button { cursor:pointer; font-family:inherit; }
   font-size:9px; padding:1px 2px; text-align:center; border-radius:0 0 4px 4px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
 }
+/* 이미지를 못 받은 카드(setCardBg): 이름을 가운데에 크게 — 빈 상자 대신 카드가 무엇인지는 보이게 */
+.card-mini.noimg { background-image:none !important; background:linear-gradient(160deg,#243050,#161d30); }
+.card-mini.noimg .cm-name {
+  top:0; bottom:0; display:flex; align-items:center; justify-content:center;
+  white-space:normal; overflow-wrap:anywhere; line-height:1.3; padding:4px; font-size:11px; background:none; border-radius:4px;
+}
 /* PNG의 투명 여백을 제외한 카드 영역이 표시 칸을 채우도록 크기와 위치를 보정한다. */
 .card-back { background:#141c30 url('../assets/playcard_back.png') 50.318471% 45.662100% / 117.386489% 117.312253% no-repeat !important; }
 

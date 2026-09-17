@@ -119,3 +119,42 @@
 - Vendetta 신규 키워드·시스템: Empower / Empowered / Disempower(액션·상태), Flow, Burn(액션), Skip(액션), Untargetable(효과 클래스 자체), Ignoring effects, 다중 유형 카드, Naming cards/types/tags.
 - 패치노트가 언급한 신규 세트 카드: Diana, Lunari(Unleashed), Svellsongur(Spiritforged, 복사 관련 언급), Elder Dragon(치명 피해 정의; 세트 불확실).
 - 토너먼트/매치 규칙: Bo5 전장 재사용, 2v2 클린업(시뮬레이터가 1v1 단일 게임만 다루면 무관).
+
+---
+
+# Vendetta 공식 룰 FAQ 요약 (Riot, 2026-08-14)
+
+> 출처: https://playriftbound.com/en-us/news/rules-and-releases/vendetta-rules-faq-and-clarifications/ — 카드는 대부분 Vendetta·Unleashed 세트지만, 담긴 **규칙 원리**는 Origins 카드에도 그대로 적용된다. 아래 각 항목은 (질문 요지 → 답) 형식.
+
+## 플레이·파이널라이즈·카운터
+- 상대가 주문 두 장을 연달아 내면 첫 번째를 Crumbling Sands로 카운터할 수 있나 → 가능. 첫 주문 뒤에 다른 주문이 **파이널라이즈**됐으면 조건 충족.
+- Rebuttal로 상대 주문의 통제권을 얻는 것은 카운터가 아니다 → 통제자만 바뀌고 "카운터될 때" 효과는 나지 않는다. Rebuttal에 [A]를 내면 대상·모드를 원하는 만큼 다시 고를 수 있고(안 바꿔도 됨) 안 바꾼 선택은 적법해야 한다.
+- 이번 턴 주문을 안 낸 상태에서 Rebuttal(주문)로 상대 Stupefy를 가져오면 → Ravenbloom Student(격발: 주문이 **해결**될 때)는 두 번 격발, Battering Ram([군단]류 할인: **파이널라이즈** 기준)은 4 에너지, 상대의 [군단]은 그대로 활성. 즉 격발 조건은 해결, 비격발 확인은 파이널라이즈.
+- Swain, Visionary "이번 턴 유닛과 주문을 플레이했다면" 같은 조건은 여러 카드로 나눠 충족해도 된다.
+- Flow(대체 비용)로 낸 주문에 Abandon(카운터)을 쓰면 → 체인을 떠날 때 추방된다(Flow의 추방 지시는 떠나는 방식과 무관).
+- Fallen Feline을 전장에 낼 때 언제 반응하나 → 카드 이름을 정하기 **전**(이름 지정은 격발 능력 해결 시). 카드 지정은 이름뿐 아니라 그 카드를 유일하게 가리키는 정보면 된다.
+
+## 대상·불발·대체 효과
+- Star-Crossed의 대상이 된 Akali에 상대가 Flash → Akali는 대상 불가가 되어 **그 대상만 불발**(mistarget), 나머지는 정상 처리.
+- Akali, Deadly Weapon의 이동 격발에 반응해 Hidden Blade → 격발 조건에 암묵적으로 포함된 정보를 참조하므로 여전히 그 유닛에 피해.
+- 4위력 유닛에 Ki Barrier와 Lotus Trap이 둘 다 → **대체 효과 순서는 유닛 통제자가 정한다**. 순서에 따라 남는 방지량이 달라진다.
+- Ride the Wind로 Vilemaw's Lair의 유닛을 기지로 옮기려 하면 → 이동은 "무효화(negated)"이지 "무시"가 아니므로 나머지 지시(준비)는 실행.
+- Blast Cone 플레이 효과로 이동된 Gangplank에 기절 → Blast Cone은 대상을 "고르지" 않으므로 기절이 통하고, Back Off의 +3은 "기절 행동"이 없어 안 난다.
+- Temporal Breach로 기지의 Elder Dragon을 대상, Dragon Roost 비용 지불 → 경합하는 필수 요구 사이에서 **한 곳을 고른다**. Perched Grimwyrm은 이번 턴 Dragon Roost를 정복하지 않았으면 낼 수 없다("can't"가 "can"에 우선, 파이널라이즈 불가).
+- Hostile Takeover로 얻은 상대 유닛을 기지로 옮긴 뒤 Temporal Breach → 유닛은 다른 플레이어의 기지에 낼 수 없어 추방 상태로 남는다.
+
+## 위력 계산·스냅샷·격발
+- Mel(empowered)의 "-[M] 수치 +1" 같은 수정은 Moonfall(고른 유닛 -3, 나머지 -2), Stupefy(-2, 최소 1 상속)처럼 원 효과의 조건을 그대로 물려받는다.
+- Gangplank, Naval(empowered)에 Switcheroo → 위력 감소가 +3으로 대체. 1위력 Gangplank에 Stupefy(최소 1) → -0으로 스냅되어 "감소 이벤트"가 없으므로 +3도 없다.
+- Dragon Form을 Stupefy로 -1 받은 유닛에 → 층은 즉시 평가되므로 Fiora 격발 없음, 결과 4위력.
+- Renekton, Brute 11위력이 자기 Profiteer로 disempower된 뒤 Stupefy → "상태 유지"와 "도달"은 다르므로 격발 안 함.
+- Icathian Rain으로 Heisho의 신병과 기지의 Irelia를 5번 고르면 → Heisho 능력이 굴절을 전부 무시하므로 굴절 비용 없음.
+- Hwei의 이동 격발로 Patched Porobot 폐기 → 격발 두 개(+3 위력, 룬 2개 준비)를 통제자가 순서 지정.
+- Kayle, Justified가 empowered 3회 → disempower 1회는 상태 하나만 제거. 이미 최대면 능력은 발동되지만 아무 일도 없다.
+- Astral Heron "next card costs less" → 능력이 **해결된 뒤** 이번 턴 다음으로 플레이하는 카드에 적용.
+- Imperial Decree 지연 격발이 살아 있을 때 Hextech Ray로 Elder Dragon을 죽이면 → Immortal Phoenix를 폐기장에서 플레이 가능(조건 전부 충족).
+- Heimerdinger(empowered)는 Jayce 전설이 empowered가 아니어도 능력 발동 가능. 자기 전설(Ambessa)을 Profiteer로 disempower하는 것도 가능(전설은 통제자가 바뀌지 않지만 내가 통제한다).
+
+## 복사·장착
+- Shady Spectacles로 empowered 유닛을 복사해도 empowered는 **상태**라 복사되지 않는다. Akshan이 장착된 Spectacles를 훔치면 복사 효과가 분리됐다가 새 통제자의 유닛 복사본이 되며 새 격발은 없다. 복사된 능력은 인스턴스가 별개라 재장착 후 다시 쓸 수 있다.
+- Iascylla의 지연 격발 "this battlefield"는 격발 조건의 전장을, Azir의 공격 격발은 해결 시점의 현재 위치를 가리킨다.
