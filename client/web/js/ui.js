@@ -362,7 +362,6 @@ function _pickUnitLocal(p, candidates, promptText, optional, otherOptions=[]){
     UI.render();
     const pa=document.getElementById('prompt-area');
     pa.innerHTML=`<div class="prompt-title">👉 ${esc(promptText||'강조된 유닛을 클릭하세요')}</div>`;
-    appendBattlefieldSource(pa);
     const btns=document.createElement('div'); btns.className='prompt-btns';
     // 유닛과 다른 종류가 함께 후보인 효과도 팝업을 열지 않는다.
     // 별도 카드로 표시되지 않는 장착 도구/숨김 카드 등은 안내 영역에서 고른다.
@@ -380,6 +379,10 @@ function _pickUnitLocal(p, candidates, promptText, optional, otherOptions=[]){
       btns.appendChild(skip);
     }
     pa.appendChild(btns);
+    // 전장 효과(히라나 수도원 등)의 출처 패널은 버튼 '아래'에 — 위에 두면 좁은 화면에서 [선택 안 함]이 패널에 밀려
+    // 화면 밖으로 나가 "전장 카드만 보이고 아무것도 못 하는" 상태가 된다 (제보 2026-09-20)
+    appendBattlefieldSource(pa);
+    if(window.innerWidth<=820) setTimeout(()=>{ try{ pa.scrollIntoView({block:'start',behavior:'smooth'}); }catch(e){} }, 0);
   });
 };
 let _pickableUids = null;
@@ -802,6 +805,7 @@ function botHandHidable(p){
   return typeof BOT !== 'undefined' && BOT.active && !NET.online && !replayLock() && p === BOT.seat;
 }
 function handFaceUp(p){
+  if(NET.online && NET.spectating) return NET.spectView==='both' || NET.spectView===p;   // 관전자: 고른 쪽만
   if(replayLock()) return true;
   if(NET.online) return p === NET.seat;
   if(botHandHidable(p)) return !!UI.peekBotHand;
@@ -1638,7 +1642,7 @@ document.addEventListener('keydown', (e)=>{
     if(ov.dataset.dismiss) closeModal();   // 선택 대기 모달은 보호 (버튼으로만 완료)
     return;
   }
-  if(replayLock()){ REPLAY.close(); return; }   // 관전 중 Esc = 관전 종료
+  if(typeof REPLAY!=='undefined' && REPLAY.viewing){ REPLAY.close(); return; }   // 리플레이 중 Esc = 리플레이 종료
   const gs=document.getElementById('game-screen');
   if(gs && gs.offsetParent!==null && typeof G!=='undefined' && G && typeof openSystemMenu==='function')
     openSystemMenu();
@@ -2438,12 +2442,12 @@ UI.render = function(){
 };
 
 // 리플레이 관전 중에는 모든 조작을 잠근다 (상태 변경은 NET.dispatch에서도 한 번 더 차단)
-function replayLock(){ return typeof REPLAY!=='undefined' && REPLAY.viewing; }
+function replayLock(){ return (typeof REPLAY!=='undefined' && REPLAY.viewing) || (typeof NET!=='undefined' && NET.online && NET.spectating); }
 
 function updateButtons(){
   document.getElementById('action-buttons').style.display = replayLock() ? 'none' : '';
   // 채팅은 상대가 실제 사람일 때만 (온라인 대전 — 서버 릴레이·P2P 공통)
-  const chatOn = NET.online && !replayLock() && !UI.chatMuted;
+  const chatOn = NET.online && !(typeof REPLAY!=='undefined' && REPLAY.viewing) && !UI.chatMuted;
   const chatBar=document.getElementById('chat-bar');
   if(chatBar) chatBar.style.display = chatOn ? '' : 'none';
   if(!chatOn) chatPopClose();   // 채팅 불가 상태(오프라인·무시·리플레이)면 팝업도 닫는다

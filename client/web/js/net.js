@@ -3,6 +3,9 @@ const NET = {
   online:false, token:null, userId:null, ws:null, seat:null,
   base:'',   // 서버 origin (예: https://my.ngrok-free.app 또는 http://192.168.0.5:8321). 데스크톱 클라이언트에서 설정.
   choiceSeq:0, pendingChoices:{}, actionQueue:[], processing:false,
+  earlyChoices:{},          // 엔진이 묻기 전에 도착한 선택 응답 (관전자가 진행 중 게임을 따라잡을 때)
+  spectating:false,         // 관전자: 좌석 없이(-1) 액션·선택을 받아 같은 게임을 그린다
+  spectView:'both',         // 관전자가 손패를 보는 쪽: 'both' | 0 | 1 | 'none'
   onRooms:null, onStart:null, onErr:null, onOppLeft:null,
 };
 
@@ -62,9 +65,10 @@ NET.connect = function(){
         case 'authFail': rej(new Error('인증 실패 — 다시 로그인하세요')); break;
         case 'rooms': NET.onRooms && NET.onRooms(m.rooms); break;
         case 'roomCreated': NET.onRoomCreated && NET.onRoomCreated(m.room); break;
+        case 'spectating': NET.onSpectating && NET.onSpectating(m.room); break;
         case 'start':
           NET.onStart && NET.onStart(m);
-          NET._verSendCheck();               // 서버를 못 믿는 경로 대비: 채팅 채널로 클라끼리 버전 검증
+          if(!m.spectate) NET._verSendCheck();   // 서버를 못 믿는 경로 대비: 채팅 채널로 클라끼리 버전 검증 (관전자는 제외)
           break;
         case 'err': NET.onErr && NET.onErr(m.msg); break;
         case 'opponentLeft': NET.onOppLeft && NET.onOppLeft(); break;
@@ -227,6 +231,7 @@ NET._execAction = async function(a){
 NET.dispatch = function(action, localFn){
   // 리플레이 관전 중에는 어떤 행동도 게임 상태를 바꾸지 못하게 한다 (최종 차단선)
   if(typeof REPLAY!=='undefined' && REPLAY.viewing) return;
+  if(NET.spectating){ UI.toast('관전 중에는 조작할 수 없습니다','warn'); return; }
   if(UI.placementPending){ UI.toast('강조된 위치의 선택을 먼저 마쳐 주세요','warn'); return; }
   if(UI.unitSelectionPending){ UI.toast('카드 선택을 먼저 마쳐 주세요','warn'); return; }
   if(typeof UI.combatMoveBlocks==='function' && UI.combatMoveBlocks(action)) return;
@@ -244,6 +249,8 @@ NET.dispatch = function(action, localFn){
 NET.choice = function(p, interactiveFn, serialize, deserialize){
   const id = ++NET.choiceSeq;
   const pr = new Promise(res=>{ NET.pendingChoices[id] = { res, deserialize, p }; });
+  // 관전자가 진행 중인 게임을 따라잡을 때는 선택 응답이 엔진이 묻기 전에 먼저 와 있다 — 그걸 바로 쓴다
+  if(NET.earlyChoices[id]){ const early=NET.earlyChoices[id]; delete NET.earlyChoices[id]; queueMicrotask(()=>NET._resolveChoice(early)); return pr; }
   if(p===NET.seat){
     interactiveFn().then(v=>{ NET.send({t:'choice', id, data:serialize(v)}); });
   } else {
@@ -253,7 +260,7 @@ NET.choice = function(p, interactiveFn, serialize, deserialize){
 };
 NET._resolveChoice = function(m){
   const pc = NET.pendingChoices[m.id];
-  if(!pc) return;
+  if(!pc){ if(typeof m.id==='number') NET.earlyChoices[m.id]=m; return; }
   // 선택 응답은 반드시 그 선택을 요구받은 좌석에서만 와야 함 (상대 선택 가로채기 차단)
   if(typeof m.seat === 'number' && m.seat !== pc.p){ console.warn('rejected choice from wrong seat', m); return; }
   delete NET.pendingChoices[m.id];
@@ -266,5 +273,5 @@ NET._resolveChoice = function(m){
 
 // ---------- 게임 종료/이탈 정리 ----------
 NET.resetGameSync = function(){
-  NET.choiceSeq=0; NET.pendingChoices={}; NET.actionQueue=[]; NET.processing=false;
+  NET.choiceSeq=0; NET.pendingChoices={}; NET.earlyChoices={}; NET.actionQueue=[]; NET.processing=false;
 };

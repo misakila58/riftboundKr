@@ -862,6 +862,22 @@ async function copyDeckToOtherStore(d){
   }catch(e){ UI.toast(`${where}에 복사하지 못했습니다 — ${e.message}`,'warn'); }
 }
 
+// 비밀번호 방 입장·관전용 입력창 (exe는 window.prompt가 없다)
+function askPassword(roomName){
+  return new Promise(res=>{
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>🔒 비밀번호</h3><div class="modal-copy">「${esc(roomName||'')}」 방의 비밀번호를 입력하세요.</div>
+      <input id="room-pw-input" type="password" maxlength="32" autocomplete="off" style="width:100%;padding:8px;border-radius:6px;border:1px solid #3a4a70;background:#0e1626;color:#e8e6e0;font-size:14px">`;
+    const btns=document.createElement('div'); btns.className='modal-btns';
+    const ok=document.createElement('button'); ok.className='primary'; ok.textContent='입장';
+    const done=()=>{ const v=box.querySelector('#room-pw-input').value; closeModal(); res(v); };
+    ok.onclick=done;
+    const no=document.createElement('button'); no.textContent='취소'; no.onclick=()=>{ closeModal(); res(null); };
+    btns.appendChild(ok); btns.appendChild(no); box.appendChild(btns);
+    openModal(); markModalDismissable();
+    setTimeout(()=>{ const i=box.querySelector('#room-pw-input'); i.focus(); i.onkeydown=e=>{ if(e.key==='Enter') done(); }; }, 0);
+  });
+}
 // 덱 코드 한 줄과 덱 목록 여러 줄을 모두 받아야 하므로 prompt 대신 입력창을 띄운다
 function askDeckText(){
   return new Promise(res=>{
@@ -1435,17 +1451,28 @@ function renderRooms(roomsArr){
   }
   roomsArr.forEach(r=>{
     const div=document.createElement('div'); div.className='deck-card room-card';
-    div.innerHTML=`<h3>${esc(r.name)}${r.banRule?' <span class="ban-flag" style="font-size:12px">🚫 밴 적용</span>':''}</h3><div class="dk-info">방장: ${esc(r.host)} · ${r.count}/2${r.banRule?' · 🚫 밴 적용 방 — 밴 카드가 없는 덱으로만 입장할 수 있습니다':''}</div>`;
+    const flags=[r.banRule?'<span class="ban-flag" style="font-size:12px">🚫 밴 적용</span>':'', r.locked?'<span style="font-size:12px">🔒</span>':'', r.allowSpectate?'<span style="font-size:12px" title="관전 허용">👁'+(r.spectators?' '+r.spectators:'')+'</span>':''].filter(Boolean).join(' ');
+    div.innerHTML=`<h3>${esc(r.name)}${flags?' '+flags:''}</h3><div class="dk-info">방장: ${esc(r.host)} · ${r.started?'진행 중':r.count+'/2'}${r.banRule?' · 🚫 밴 적용 방 — 밴 카드가 없는 덱으로만 입장할 수 있습니다':''}${r.locked?' · 🔒 비밀번호 방':''}${r.allowSpectate?' · 👁 관전 가능':''}</div>`;
     const btns=document.createElement('div'); btns.className='dk-btns';
-    const bj=document.createElement('button'); bj.className='join-btn'; bj.textContent='선택한 덱으로 입장';
-    bj.onclick=()=>{
-      const pay=lobbyDeckPayload();
-      if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
-      // 밴 적용 여부는 방장이 정한다 — 밴 방이면 내 덱에 밴 카드가 없어야 입장할 수 있다
-      if(!banSelfCheck(r.banRule, lobbySelectedDeck())) return;
-      NET.send({t:'joinRoom', roomId:r.id, ...pay, banRule:document.getElementById('lobby-ban').checked, ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')});
-    };
-    btns.appendChild(bj);
+    // 비밀번호 방이면 먼저 묻는다 (prompt는 exe에서 안 뜨므로 모달)
+    const withPw=async fn=>{ let password=''; if(r.locked){ password=await askPassword(r.name); if(password===null) return; } fn(password); };
+    if(!r.started){
+      const bj=document.createElement('button'); bj.className='join-btn'; bj.textContent='선택한 덱으로 입장';
+      bj.onclick=()=>{
+        const pay=lobbyDeckPayload();
+        if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
+        // 밴 적용 여부는 방장이 정한다 — 밴 방이면 내 덱에 밴 카드가 없어야 입장할 수 있다
+        if(!banSelfCheck(r.banRule, lobbySelectedDeck())) return;
+        withPw(password=>NET.send({t:'joinRoom', roomId:r.id, ...pay, password, banRule:document.getElementById('lobby-ban').checked, ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')}));
+      };
+      btns.appendChild(bj);
+    }
+    if(r.allowSpectate){
+      const bs=document.createElement('button'); bs.textContent=r.started?'👁 관전 (진행 중)':'👁 관전';
+      bs.title='이 방의 게임을 관전합니다 — 덱 없이 들어가며 조작은 할 수 없습니다';
+      bs.onclick=()=>withPw(password=>NET.send({t:'spectate', roomId:r.id, password, ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')}));
+      btns.appendChild(bs);
+    }
     div.appendChild(btns);
     el.appendChild(div);
   });
@@ -1462,15 +1489,24 @@ function initLobby(){
     const manual = !document.getElementById('lobby-auto').checked;
     const ban=document.getElementById('lobby-ban').checked;
     if(!banSelfCheck(ban, lobbySelectedDeck())) return;
-    NET.send({t:'createRoom', ...pay, manual, banRule:ban, name:document.getElementById('lobby-room-name').value.trim(), ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')});
+    const allowSpectate=!!document.getElementById('lobby-spectate')?.checked;
+    const password=(document.getElementById('lobby-password')?.value||'').trim();
+    NET.send({t:'createRoom', ...pay, manual, banRule:ban, allowSpectate, password, name:document.getElementById('lobby-room-name').value.trim(), ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')});
   };
   NET.onRooms=renderRooms;
+  NET.onSpectating=(room)=>{
+    document.getElementById('lobby-status').textContent=room.started
+      ? `👁 「${room.name}」 관전 — 진행 중인 게임을 따라잡는 중...`
+      : `👁 「${room.name}」 관전 대기 중 — 상대가 입장해 게임이 시작되면 자동으로 관전 화면으로 갑니다 (← 메뉴로 나가면 관전 취소)`;
+    document.getElementById('room-list').innerHTML='';
+  };
   NET.onRoomCreated=(room)=>{
-    document.getElementById('lobby-status').textContent=`⏳ 「${room.name}」 — 상대를 기다리는 중... (다른 플레이어가 입장하면 자동 시작)`;
+    document.getElementById('lobby-status').textContent=`⏳ 「${room.name}」${room.locked?' 🔒':''}${room.allowSpectate?' 👁 관전 허용':''} — 상대를 기다리는 중... (다른 플레이어가 입장하면 자동 시작)`;
     document.getElementById('room-list').innerHTML='';
   };
   NET.onErr=(msg)=>UI.toast(msg,'warn');
   NET.onOppLeft=()=>{
+    if(NET.spectating){ alert('플레이어가 나가서 게임이 끝났습니다. 로비로 돌아갑니다.'); location.reload(); return; }
     if(typeof STATS!=='undefined' && typeof NET!=='undefined') STATS.gameEnd(NET.seat, 'left');
     alert('상대가 나갔습니다. 로비로 돌아갑니다.');
     location.reload();
@@ -1803,7 +1839,7 @@ const RM = {
     const ls=NET.lastStart; if(!ls) return;
     const decks = (a.decks && a.decks[0] && a.decks[1]) ? a.decks : RM.decks;  // 신호에 실린 덱이 우선
     if(!decks[0] || !decks[1]) return;
-    const m={ t:'start', seed:a.seed, yourSeat:NET.seat, manual:ls.manual, banRule:ls.banRule,
+    const m={ t:'start', seed:a.seed, yourSeat:NET.seat, spectate:!!NET.spectating, manual:ls.manual, banRule:ls.banRule,
       players:[ {id:ls.players[0].id, deck:decks[0]}, {id:ls.players[1].id, deck:decks[1]} ] };
     RM.reset();
     const ov=document.getElementById('modal-overlay'); if(ov.style.display!=='none') closeModal();
@@ -1907,6 +1943,8 @@ function openSystemMenu(){
   const display=section('화면 설정');
   toggle(display,'setting-effects','게임 이펙트','카드 사용과 전투 연출을 표시합니다.',
     UI.fx.on, value=>UI.fx.setOn(value));
+  if(typeof SFX!=='undefined') toggle(display,'setting-sound','효과음','턴이 바뀌거나 카드·능력을 쓸 때, 내 차례가 올 때 짧은 소리를 냅니다.',
+    SFX.on, value=>SFX.setOn(value));
   add(display,`🔍 화면 배율 · ${Math.round(uiScale()*100)}%`,()=>{ closeModal(); showScalePicker(false); });
   if(PLAYMAT.available()) add(display,'🖼️ 내 플레이매트',()=>PLAYMAT.open());
   if(PLAYMAT.botAvailable()) add(display,'🖼️ 봇 플레이매트',()=>PLAYMAT.open(true));
@@ -1924,8 +1962,8 @@ function openSystemMenu(){
   if(inGame){
     const game=section('대전 관리','settings-wide settings-game');
     if(NET.online){
-      const reqPending=RM.decks[1-NET.seat] && !RM.decks[NET.seat];
-      add(game,reqPending?'🔄 재대결 요청 수락 · 덱 선택':'🔄 상대와 다시 하기 · 덱 선택',
+      const reqPending=!NET.spectating && RM.decks[1-NET.seat] && !RM.decks[NET.seat];
+      if(!NET.spectating) add(game,reqPending?'🔄 재대결 요청 수락 · 덱 선택':'🔄 상대와 다시 하기 · 덱 선택',
         ()=>{ closeModal(); RM.openPick(!!reqPending); },'primary');
       add(game,P2P.active?'🚪 나가기 · 연결 종료':'🚪 로비로 가기',()=>{ closeModal(); gameLeave(); });
     } else if(isBot){
@@ -1950,9 +1988,11 @@ function openSystemMenu(){
 
 // ---------- 게임 시작 ----------
 function startOnlineGame(m){
-  if(typeof STATS!=='undefined') STATS.gameStart((typeof P2P!=='undefined' && P2P.active) ? 'p2p' : 'online');
+  NET.spectating=!!m.spectate;
+  // 관전자는 통계·리플레이 제공 대상이 아니다 (좌석이 없어 리플레이 업로드 조건 seat===0에도 안 걸린다)
+  if(typeof STATS!=='undefined'){ if(NET.spectating){ STATS.mode=null; STATS._ended=true; } else STATS.gameStart((typeof P2P!=='undefined' && P2P.active) ? 'p2p' : 'online'); }
   NET.online=true;
-  NET.seat=m.yourSeat;
+  NET.seat=NET.spectating ? -1 : m.yourSeat;
   NET.lastStart=m;    // 재대결용: 모드/밴/플레이어 이름 보존
   RM.reset();
   NET.resetGameSync();
@@ -1973,9 +2013,22 @@ function startOnlineGame(m){
   showScreen('game-screen');
   PLAYMAT.startOnline(m.seed);
   const modeLabel = G.manual ? '수동' : '자동';
-  const netInfo=()=>{ document.getElementById('net-info').textContent=`🌐 온라인(${modeLabel}${m.banRule?' · 🚫밴':''}) — 나: ${m.players[NET.seat].id} (${G.phase==='setup'&&!G.turnOrderDone?'선후공 결정 중':(G.turn===NET.seat?'선공':'후공')})`; };
+  const netInfo=()=>{
+    const el=document.getElementById('net-info');
+    if(NET.spectating){
+      el.textContent=`👁 관전(${modeLabel}${m.banRule?' · 🚫밴':''}) — ${m.players[0].id} vs ${m.players[1].id} · 손패 보기: `;
+      const sel=document.createElement('select'); sel.id='spect-view'; sel.title='관전자가 볼 손패';
+      [['both','모두'],['0',m.players[0].id+'만'],['1',m.players[1].id+'만'],['none','아무도']].forEach(([v,t])=>{ const o=document.createElement('option'); o.value=v; o.textContent=t; sel.appendChild(o); });
+      sel.value=String(NET.spectView);
+      sel.onchange=()=>{ NET.spectView = sel.value==='both'||sel.value==='none' ? sel.value : +sel.value; UI.render(); };
+      el.appendChild(sel);
+      return;
+    }
+    el.textContent=`🌐 온라인(${modeLabel}${m.banRule?' · 🚫밴':''}) — 나: ${m.players[NET.seat].id} (${G.phase==='setup'&&!G.turnOrderDone?'선후공 결정 중':(G.turn===NET.seat?'선공':'후공')})`;
+  };
   UI.turnOrderDecided=()=>{ G.turnOrderDone=true; netInfo(); };
   netInfo();
+  if(NET.spectating) UI.log('👁 관전 모드 — 조작할 수 없습니다. 위의 「손패 보기」에서 누구의 손패를 볼지 고르세요.', 'sys');
   UI.log(`온라인 대전 시작! ${m.players[0].id} vs ${m.players[1].id} · 규칙 처리: ${modeLabel} 모드`, 'sys');
   if(m.banRule) UI.log(`🚫 밴 리스트 적용 대전입니다 (${BANLIST.region}, 기준일 ${BANLIST.updated})`, 'sys');
   UI.log('승리 조건: '+G.victory+'점 선취!', 'sys');

@@ -223,6 +223,8 @@
       <input id="lobby-room-name" type="text" placeholder="방 이름 (선택)" maxlength="24">
       <label class="mode-chk"><input type="checkbox" id="lobby-auto" checked> 자동 규칙 처리 (해제 시 수동)</label>
       <label class="mode-chk" title="방을 만들 때만 적용됩니다. 남의 방에 입장할 때는 그 방장의 설정을 따릅니다."><input type="checkbox" id="lobby-ban"> 🚫 밴 적용 (내가 방을 만들 때)</label>
+      <label class="mode-chk" title="켜면 다른 사람이 이 방의 게임을 관전할 수 있습니다 (기본 불가). 관전자는 A·B·모두 중 누구의 손패를 볼지 고릅니다."><input type="checkbox" id="lobby-spectate"> 👁 관전 허용 (내가 방을 만들 때)</label>
+      <input id="lobby-password" type="password" placeholder="🔒 비밀번호 (선택)" maxlength="32" autocomplete="off" title="정하면 입장·관전 모두 이 비밀번호가 필요합니다">
       <button class="mid-btn primary-btn" id="btn-create-room">방 만들기</button>
       <button class="mid-btn" id="btn-lobby-back">← 메뉴로</button>
     </div>
@@ -587,6 +589,7 @@
 <script src="js/ui.js"></script>
 <script src="js/setup-preview.js"></script>
 <script src="js/fx.js"></script>
+<script src="js/sfx.js"></script>
 <script src="js/tutorial.js"></script>
 <script src="js/main.js"></script>
 <script src="js/deckimage.js"></script>

@@ -1,6 +1,7 @@
 // Public setup review. Online confirmations use the existing seat-checked choice channel.
 UI.reviewSetup = async function(){
-  const game=G, online=NET.online, me=online?NET.seat:0;
+  // 관전자는 좌석이 없다 — 두 플레이어의 확인만 기다리며 버튼은 누를 수 없다
+  const game=G, online=NET.online, spect=online && NET.spectating, me=spect?0:(online?NET.seat:0);
   const overlay=document.createElement('div');
   overlay.className='setup-review';
   overlay.setAttribute('role','dialog');
@@ -12,7 +13,7 @@ UI.reviewSetup = async function(){
     const section=document.createElement('section');
     section.className='setup-review-player';
     const heading=document.createElement('h3');
-    heading.textContent=(p===me?'나':'상대')+' — '+pname(p);
+    heading.textContent=spect?pname(p):(p===me?'나':'상대')+' — '+pname(p);
     section.appendChild(heading);
     const cards=document.createElement('div'); cards.className='setup-review-cards';
     for(const [label,n] of [['전설',G.players[p].legendN],['선발 챔피언',G.players[p].champN],['무작위 전장',G.bfs[p].n]]){
@@ -26,8 +27,9 @@ UI.reviewSetup = async function(){
   }
   const button=overlay.querySelector('button'), label=button.querySelector('span');
   const status=overlay.querySelector('.setup-review-status'), hint=overlay.querySelector('.setup-review-hint');
-  label.textContent=online?'꾹 눌러 확인':'시작';
-  hint.textContent=online?'1.5초 동안 누르세요. 두 사람 모두 확인하면 진행합니다.':'시작을 누르면 선후공을 결정합니다.';
+  label.textContent=spect?'관전 — 확인 대기':online?'꾹 눌러 확인':'시작';
+  hint.textContent=spect?'두 플레이어가 확인하면 진행합니다.':online?'1.5초 동안 누르세요. 두 사람 모두 확인하면 진행합니다.':'시작을 누르면 선후공을 결정합니다.';
+  if(spect) button.disabled=true;
   const previousFocus=document.activeElement, screen=document.getElementById('game-screen');
   const wasInert=screen.inert; screen.inert=true;
   document.body.appendChild(overlay);
@@ -55,7 +57,8 @@ UI.reviewSetup = async function(){
     if(submitted || started!==null) return;
     source=kind; started=performance.now(); frame=requestAnimationFrame(tick);
   };
-  if(online){
+  if(spect){ /* 관전자는 입력 없음 */ }
+  else if(online){
     button.addEventListener('pointerdown',e=>{
       if(e.button!==0) return;
       e.preventDefault(); button.focus({preventScroll:true}); button.setPointerCapture(e.pointerId); begin(e.pointerId);
@@ -84,8 +87,9 @@ UI.reviewSetup = async function(){
     if(online){
       const ready=[false,false];
       const update=()=>{
-        status.textContent=`나: ${ready[me]?'확인 완료':'확인 대기'} / 상대: ${ready[opp(me)]?'확인 완료':'확인 대기'}`;
-        if(ready[me]) label.textContent='확인 완료';
+        status.textContent=spect?`${pname(0)}: ${ready[0]?'확인 완료':'확인 대기'} / ${pname(1)}: ${ready[1]?'확인 완료':'확인 대기'}`
+          :`나: ${ready[me]?'확인 완료':'확인 대기'} / 상대: ${ready[opp(me)]?'확인 완료':'확인 대기'}`;
+        if(!spect && ready[me]) label.textContent='확인 완료';
       };
       update();
       await Promise.all([0,1].map(p=>NET.choice(p,()=>local,v=>v,v=>v).then(()=>{ready[p]=true;update();})));

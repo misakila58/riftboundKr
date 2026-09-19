@@ -719,7 +719,19 @@ const wss = new WebSocket.Server({ server, maxPayload: LIMITS.WS_PAYLOAD });
 const rooms = new Map();
 let roomSeq = 1;
 function wsSend(ws, obj) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
-function roomInfo(r) { return { id: r.id, name: r.name, host: r.players[0]?.id, count: r.players.length, started: r.started, banRule: !!r.banRule }; }
+function roomInfo(r) {
+  return { id: r.id, name: r.name, host: r.players[0]?.id, count: r.players.length, started: r.started, banRule: !!r.banRule,
+    allowSpectate: !!r.allowSpectate, spectators: (r.spectators || []).length, locked: !!r.password };
+}
+// 로비에 보이는 방: 아직 시작 전이거나, 시작했어도 관전을 허용한 방
+function lobbyRooms() { return [...rooms.values()].filter(r => !r.started || r.allowSpectate).map(roomInfo); }
+// 게임 시작 메시지 — 플레이어는 자기 좌석, 관전자는 좌석 -1
+function startMsg(r, seat) {
+  return { t: 'start', seed: r.seed, yourSeat: seat, spectate: seat < 0, manual: r.manual !== false, banRule: !!r.banRule,
+    // 사이드덱은 본인만 쓰는 비공개 정보 — 상대 클라이언트로 보내지 않는다
+    players: r.players.map(q => ({ id: q.id, deck: deckWithoutSide(q.deck) })) };
+}
+function roomEveryone(r) { return [...r.players, ...(r.spectators || [])]; }
 // 밴 리스트 (한국 KR 기준 = 글로벌 공통, 2026-09-18 개정 확인) — client/web/js/banlist.js와 반드시 함께 갱신할 것
 // 168 투쟁 혹은 도피 · 177 은밀한 추적자 · 182 고철 더미 · 276 지망자의 등반
 // 284 힘의 오벨리스크 · 285 약탈자의 거리 · 290 투기장 최고의 강자 · 292 꿈꾸는 나무 · 110 에코 - 회귀자 · 183 조작된 덱
@@ -739,16 +751,25 @@ function resolveDeck(ws, m) {
   return (u && u.decks[m.deckIdx]) || null;
 }
 function broadcastLobby() {
-  const list = [...rooms.values()].filter(r => !r.started).map(roomInfo);
+  const list = lobbyRooms();
   wss.clients.forEach(c => { if (c._authed && !c._room) wsSend(c, { t: 'rooms', rooms: list }); });
 }
 function leaveRoom(ws, notify = true) {
   const r = ws._room; if (!r) return;
   ws._room = null;
+  r.spectators = r.spectators || [];
+  if (ws._spectator) {                       // 관전자 퇴장: 아무에게도 알리지 않는다 (인원 수만 로비에 반영)
+    ws._spectator = false;
+    r.spectators = r.spectators.filter(sp => sp.ws !== ws);
+    broadcastLobby();
+    return;
+  }
   const i = r.players.findIndex(pl => pl.ws === ws);
   if (i >= 0) r.players.splice(i, 1);
-  if (r.players.length === 0) rooms.delete(r.id);
-  else if (notify) r.players.forEach(pl => wsSend(pl.ws, { t: 'opponentLeft' }));
+  if (r.players.length === 0) {
+    rooms.delete(r.id);
+    r.spectators.forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); });
+  } else if (notify) roomEveryone(r).forEach(pl => wsSend(pl.ws, { t: 'opponentLeft' }));
   if (r.players.length === 0 || !r.started) broadcastLobby();
 }
 
@@ -774,7 +795,7 @@ wss.on('connection', (ws, req) => {
 
     switch (m.t) {
       case 'listRooms':
-        wsSend(ws, { t: 'rooms', rooms: [...rooms.values()].filter(r => !r.started).map(roomInfo) });
+        wsSend(ws, { t: 'rooms', rooms: lobbyRooms() });
         break;
       case 'createRoom': {
         if (ws._room) return;
@@ -785,7 +806,10 @@ wss.on('connection', (ws, req) => {
         if (wantBan && deckBannedNs(deck).length)
           return wsSend(ws, { t: 'err', msg: '🚫 밴 적용을 선택한 경우 밴 카드가 포함된 덱은 사용할 수 없습니다' });
         const nm = (typeof m.name === 'string' && m.name.trim()) ? m.name.trim().slice(0, LIMITS.MAX_ROOM_NAME) : (ws._userId + '의 방');
-        const r = { id: 'r' + (roomSeq++), name: nm, players: [], started: false, seq: 0, manual: m.manual !== false, banRule: wantBan };
+        // 관전 허용은 방장이 정한다(기본 불가). 비밀번호는 입장·관전 모두에 필요하다. 액션 로그는 중간에 들어온 관전자를 따라잡게 하는 용도.
+        const password = (typeof m.password === 'string' && m.password.trim()) ? m.password.trim().slice(0, 32) : null;
+        const r = { id: 'r' + (roomSeq++), name: nm, players: [], started: false, seq: 0, manual: m.manual !== false, banRule: wantBan,
+          allowSpectate: m.allowSpectate === true, password, spectators: [], log: [] };
         rooms.set(r.id, r);
         r.players.push({ ws, id: ws._userId, deck, seat: 0, ver: String(m.ver || '?').slice(0, 20) });
         ws._room = r;
@@ -798,6 +822,7 @@ wss.on('connection', (ws, req) => {
         const r = rooms.get(m.roomId);
         if (!r || r.started || r.players.length >= 2) return wsSend(ws, { t: 'err', msg: '입장할 수 없는 방입니다' });
         if (r.players[0].id === ws._userId) return wsSend(ws, { t: 'err', msg: '자신의 방에는 입장할 수 없습니다' });
+        if (r.password && String(m.password || '') !== r.password) return wsSend(ws, { t: 'err', msg: '🔒 비밀번호가 틀렸습니다' });
         const deck = resolveDeck(ws, m);
         if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요 (덱 형식 오류 포함)' });
         // 밴 규칙은 '방장이 정한다'. 밴 적용 방이면 입장자 덱도 밴 카드가 없어야 한다.
@@ -817,12 +842,25 @@ wss.on('connection', (ws, req) => {
         ws._room = r;
         r.started = true;
         r.startedAt = Date.now();   // 배포 전 '몇 분째 두는 중인지' 보여주는 데 쓴다
-        const seed = crypto.randomBytes(4).readUInt32LE(0);
-        r.players.forEach(pl => wsSend(pl.ws, {
-          t: 'start', seed, yourSeat: pl.seat, manual: r.manual !== false, banRule: banActive,
-          // 사이드덱은 본인만 쓰는 비공개 정보 — 상대 클라이언트로 보내지 않는다
-          players: r.players.map(q => ({ id: q.id, deck: deckWithoutSide(q.deck) })),
-        }));
+        r.seed = crypto.randomBytes(4).readUInt32LE(0);
+        r.players.forEach(pl => wsSend(pl.ws, startMsg(r, pl.seat)));
+        (r.spectators || []).forEach(sp => wsSend(sp.ws, startMsg(r, -1)));
+        broadcastLobby();
+        break;
+      }
+      case 'spectate': {
+        // 관전: 방장이 허용한 방만. 비밀번호 방이면 비밀번호도. 시작 전이면 시작할 때 함께 start를 받고,
+        // 이미 진행 중이면 start + 지금까지의 액션/선택 로그를 순서대로 받아 같은 상태까지 따라간다(락스텝 재생).
+        if (ws._room) return;
+        const r = rooms.get(m.roomId);
+        if (!r || !r.allowSpectate) return wsSend(ws, { t: 'err', msg: '관전을 허용하지 않는 방입니다' });
+        if (r.password && String(m.password || '') !== r.password) return wsSend(ws, { t: 'err', msg: '🔒 비밀번호가 틀렸습니다' });
+        r.spectators = r.spectators || [];
+        if (r.spectators.length >= 10) return wsSend(ws, { t: 'err', msg: '관전 인원이 가득 찼습니다 (10명)' });
+        r.spectators.push({ ws, id: ws._userId });
+        ws._room = r; ws._spectator = true;
+        wsSend(ws, { t: 'spectating', room: roomInfo(r) });
+        if (r.started) { wsSend(ws, startMsg(r, -1)); (r.log || []).forEach(o => wsSend(ws, o)); }
         broadcastLobby();
         break;
       }
@@ -835,13 +873,15 @@ wss.on('connection', (ws, req) => {
         const out = { t: m.t, seq: ++r.seq, from: ws._userId, seat: me.seat };
         if (m.t === 'act') out.action = m.action;
         else { out.id = m.id; out.data = m.data; }
-        r.players.forEach(pl => wsSend(pl.ws, out));
+        if (r.allowSpectate) { r.log = r.log || []; r.log.push(out); if (r.log.length > 20000) r.log.splice(0, r.log.length - 20000); }
+        roomEveryone(r).forEach(pl => wsSend(pl.ws, out));
         break;
       }
       case 'chat': {
         const r = ws._room; if (!r) return;
         const msg = String(m.msg == null ? '' : m.msg).slice(0, LIMITS.MAX_CHAT);
-        r.players.forEach(pl => wsSend(pl.ws, { t: 'chat', from: ws._userId, msg }));
+        const from = ws._spectator ? ws._userId + ' (관전)' : ws._userId;
+        roomEveryone(r).forEach(pl => wsSend(pl.ws, { t: 'chat', from, msg }));
         break;
       }
     }
