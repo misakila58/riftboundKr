@@ -303,7 +303,7 @@ async function animateSetupDie(view,p,value,round,startsAt){
 UI.pickSetupOrder = async function(p,rolls){
   const view=_setupView;
   view.overlay.dataset.stage='order';view.button.hidden=true;
-  view.status.textContent=NET.online&&NET.seat!==p?'상대가 선택 중입니다':`${pname(p)} 승리`;
+  view.status.textContent=NET.online&&NET.seat!==p?(rolls?'상대가 선택 중입니다':`이전 게임 패자 ${pname(p)}이(가) 선후공을 고르는 중`):rolls?`${pname(p)} 승리`:'이전 게임 패자 — 선후공을 선택하세요';
   view.hint.textContent=NET.online&&NET.seat!==p?'':'선공과 후공 중 선택하세요';
   view.overlay.querySelectorAll('.setup-review-player').forEach(el=>el.classList.toggle('is-rolling-player',+el.dataset.seat===p));
   return UI.pickOption(p,'주사위 승리 — 선공과 후공 선택',[

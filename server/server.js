@@ -721,13 +721,13 @@ let roomSeq = 1;
 function wsSend(ws, obj) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
 function roomInfo(r) {
   return { id: r.id, name: r.name, host: r.players[0]?.id, count: r.players.length, started: r.started, banRule: !!r.banRule,
-    allowSpectate: !!r.allowSpectate, spectators: (r.spectators || []).length, locked: !!r.password };
+    allowSpectate: !!r.allowSpectate, spectators: (r.spectators || []).length, locked: !!r.password, format: r.format || 'bo1' };
 }
 // 로비에 보이는 방: 아직 시작 전이거나, 시작했어도 관전을 허용한 방
 function lobbyRooms() { return [...rooms.values()].filter(r => !r.started || r.allowSpectate).map(roomInfo); }
 // 게임 시작 메시지 — 플레이어는 자기 좌석, 관전자는 좌석 -1
 function startMsg(r, seat) {
-  return { t: 'start', seed: r.seed, yourSeat: seat, spectate: seat < 0, manual: r.manual !== false, banRule: !!r.banRule,
+  return { t: 'start', seed: r.seed, yourSeat: seat, spectate: seat < 0, manual: r.manual !== false, banRule: !!r.banRule, format: r.format || 'bo1',
     // 사이드덱은 본인만 쓰는 비공개 정보 — 상대 클라이언트로 보내지 않는다
     players: r.players.map(q => ({ id: q.id, deck: deckWithoutSide(q.deck) })) };
 }
@@ -809,7 +809,8 @@ wss.on('connection', (ws, req) => {
         // 관전 허용은 방장이 정한다(기본 불가). 비밀번호는 입장·관전 모두에 필요하다. 액션 로그는 중간에 들어온 관전자를 따라잡게 하는 용도.
         const password = (typeof m.password === 'string' && m.password.trim()) ? m.password.trim().slice(0, 32) : null;
         const r = { id: 'r' + (roomSeq++), name: nm, players: [], started: false, seq: 0, manual: m.manual !== false, banRule: wantBan,
-          allowSpectate: m.allowSpectate === true, password, spectators: [], log: [] };
+          allowSpectate: m.allowSpectate === true, password, spectators: [], log: [],
+          format: m.format === 'bo3' ? 'bo3' : 'bo1' };   // Bo3: 2선승, 게임 사이 사이드보딩·전장 교체·패자 선후공 선택 (클라가 진행)
         rooms.set(r.id, r);
         r.players.push({ ws, id: ws._userId, deck, seat: 0, ver: String(m.ver || '?').slice(0, 20) });
         ws._room = r;

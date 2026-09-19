@@ -221,6 +221,10 @@
     <div>
       <select id="lobby-deck"></select>
       <input id="lobby-room-name" type="text" placeholder="방 이름 (선택)" maxlength="24">
+      <select id="lobby-format" title="방을 만들 때 정합니다. Bo3는 2선승 — 게임 사이에 사이드보딩·전장 교체를 하고 이전 게임 패자가 선후공을 고릅니다 (대회 규정)">
+        <option value="bo1">단판 (Bo1)</option>
+        <option value="bo3">2선승 (Bo3 · 사이드보딩)</option>
+      </select>
       <label class="mode-chk"><input type="checkbox" id="lobby-auto" checked> 자동 규칙 처리 (해제 시 수동)</label>
       <label class="mode-chk" title="방을 만들 때만 적용됩니다. 남의 방에 입장할 때는 그 방장의 설정을 따릅니다."><input type="checkbox" id="lobby-ban"> 🚫 밴 적용 (내가 방을 만들 때)</label>
       <label class="mode-chk" title="켜면 다른 사람이 이 방의 게임을 관전할 수 있습니다 (기본 불가). 관전자는 A·B·모두 중 누구의 손패를 볼지 고릅니다."><input type="checkbox" id="lobby-spectate"> 👁 관전 허용 (내가 방을 만들 때)</label>

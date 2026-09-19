@@ -1470,7 +1470,7 @@ function renderRooms(roomsArr){
   }
   roomsArr.forEach(r=>{
     const div=document.createElement('div'); div.className='deck-card room-card';
-    const flags=[r.banRule?'<span class="ban-flag" style="font-size:12px">🚫 밴 적용</span>':'', r.locked?'<span style="font-size:12px">🔒</span>':'', r.allowSpectate?'<span style="font-size:12px" title="관전 허용">👁'+(r.spectators?' '+r.spectators:'')+'</span>':''].filter(Boolean).join(' ');
+    const flags=[r.format==='bo3'?'<span style="font-size:12px;color:#d8c27a" title="2선승 · 게임 사이 사이드보딩">Bo3</span>':'', r.banRule?'<span class="ban-flag" style="font-size:12px">🚫 밴 적용</span>':'', r.locked?'<span style="font-size:12px">🔒</span>':'', r.allowSpectate?'<span style="font-size:12px" title="관전 허용">👁'+(r.spectators?' '+r.spectators:'')+'</span>':''].filter(Boolean).join(' ');
     div.innerHTML=`<h3>${esc(r.name)}${flags?' '+flags:''}</h3><div class="dk-info">방장: ${esc(r.host)} · ${r.started?'진행 중':r.count+'/2'}${r.banRule?' · 🚫 밴 적용 방 — 밴 카드가 없는 덱으로만 입장할 수 있습니다':''}${r.locked?' · 🔒 비밀번호 방':''}${r.allowSpectate?' · 👁 관전 가능':''}</div>`;
     const btns=document.createElement('div'); btns.className='dk-btns';
     // 비밀번호 방이면 먼저 묻는다 (prompt는 exe에서 안 뜨므로 모달)
@@ -1482,6 +1482,7 @@ function renderRooms(roomsArr){
         if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
         // 밴 적용 여부는 방장이 정한다 — 밴 방이면 내 덱에 밴 카드가 없어야 입장할 수 있다
         if(!banSelfCheck(r.banRule, lobbySelectedDeck())) return;
+        MATCH.myDeck=lobbySelectedDeck();   // Bo3 사이드보딩은 등록 덱(사이드 포함)에서 — 서버는 사이드를 돌려주지 않는다
         withPw(password=>NET.send({t:'joinRoom', roomId:r.id, ...pay, password, banRule:document.getElementById('lobby-ban').checked, ver:NET.clientVersion()}));
       };
       btns.appendChild(bj);
@@ -1510,7 +1511,9 @@ function initLobby(){
     if(!banSelfCheck(ban, lobbySelectedDeck())) return;
     const allowSpectate=!!document.getElementById('lobby-spectate')?.checked;
     const password=(document.getElementById('lobby-password')?.value||'').trim();
-    NET.send({t:'createRoom', ...pay, manual, banRule:ban, allowSpectate, password, name:document.getElementById('lobby-room-name').value.trim(), ver:NET.clientVersion()});
+    const format=document.getElementById('lobby-format')?.value==='bo3'?'bo3':'bo1';
+    MATCH.myDeck=lobbySelectedDeck();
+    NET.send({t:'createRoom', ...pay, manual, banRule:ban, allowSpectate, password, format, name:document.getElementById('lobby-room-name').value.trim(), ver:NET.clientVersion()});
   };
   NET.onRooms=renderRooms;
   NET.onSpectating=(room)=>{
@@ -1520,7 +1523,7 @@ function initLobby(){
     document.getElementById('room-list').innerHTML='';
   };
   NET.onRoomCreated=(room)=>{
-    document.getElementById('lobby-status').textContent=`⏳ 「${room.name}」${room.locked?' 🔒':''}${room.allowSpectate?' 👁 관전 허용':''} — 상대를 기다리는 중... (다른 플레이어가 입장하면 자동 시작)`;
+    document.getElementById('lobby-status').textContent=`⏳ 「${room.name}」${room.format==='bo3'?' · Bo3':''}${room.locked?' 🔒':''}${room.allowSpectate?' 👁 관전 허용':''} — 상대를 기다리는 중... (다른 플레이어가 입장하면 자동 시작)`;
     document.getElementById('room-list').innerHTML='';
   };
   NET.onErr=(msg)=>UI.toast(msg,'warn');
@@ -1827,6 +1830,15 @@ const RM = {
   },
   onRequest(a){
     RM.decks[a.p]=a.deck;
+    if(MATCH.active() && !MATCH.finished()){
+      // Bo3 다음 게임: 요청/수락이 아니라 양쪽이 각자 사이드보딩을 마치면 진행된다
+      if(a.p!==NET.seat && !RM.decks[NET.seat] && !NET.spectating && !MATCH._sent && !document.querySelector('#sb-ok')){
+        const ov=document.getElementById('modal-overlay'); if(ov.style.display!=='none') closeModal();
+        MATCH.next();
+      }
+      RM._tryStart();
+      return;
+    }
     if(a.p!==NET.seat && !RM.decks[NET.seat]){
       const ov=document.getElementById('modal-overlay');
       const blocking = ov.style.display!=='none' && !ov.dataset.dismiss
@@ -1851,7 +1863,7 @@ const RM = {
       const seed=crypto.getRandomValues(new Uint32Array(1))[0];
       // 덱을 시작 신호에 같이 실어 보낸다 — 양쪽이 각자 기억한 덱이 아니라 이 값을 쓰므로
       // 한쪽 덱만 예전 것으로 시작되는 어긋남이 생기지 않는다.
-      NET.sendAction({k:'rematchGo', p:0, seed, decks:[RM.decks[0], RM.decks[1]]});
+      NET.sendAction({k:'rematchGo', p:0, seed, decks:[RM.decks[0], RM.decks[1]], match:MATCH.payloadForGo()});
     }
   },
   onGo(a){
@@ -1859,11 +1871,75 @@ const RM = {
     const decks = (a.decks && a.decks[0] && a.decks[1]) ? a.decks : RM.decks;  // 신호에 실린 덱이 우선
     if(!decks[0] || !decks[1]) return;
     const m={ t:'start', seed:a.seed, yourSeat:NET.seat, spectate:!!NET.spectating, manual:ls.manual, banRule:ls.banRule,
+      format:ls.format||'bo1', match:a.match||null,
       players:[ {id:ls.players[0].id, deck:decks[0]}, {id:ls.players[1].id, deck:decks[1]} ] };
     RM.reset();
     const ov=document.getElementById('modal-overlay'); if(ov.style.display!=='none') closeModal();
     UI.log('🔄 재대결 시작!', 'sys');
     setTimeout(()=>startOnlineGame(m), 0);   // 액션 펌프 밖에서 새 게임 시작 (큐 리셋과 충돌 방지)
+  },
+};
+
+// ---------- Bo3 매치 (온라인 로비 방장 설정) ----------
+// 2선승. 게임이 끝나면 승리 창에서 [다음 게임 준비] → 사이드보딩(등록 덱의 사이드 기준) → 재대결 핸드셰이크(rematch/rematchGo 재사용)
+// → 새 게임 시작 때 각자 남은 전장 중 하나를 고르고(487.3~4, 동시 선택·공개) → 이전 게임 패자가 선후공 선택 → 드로우·멀리건.
+// 매치 상태는 양쪽이 각자 같은 결과에서 같은 값을 만들지만, 시작 신호(rematchGo)에도 실어 보내 어긋남을 막는다.
+const MATCH = {
+  format:'bo1', wins:[0,0], game:0, used:[[],[]], chooser:null, myDeck:null, _lastGame:null, _sent:false,
+  active(){ return NET.online && MATCH.format==='bo3'; },
+  finished(){ return Math.max(MATCH.wins[0],MATCH.wins[1])>=2; },
+  label(){ return `Bo3 ${MATCH.game}게임 · ${MATCH.wins[0]}:${MATCH.wins[1]}`; },
+  start(m){
+    if(m.match){ MATCH.format=m.match.format||'bo3'; MATCH.wins=[...m.match.wins]; MATCH.game=m.match.game; MATCH.used=(m.match.used||[[],[]]).map(a=>[...a]); MATCH.chooser=m.match.chooser; }
+    else { MATCH.format=(m.format==='bo3')?'bo3':'bo1'; MATCH.wins=[0,0]; MATCH.game=1; MATCH.used=[[],[]]; MATCH.chooser=null; }
+    MATCH._lastGame=null; MATCH._sent=false;
+  },
+  // 게임 결과 기록 (게임당 한 번). 이긴 게임의 전장 둘은 매치에서 제외된다.
+  recordResult(winner){
+    if(!MATCH.active() || MATCH._lastGame===G) return;
+    MATCH._lastGame=G;
+    MATCH.wins[winner]++; MATCH.chooser=opp(winner);
+    G.bfs.forEach((bf,i)=>{ if(i<2) MATCH.used[i].push(bf.n); });
+  },
+  // 좌석 p가 아직 쓸 수 있는 전장 (같은 전장이 여러 장이면 장수만큼)
+  remaining(p, deckBfs){
+    const used=[...(MATCH.used[p]||[])];
+    return (deckBfs||[]).filter(n=>{ const i=used.indexOf(n); if(i>=0){ used.splice(i,1); return false; } return true; });
+  },
+  payloadForGo(){ return MATCH.active() ? {format:'bo3', wins:[...MATCH.wins], game:MATCH.game+1, used:MATCH.used.map(a=>[...a]), chooser:MATCH.chooser} : null; },
+  // 다음 게임 준비: 사이드보딩(사이드덱이 있을 때) → 덱 전송
+  next(){
+    const ls=NET.lastStart; if(!ls || NET.spectating) return;
+    const base=MATCH.myDeck || ls.players[NET.seat].deck;
+    const ban=!!ls.banRule;
+    const send=d=>{ MATCH._sent=true; NET.sendAction({k:'rematch', p:NET.seat, deck:deckForMatch(d)});
+      UI.prompt(`▶ ${MATCH.game+1}게임 준비 완료 — 상대의 사이드보딩을 기다리는 중...`); };
+    if(base.side && base.side.length) RM.openSideboard(base, ban, send); else send(base);
+  },
+  // 2·3게임 전장 선택: 각자 남은 전장 중 하나 (동시에 고르고 함께 공개). 상대의 전설·선발 챔피언을 보여 준 채 고른다.
+  async chooseBattlefields(m){
+    const gameBefore=G;
+    const picks=await Promise.all([0,1].map(p=>{
+      const rem=MATCH.remaining(p, m.players[p].deck.bfs);
+      if(rem.length<=1) return Promise.resolve(rem[0] ?? m.players[p].deck.bfs[0]);
+      return NET.choice(p, ()=>MATCH._pickLocal(p, rem, m), v=>v, v=>v);
+    }));
+    if(G!==gameBefore && G && G.winner===null && !G.reviewSetup) return null;
+    UI.log(`전장 공개 — ${m.players[0].id}: 「${card(picks[0]).ko}」 / ${m.players[1].id}: 「${card(picks[1]).ko}」`, 'sys');
+    return picks;
+  },
+  _pickLocal(p, rem, m){
+    return new Promise(res=>{
+      const box=document.getElementById('modal-box');
+      const o=m.players[opp(p)].deck, mine=m.players[p].deck;
+      box.innerHTML=`<h3>🏟️ ${MATCH.game}게임 전장 선택</h3>
+        <div class="modal-copy" style="font-size:13px;color:#9aa4bd">이긴 게임에 쓴 전장은 이 매치에서 다시 쓸 수 없습니다 (룰 487.4). 남은 전장 중 하나를 고르세요 — 두 사람이 동시에 고르고 함께 공개됩니다.<br>
+        상대: 전설 「${esc(card(o.legendN).ko)}」 · 선발 「${esc(o.champN?card(o.champN).ko:'-')}」 &nbsp;|&nbsp; 나: 전설 「${esc(card(mine.legendN).ko)}」 · 선발 「${esc(mine.champN?card(mine.champN).ko:'-')}」</div>`;
+      const wrap=document.createElement('div'); wrap.className='modal-cards';
+      rem.forEach((n,i)=>{ const el=cardMiniEl(card(n)); el.style.cursor='pointer'; el.title='이 전장으로'; el.onclick=()=>{ closeModal(); res(n); }; wrap.appendChild(el); });
+      box.appendChild(wrap);
+      openModal();
+    });
   },
 };
 
@@ -2005,8 +2081,9 @@ function openSystemMenu(){
 }
 
 // ---------- 게임 시작 ----------
-function startOnlineGame(m){
+async function startOnlineGame(m){
   NET.spectating=!!m.spectate;
+  MATCH.start(m);
   // 관전자는 통계·리플레이 제공 대상이 아니다 (좌석이 없어 리플레이 업로드 조건 seat===0에도 안 걸린다)
   if(typeof STATS!=='undefined'){ if(NET.spectating){ STATS.mode=null; STATS._ended=true; } else STATS.gameStart((typeof P2P!=='undefined' && P2P.active) ? 'p2p' : 'online'); }
   NET.online=true;
@@ -2016,10 +2093,15 @@ function startOnlineGame(m){
   NET.resetGameSync();
   // 결정론: 시드 → 전장 선택(각자 3개 중 1개 무작위)도 rng 사용
   seedRng(m.seed);
-  const bfs = m.players.map(pl=>pl.deck.bfs[Math.floor(rng()*pl.deck.bfs.length)]);
-  // 선후공은 mulliganPhase 앞의 decideFirstPlayer가 시드 주사위로 정한다 (양쪽 동일)
+  // Bo3 2·3게임: 이긴 게임의 전장은 매치에서 빠지고, 각자 남은 전장 중 하나를 고른다 (487.3~487.4). 1게임과 단판은 무작위.
+  const bfs = (MATCH.active() && MATCH.game>1)
+    ? await MATCH.chooseBattlefields(m)
+    : m.players.map(pl=>pl.deck.bfs[Math.floor(rng()*pl.deck.bfs.length)]);
+  if(!bfs) return;   // 선택 도중 게임이 바뀜(이탈 등)
+  // 선후공은 mulliganPhase 앞의 decideFirstPlayer가 시드 주사위로 정한다 (양쪽 동일). Bo3 2·3게임은 이전 게임 패자가 고른다.
   newGame({
     seed: m.seed,
+    orderChooser: (MATCH.active() && MATCH.game>1) ? MATCH.chooser : undefined,
     reviewSetup: true,
     manual: m.manual,
     players: m.players.map(pl=>({
@@ -2042,12 +2124,12 @@ function startOnlineGame(m){
       el.appendChild(sel);
       return;
     }
-    el.textContent=`🌐 온라인(${modeLabel}${m.banRule?' · 🚫밴':''}) — 나: ${m.players[NET.seat].id} (${G.phase==='setup'&&!G.turnOrderDone?'선후공 결정 중':(G.turn===NET.seat?'선공':'후공')})`;
+    el.textContent=`🌐 온라인(${modeLabel}${m.banRule?' · 🚫밴':''}${MATCH.active()?' · '+MATCH.label():''}) — 나: ${m.players[NET.seat].id} (${G.phase==='setup'&&!G.turnOrderDone?'선후공 결정 중':(G.turn===NET.seat?'선공':'후공')})`;
   };
   UI.turnOrderDecided=()=>{ G.turnOrderDone=true; netInfo(); };
   netInfo();
   if(NET.spectating) UI.log('👁 관전 모드 — 조작할 수 없습니다. 위의 「손패 보기」에서 누구의 손패를 볼지 고르세요.', 'sys');
-  UI.log(`온라인 대전 시작! ${m.players[0].id} vs ${m.players[1].id} · 규칙 처리: ${modeLabel} 모드`, 'sys');
+  UI.log(`온라인 대전 시작! ${m.players[0].id} vs ${m.players[1].id} · 규칙 처리: ${modeLabel} 모드${MATCH.active()?` · ${MATCH.label()}`:''}`, 'sys');
   if(m.banRule) UI.log(`🚫 밴 리스트 적용 대전입니다 (${BANLIST.region}, 기준일 ${BANLIST.updated})`, 'sys');
   UI.log('승리 조건: '+G.victory+'점 선취!', 'sys');
   mulliganPhase().then(()=>startTurn());

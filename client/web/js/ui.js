@@ -2908,7 +2908,23 @@ UI.showVictory = function(p){
   const btns=box.querySelector('#victory-btns');
   const add=(label,fn,primary)=>{ const b=document.createElement('button'); if(primary) b.className='primary';
     b.textContent=label; b.onclick=fn; btns.appendChild(b); };
-  if(NET.online){
+  if(NET.online && typeof MATCH!=='undefined' && MATCH.active()){
+    // Bo3: 게임 결과를 매치에 기록하고, 끝나지 않았으면 다음 게임(사이드보딩 → 전장 선택 → 패자 선후공)으로
+    MATCH.recordResult(p);
+    const done=MATCH.finished();
+    const sb=box.querySelector('.result-scoreboard');
+    const line=document.createElement('div'); line.className='match-score-line';
+    line.style.cssText='text-align:center;font-size:14px;color:#d8c27a;margin:6px 0 2px';
+    line.textContent=done
+      ? `🏆 매치 ${MATCH.wins[0]}:${MATCH.wins[1]} — ${pname(MATCH.wins[0]>MATCH.wins[1]?0:1)} 매치 승리 (${MATCH.game}게임)`
+      : `Bo3 · ${MATCH.game}게임 종료 · 게임 스코어 ${pname(0)} ${MATCH.wins[0]} : ${MATCH.wins[1]} ${pname(1)}`;
+    sb.insertAdjacentElement('afterend', line);
+    if(!done){
+      if(!NET.spectating) add(`▶ ${MATCH.game+1}게임 준비 (사이드보딩 → 전장 선택)`, ()=>{ closeModal(); MATCH.next(); }, true);
+      else add('▶ 다음 게임 대기', ()=>{ closeModal(); UI.prompt('⏳ 플레이어들이 다음 게임을 준비하는 중...'); }, true);
+    } else if(!NET.spectating) add('🔄 새 매치 (덱 선택)', ()=>{ closeModal(); RM.openPick(false); }, true);
+    add(typeof P2P!=='undefined'&&P2P.active?'🚪 나가기':'🚪 로비로 돌아가기', ()=>{ closeModal(); gameLeave(); });
+  } else if(NET.online){
     // 같은 상대와 즉시 재대결 (덱 다시 선택) — 연결은 유지 중
     add('🔄 상대와 다시 하기 (덱 선택)', ()=>{ closeModal(); RM.openPick(false); }, true);
     add(typeof P2P!=='undefined'&&P2P.active?'🚪 나가기':'🚪 로비로 돌아가기', ()=>{ closeModal(); gameLeave(); });

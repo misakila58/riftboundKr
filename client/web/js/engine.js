@@ -94,6 +94,8 @@ function newGame(cfg){
   // 선후공은 decideFirstPlayer(주사위)가 mulliganPhase 앞에서 확정하고 로그를 남긴다
   // 시작 손패 4장
   G.reviewSetup=!!cfg.reviewSetup;
+  // Bo3 2·3게임: 주사위 대신 이전 게임의 패자가 선후공을 고른다 (대회 규정 · RiftJudge #1836 #2691)
+  G.orderChooser=(cfg.orderChooser===0||cfg.orderChooser===1)?cfg.orderChooser:null;
   if(!G.reviewSetup) G.players.forEach(p=>{ for(let i=0;i<4;i++) drawCard(p.idx, true); });
 }
 
@@ -657,6 +659,20 @@ function powerPips(c){
 async function decideFirstPlayer(){
   let d0, d1, tries=0, instant=false;
   const animated=G.reviewSetup && typeof UI.rollSetupDice==='function';
+  if(G.orderChooser===0||G.orderChooser===1){
+    const w=G.orderChooser;
+    UI.log(`이전 게임의 패자 ${pname(w)}이(가) 선후공을 선택합니다 (대회 규정 — 전장 공개 뒤, 드로우 전)`, 'sys');
+    UI.render();
+    const v = (animated && typeof UI.pickSetupOrder==='function') ? await UI.pickSetupOrder(w,null) : await UI.pickOption(w,
+      '이전 게임 패자 — 선공과 후공 중 선택하세요 (후공은 첫 전개 단계에 룬을 1개 더 전개)',
+      [{label:'⚔️ 선공', v:'first'}, {label:'🛡️ 후공 (첫 전개 룬 +1)', v:'second'}]);
+    const first = (v==='second') ? opp(w) : w;
+    G.turn=first; G.actingPlayer=first;
+    UI.log(`${pname(w)}: ${v==='second'?'후공':'선공'} 선택 → 선공: ${pname(first)} — 후공은 첫 전개 단계에 룬을 1개 더 전개합니다`, 'sys');
+    if(typeof UI.turnOrderDecided==='function') UI.turnOrderDecided();
+    UI.render();
+    return;
+  }
   do{
     d0=1+Math.floor(rng()*6); d1=1+Math.floor(rng()*6); tries++;
     if(animated){

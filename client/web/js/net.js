@@ -265,7 +265,9 @@ NET.choice = function(p, interactiveFn, serialize, deserialize){
   if(p===NET.seat){
     interactiveFn().then(v=>{ NET.send({t:'choice', id, data:serialize(v)}); });
   } else {
-    UI.prompt(`⏳ ${pname(p)} 선택 대기 중...`);
+    // 게임 시작 전(Bo3 전장 선택 등)에는 G가 없을 수 있다 — 시작 메시지의 이름으로 대신한다
+    const nm=(typeof G!=='undefined'&&G&&G.players&&G.players[p])?pname(p):(NET.lastStart?.players?.[p]?.id||'상대');
+    UI.prompt(`⏳ ${nm} 선택 대기 중...`);
   }
   return pr;
 };
