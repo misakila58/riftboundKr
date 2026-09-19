@@ -361,8 +361,7 @@ const EXTRA_OPS = {
     // 영혼포식자(196)·괴롭히는 밤(198): 에너지 비용만 무시 — 힘(Power) 비용은 지불해야 한다
     if(op.payPower) cands=cands.filter(n=>canPay(ctx.p,0,powerPips(card(n))));
     if(!cands.length){ if(!op.optional) UI.toast('폐기장에 대상이 없습니다','warn'); return; }
-    if(op.optional){ const yes=await UI.confirmP(ctx.p,'폐기장에서 카드를 플레이할까요?',null,{trashCosts:cands.map(n=>({pips:op.payPower?powerPips(card(n)):[]}))}); if(!yes) return; }
-    const sel=await UI.pickOption(ctx.p,'폐기장에서 플레이할 카드',cands.map(n=>({v:n,label:card(n).ko,n,powerCost:op.payPower?powerPips(card(n)):[]}))); if(sel===null) return;
+    const sel=await UI.pickOption(ctx.p,'폐기장에서 플레이할 카드',cands.map(n=>({v:n,label:card(n).ko+'\n'+(op.payPower&&powerPips(card(n)).length?'에너지 면제, 힘 '+powerPips(card(n)).map(d=>DOMAIN_KO[d]||d).join(', ')+' 지불':'비용 없이 플레이'),n,optionalTrash:!!op.optional,powerCost:op.payPower?powerPips(card(n)):[]}))); if(sel===null) return;
     const c=card(sel);
     if(c.type==='Unit'){
       // 정식 플레이 함수는 손패의 카드만 받으므로 고른 한 장을 잠시 손패 맨 앞에 옮긴다.
@@ -533,6 +532,8 @@ const EXTRA_OPS = {
     for(const pi of recycled) await fireEvent('onYouRecycle',{p:pi}); },
   async dawnAurora(op, ctx, h){ const P=G.players[ctx.p];
     const index=P.deck.findIndex(n=>card(n).type==='Unit');
+    const revealed=P.deck.slice(0,index<0?P.deck.length:index+1);
+    await UI.revealAurora(ctx.p,revealed,index);
     const tracked=trackRevealedDeck(P.deck,index<0?P.deck.length:index);
     P.deck=tracked.deck;
     try{
@@ -694,11 +695,11 @@ const EXTRA_OPS = {
     }
     else await resolveReturnToHand(ctx.p,{bfIdx:sel.bi, hiddenIndex:sel.hi}); },
   async exhThisDraw(op, ctx, h){ if(!ctx.gear||ctx.gear.ex) return;
-    const yes=await UI.confirmP(ctx.p,'도구를 탈진하고 카드를 뽑을까요?'); if(!yes) return;
+    const yes=await UI.confirmP(ctx.p,'도구를 탈진하고 카드를 뽑을까요?',card(ctx.gear.n),{decision:{title:'도구 효과',cost:'이 도구 탈진',result:`카드 ${op.n||1}장 뽑기`,accept:'탈진하고 뽑기',decline:'사용 안 함'}}); if(!yes) return;
     ctx.gear.ex=true; for(let i=0;i<(op.n||1);i++) drawCard(ctx.p); },
   async mistfall(op, ctx, h){ const it=h.it(); if(!it||!ctx.gear||ctx.gear.ex) return;
     if(!canPay(ctx.p,0,['Body'])) return;
-    const yes=await UI.confirmP(ctx.p,'신체 힘 1 + 도구 탈진으로 버프된 유닛을 준비시킬까요?'); if(!yes) return;
+    const yes=await UI.confirmP(ctx.p,'신체 힘 1 + 도구 탈진으로 버프된 유닛을 준비시킬까요?',card(ctx.gear.n),{decision:{title:'도구 효과',cost:'신체 힘 1, 이 도구 탈진',result:`「${unitName(it)}」 준비`,accept:'지불하고 준비',decline:'사용 안 함'}}); if(!yes) return;
     payCost(ctx.p,0,['Body']); ctx.gear.ex=true; await readyUnit(it, ctx.p); },
   async killThisGear(op, ctx, h){ if(!ctx.gear) return;
     const P=G.players[ctx.p]; const i=P.gear.indexOf(ctx.gear);

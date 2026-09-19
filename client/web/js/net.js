@@ -2,9 +2,12 @@
 const NET = {
   online:false, token:null, userId:null, ws:null, seat:null,
   base:'',   // 서버 origin (예: https://my.ngrok-free.app 또는 http://192.168.0.5:8321). 데스크톱 클라이언트에서 설정.
-  choiceSeq:0, pendingChoices:{}, actionQueue:[], processing:false,
+  choiceSeq:0, pendingChoices:{}, earlySetupChoices:{}, actionQueue:[], processing:false,
   onRooms:null, onStart:null, onErr:null, onOppLeft:null,
 };
+
+// 준비 선택 순서가 달라진 클라이언트끼리는 기존 버전 검사에서 연결을 차단한다.
+NET.clientVersion = ()=>((typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')+'+dice1+aurora1');
 
 // 서버 주소 설정/정규화 (끝 슬래시 제거)
 NET.setBase = function(url){
@@ -104,7 +107,7 @@ const VERCHK_PREFIX = '[버전 확인] v';
 NET._peerVer = null;
 NET._verSendCheck = function(){
   NET._peerVer = null; NET._verEcho = false;
-  const my = (typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');
+  const my = NET.clientVersion();
   NET.send({ t:'chat', msg: VERCHK_PREFIX + my + ' — 이 메시지가 채팅에 보이면 이 앱이 구버전입니다. 최신 버전으로 업데이트해 주세요.' });
   // 상대의 버전 확인이 일정 시간 안 오면 = 상대가 이 기능 이전 버전 → 어긋남 위험 경고.
   // 내 에코조차 없으면 서버가 채팅 릴레이 자체를 모르는 아주 옛 서버 — 판정 불가라 침묵한다
@@ -120,7 +123,7 @@ NET._verIntercept = function(m){
   if(m.from === NET.userId){ NET._verEcho = true; return true; }   // 내 에코는 숨기기만
   const peer = (m.msg.slice(VERCHK_PREFIX.length).split(' ')[0] || '?');
   NET._peerVer = peer;
-  const my = (typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');
+  const my = NET.clientVersion();
   if(peer !== my){
     const msg = `🔄 앱 버전이 다릅니다 (나 v${my} / 상대 v${peer}) — 진행하면 게임이 어긋날 수 있습니다. 두 분 모두 최신 버전으로 업데이트한 뒤 다시 시작하세요.`;
     UI.toast(msg, 'warn'); UI.log(msg, 'sys');
@@ -169,8 +172,10 @@ NET._authorized = function(a, seat){
   // 행동 주체가 명시된 경우: 발신 좌석과 일치해야 함
   if(typeof a.p === 'number' && a.p !== seat) return false;
   switch(a.k){
-    case 'endTurn':   return seat === G.turn && G.state !== 'showdown';
-    case 'pass':      return G.state === 'showdown' && seat === G.actingPlayer;
+    case 'endTurn':   return seat === G.turn && G.phase === 'action' && G.state === 'neutral'
+      && G.turn === G.actingPlayer && !G._endingTurn;
+    case 'pass':      return G.state === 'showdown' && seat === G.actingPlayer && G.showdown
+      && !G.showdown.resolvingItem && !G.showdown.finalizingTriggers && !G.showdown.pendingTriggers?.length;
     case 'move':      return seat === G.turn && G.turn === G.actingPlayer;
     case 'play': case 'hide': case 'playHidden': case 'ability': case 'equip':
       // 자기 카드/능력만 (a.p 검증으로 이미 보장). 결전 중엔 acting 좌석만.
@@ -187,7 +192,7 @@ NET._execAction = async function(a){
   switch(a.k){
     case 'play':      await playCardFromHand(a.p, a.handIdx, a.opts||{}); break;
     case 'hide':      await hideCard(a.p, a.handIdx); break;
-    case 'playHidden':await playHidden(a.p, a.bfIdx); break;
+    case 'playHidden':await playHidden(a.p, a.bfIdx, G.bfs[a.bfIdx]?.hiddenCards[a.hiddenIndex]); break;
     case 'move': {
       if(typeof UI.finishCombatMove==='function') UI.finishCombatMove();
       const units = a.uids.map(uid=>everyUnit().find(u=>u.uid===uid)).filter(Boolean);
@@ -230,6 +235,12 @@ NET.dispatch = function(action, localFn){
   if(UI.placementPending){ UI.toast('강조된 위치의 선택을 먼저 마쳐 주세요','warn'); return; }
   if(UI.unitSelectionPending){ UI.toast('카드 선택을 먼저 마쳐 주세요','warn'); return; }
   if(typeof UI.combatMoveBlocks==='function' && UI.combatMoveBlocks(action)) return;
+  if(action.k==='endTurn' && UI.canEndTurn && !UI.canEndTurn()){
+    UI.toast('지금은 턴을 종료할 수 없습니다','warn'); return;
+  }
+  if(action.k==='pass' && UI.canShowdownPass && !UI.canShowdownPass()){
+    UI.toast('지금은 패스할 수 없습니다','warn'); return;
+  }
   if(NET.online){
     NET.sendAction(action);
   } else {
@@ -244,6 +255,9 @@ NET.dispatch = function(action, localFn){
 NET.choice = function(p, interactiveFn, serialize, deserialize){
   const id = ++NET.choiceSeq;
   const pr = new Promise(res=>{ NET.pendingChoices[id] = { res, deserialize, p }; });
+  const early=NET.earlySetupChoices[id];
+  if(early) delete NET.earlySetupChoices[id];
+  if(early?.seat===p){ NET._resolveChoice(early); return pr; }
   if(p===NET.seat){
     interactiveFn().then(v=>{ NET.send({t:'choice', id, data:serialize(v)}); });
   } else {
@@ -253,7 +267,13 @@ NET.choice = function(p, interactiveFn, serialize, deserialize){
 };
 NET._resolveChoice = function(m){
   const pc = NET.pendingChoices[m.id];
-  if(!pc) return;
+  if(!pc){
+    // 준비 연출/로드가 느린 쪽에는 선택 응답이 먼저 도착할 수 있다.
+    // 인증된 좌석의 가까운 미래 응답만 보관하고 등록 때 동일한 좌석 검사를 거친다.
+    if(NET.online && G?.phase==='setup' && Number.isInteger(m.id) && m.id>NET.choiceSeq
+      && m.id<=NET.choiceSeq+8 && (m.seat===0||m.seat===1)) NET.earlySetupChoices[m.id]=m;
+    return;
+  }
   // 선택 응답은 반드시 그 선택을 요구받은 좌석에서만 와야 함 (상대 선택 가로채기 차단)
   if(typeof m.seat === 'number' && m.seat !== pc.p){ console.warn('rejected choice from wrong seat', m); return; }
   delete NET.pendingChoices[m.id];
@@ -266,5 +286,5 @@ NET._resolveChoice = function(m){
 
 // ---------- 게임 종료/이탈 정리 ----------
 NET.resetGameSync = function(){
-  NET.choiceSeq=0; NET.pendingChoices={}; NET.actionQueue=[]; NET.processing=false;
+  NET.choiceSeq=0; NET.pendingChoices={}; NET.earlySetupChoices={}; NET.actionQueue=[]; NET.processing=false;
 };

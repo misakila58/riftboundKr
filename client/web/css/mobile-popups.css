@@ -136,3 +136,38 @@
   #tut-panel { width:340px; max-width:48%; max-height:calc(100% - 12px); }
   #chat-pop { bottom:8px; height:calc(100% - 16px); max-height:calc(100% - 16px); }
 }
+
+/* 비용과 선택 영역만 스크롤하고 실행 버튼은 창 안에 고정한다. */
+#modal-shell #modal-box:has(.decision-actions) {
+  display:flex; flex-direction:column; overflow:hidden; width:720px;
+  max-width:100%; max-height:calc(100dvh - 40px); min-height:0;
+}
+#modal-box:has(.decision-actions) > h3 { flex:none; margin:0 0 12px; }
+.resource-layout { display:grid; grid-template-columns:minmax(140px, .85fr) minmax(0,1.15fr); gap:16px; min-height:0; overflow:auto; }
+.resource-layout .resource-payment { flex-direction:column; align-items:flex-start; margin:0 0 10px; }
+.resource-layout .resource-payment-card { flex:auto; }
+.resource-layout .resource-options { align-content:start; margin:0; }
+.resource-layout .card-option { min-width:0; width:100%; flex:1 1 140px; }
+.resource-layout .option-art { max-height:130px; }
+.resource-layout .option-art img { height:100%; max-height:130px; object-fit:contain; }
+.decision-content { display:flex; gap:20px; overflow:auto; min-height:0; }
+.decision-source { display:flex; flex-direction:column; align-items:center; gap:6px; flex:0 0 110px; font-size:12px; text-align:center; }
+.decision-preview { padding:0; background:none; border:0; cursor:zoom-in; }
+.decision-preview img { display:block; width:90px; border-radius:6px; }
+.decision-details { flex:1; min-width:0; line-height:1.6; }
+.decision-row { padding:10px 12px; margin-bottom:8px; border:1px solid #3a4a64; border-radius:8px; background:#101a2b; white-space:pre-line; }
+.decision-row small { display:block; color:#a8bad6; margin-bottom:4px; }
+#modal-box .decision-actions { flex:none; display:flex; justify-content:flex-end; gap:8px; padding-top:12px; margin-top:12px; border-top:1px solid #40506c; }
+#modal-box .decision-actions button { min-height:44px; flex:1; margin:0; }
+@media(max-width:480px), (max-height:480px) {
+  .resource-layout { grid-template-columns:minmax(110px,.85fr) minmax(0,1.15fr); gap:8px; }
+  .decision-content { gap:10px; }
+  .decision-source { flex-basis:76px; }
+  .decision-preview img { width:68px; }
+  .decision-row { padding:6px 8px; }
+  .resource-layout .option-art, .resource-layout .option-art img { max-height:90px; }
+  #modal-box .decision-actions { margin-top:8px; padding-top:8px; }
+}
+
+#modal-box:has(.decision-actions) .option-content { min-height:0; overflow:auto; }
+#modal-box:has(.decision-actions) > .battlefield-source { flex-shrink:0; max-height:25dvh; overflow:auto; }

@@ -71,3 +71,49 @@
   }
   window._mobileBack = handleBack;   // 시뮬레이션/디버깅용
 })();
+
+// 가로 양방향을 허용한다. primary로 고정하면 반대쪽으로 들었을 때 뒤집히지 않는다.
+(function(){
+  const touch=matchMedia('(pointer: coarse)');
+  const portrait=matchMedia('(orientation: portrait)');
+  const guide=document.createElement('dialog');
+  guide.id='landscape-guide';
+  guide.setAttribute('aria-labelledby','landscape-guide-title');
+  guide.innerHTML=`<div class="landscape-guide-content">
+    <div class="landscape-guide-icon" aria-hidden="true">↔</div>
+    <h2 id="landscape-guide-title">기기를 가로로 돌려 주세요</h2>
+    <p>왼쪽과 오른쪽 어느 방향으로 들어도 플레이할 수 있습니다.</p>
+    <button type="button">가로 전체 화면으로 시작</button>
+    <p class="landscape-guide-note">자동으로 회전하지 않으면 기기의 화면 회전 잠금을 해제해 주세요.</p>
+  </div>`;
+  document.body.appendChild(guide);
+  const button=guide.querySelector('button');
+  button.hidden=!document.documentElement.requestFullscreen;
+  let locking=false;
+  async function lockLandscape(){
+    if(!touch.matches || !screen.orientation?.lock || locking) return;
+    locking=true;
+    try { await screen.orientation.lock('landscape'); }
+    catch(e) { /* 미지원 또는 전체 화면이 아닌 브라우저에서는 회전 안내를 사용한다. */ }
+    finally { locking=false; }
+  }
+  function updateGuide(){
+    const needed=touch.matches && portrait.matches;
+    if(needed && !guide.open) guide.showModal();
+    else if(!needed && guide.open) guide.close();
+  }
+  guide.addEventListener('cancel',e=>e.preventDefault());
+  button.addEventListener('click',async()=>{
+    try {
+      if(!document.fullscreenElement) await document.documentElement.requestFullscreen();
+      await lockLandscape();
+    } catch(e) { /* 전체 화면 거절 시에도 수동 회전으로 계속할 수 있다. */ }
+    updateGuide();
+  });
+  touch.addEventListener('change',updateGuide);
+  portrait.addEventListener('change',updateGuide);
+  document.addEventListener('fullscreenchange',()=>{ lockLandscape(); updateGuide(); });
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ lockLandscape(); updateGuide(); } });
+  lockLandscape();
+  updateGuide();
+})();
