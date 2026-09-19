@@ -70,6 +70,7 @@ function simUI(policy){
     manualNotice:noop, showVictory:noop, inspect:noop, inspectUnit:noop,
     hideZoom:noop, showZoom:noop, logEntryEl:()=>null,
     isPicking:()=>false,
+    revealAurora:async()=>{},
     fx:{ unit:noop, cast:noop, chainAdd:noop, score:noop, turnEnd:noop, priority:noop, check:noop, setOn:noop, on:false },
     confirmP:     (p,t,c,x)   => simAnswer(()=>policy.confirm(p,t,c,x)),
     pickUnitFrom: (p,c,t,o,x) => simAnswer(()=>policy.unit(p,c,t,o,x)),
@@ -83,6 +84,15 @@ function simUI(policy){
     }),
     pickHandCard: (p,t)       => simAnswer(()=>policy.hand(p,t)),
     pickBuffs:    (p,t,c)     => simAnswer(()=>policy.buffs(p,t,c)),
+    pickBoardOrder:(p,t,o)    => simAnswer(()=>{
+      const remaining=o.map((option,index)=>({option,index})), ordered=[];
+      while(remaining.length){
+        const pick=policy.option(p,t,remaining.map((x,i)=>({...x.option,v:i})));
+        const at=Number.isInteger(pick)&&remaining[pick]?pick:0;
+        ordered.push(remaining.splice(at,1)[0].index);
+      }
+      return ordered;
+    }),
     pickMulligan: (p)         => simAnswer(()=>policy.mulligan(p)),
   };
 }

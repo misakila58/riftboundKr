@@ -1,19 +1,174 @@
-.setup-review { position:fixed; inset:0; z-index:900; overflow:auto; background:#070e19f5; color:#edf3ff; padding:20px; display:flex; align-items:safe center; justify-content:center; }
-.setup-review-box { width:min(900px,100%); text-align:center; }
-.setup-review h2 { margin:0 0 8px; color:#eed598; }
-.setup-review p { margin:8px 0 16px; color:#b4c2d7; }
-.setup-review-players { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
-.setup-review-player { padding:14px; border:1px solid #405570; border-radius:14px; background:#142035; min-width:0; }
-.setup-review h3 { margin:0 0 12px; overflow-wrap:anywhere; }
-.setup-review-cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
-.setup-review figure { margin:0; min-width:0; font-size:12px; }
-.setup-review figure img { display:block; width:100%; height:clamp(100px,20vh,200px); object-fit:contain; margin:8px 0; }
-.setup-review figcaption { overflow-wrap:anywhere; color:#d8e2f1; }
-.setup-review-status { min-height:24px; margin:16px 0 8px; color:#b9e3cf; }
-.setup-review-confirm { --progress:0; position:relative; width:104px; height:104px; padding:14px; border:0; border-radius:50%; background:#253c57; color:#fff; font-weight:700; cursor:pointer; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+/* 게임 소개부터 선후공 선택까지 사용하는 독립 배경. */
+body.setup-in-progress::before {
+  content:""; position:fixed; inset:0; z-index:99;
+  background:linear-gradient(180deg,#02091670,#02091655 45%,#020916a8),
+    url('../assets/riftboundbackground.jpg') center / cover no-repeat;
+}
+body.setup-in-progress #game-screen { visibility:hidden; }
+body.setup-in-progress :is(#build-tag,#phase-banner,#modal-visibility-toggle) { display:none !important; }
+body.setup-in-progress #modal-overlay { background:transparent; }
+body.setup-in-progress #modal-box { border-color:#8b785657; background:#0b1829ed; box-shadow:0 20px 70px #0009; }
+.setup-review {
+  position:fixed; inset:0; z-index:110; color:#edf3ff; padding:24px;
+  background:linear-gradient(180deg,#02091670,#02091655 45%,#020916a8),
+    url('../assets/riftboundbackground.jpg') center / cover no-repeat;
+  display:flex; align-items:center; justify-content:center; overflow:hidden;
+}
+.setup-review-box { width:min(980px,100%); max-height:100%; display:flex; flex-direction:column; min-height:0; }
+.setup-review-header { flex:none; text-align:center; margin-bottom:18px; text-shadow:0 2px 12px #000; }
+.setup-review-eyebrow { color:#c7af80; font-size:10px; letter-spacing:.25em; }
+.setup-review h2 { margin:7px 0; color:#fff0d1; font-size:clamp(20px,2.4vw,30px); letter-spacing:-.03em; }
+.setup-review-header p { margin:0; color:#bdcadb; font-size:13px; }
+.setup-review-players { display:grid; grid-template-columns:1fr; gap:16px; min-height:0; overflow:auto; padding:3px; }
+.setup-review-player {
+  --side:#d67b70; display:grid; grid-template-columns:150px minmax(0,1fr); align-items:center; gap:20px;
+  padding:18px 24px; border:1px solid #758da866; border-left:3px solid var(--side); border-radius:12px;
+  background:linear-gradient(115deg,#101d30ed,#081321be); box-shadow:0 5px 0 #02071066,inset 0 1px #ffffff16;
+}
+.setup-review-player.is-self { --side:#70bfdc; }
+.setup-review h3 { margin:0; display:flex; flex-direction:column; gap:9px; min-width:0; text-align:left; }
+.setup-review h3 small { font-size:11px; letter-spacing:.14em; color:var(--side); }
+.setup-review h3 span { font-size:17px; color:#f2e8d6; overflow-wrap:anywhere; }
+.setup-review-cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; }
+.setup-review figure { margin:0; min-width:0; text-align:center; }
+.setup-review figure > div { font-size:11px; color:#aebdd0; margin-bottom:7px; }
+.setup-card-preview { display:block; width:100%; margin:0; padding:0; background:none; border:0; border-radius:6px; cursor:zoom-in; touch-action:pan-y; }
+.setup-card-preview img { display:block; width:100%; height:clamp(92px,18vh,180px); object-fit:contain; filter:drop-shadow(0 6px 8px #0009); transition:filter .15s,transform .15s; }
+.setup-card-preview:hover img { transform:translateY(-3px); filter:drop-shadow(0 6px 10px #d6a13c44); }
+.setup-card-preview:focus-visible { outline:2px solid #dfbf7b; outline-offset:4px; }
+.setup-review figcaption { margin-top:8px; color:#e6dfd0; font-size:12px; line-height:1.4; word-break:keep-all; overflow-wrap:anywhere; }
+.setup-review-footer { flex:none; display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:18px; padding:0 3px; }
+.setup-review-guidance { min-width:0; }
+.setup-review-actions { display:flex; align-items:center; justify-content:flex-end; gap:12px; flex:none; }
+.setup-review-instant {
+  min-height:44px; max-width:150px; padding:9px 14px; border:1px solid #91b6c777; border-radius:9px;
+  background:#102b40dd; color:#dcecf3; box-shadow:inset 0 1px #fff2,0 5px 14px #0004; font-weight:700;
+}
+.setup-review-instant[hidden] { display:none; }
+.setup-review-instant:hover, .setup-review-instant:focus-visible { border-color:#bfe8f5; background:#183b53; outline:2px solid #8eddf044; outline-offset:2px; }
+.setup-review-status { color:#9ddab5; font-size:13px; }
+.setup-review-status:empty { display:none; }
+.setup-review-hint { margin:4px 0; color:#eadbb9; font-size:13px; }
+.setup-review-guidance > small { color:#acb9ca; font-size:11px; }
+@media(max-width:600px) {
+  .setup-review { padding:14px; }
+  .setup-review-header { margin-bottom:12px; }
+  .setup-review-player { grid-template-columns:1fr; gap:10px; padding:12px; }
+  .setup-review h3 { flex-direction:row; align-items:center; gap:8px; }
+  .setup-review h3 span { font-size:14px; }
+  .setup-review-cards { gap:8px; }
+  .setup-review figure img { height:clamp(90px,17vh,145px); }
+  .setup-review figcaption { font-size:11px; }
+  .setup-review-footer { margin-top:12px; gap:10px; }
+  .setup-review-actions { gap:7px; }
+  .setup-review-instant { max-width:112px; padding:8px 10px; font-size:11px; }
+  .setup-review-hint { font-size:11px; }
+  .setup-review-guidance > small { font-size:10px; }
+}
+@media(max-height:540px) and (min-width:601px) {
+  .setup-review { padding:10px 24px; }
+  .setup-review-header { margin-bottom:8px; }
+  .setup-review-eyebrow, .setup-review-header p { display:none; }
+  .setup-review h2 { font-size:20px; margin:0; }
+  .setup-review-players { gap:9px; }
+  .setup-review-player { padding:8px 18px; grid-template-columns:120px minmax(0,1fr); gap:10px; }
+  .setup-review figure > div { margin-bottom:3px; font-size:10px; }
+  .setup-review figure img { height:72px; }
+  .setup-review figcaption { margin-top:3px; font-size:10px; }
+  .setup-review-footer { margin-top:8px; }
+}
+@media(prefers-reduced-motion:reduce) { .setup-card-preview img { transition:none; } }
+
+/* 주사위 입력: 눌러 유지하는 동안 둘레가 찬다. */
+.setup-review-confirm, .setup-review-confirm:disabled {
+  --progress:0; position:relative; font-weight:800; text-shadow:0 2px 2px #0005;
+  cursor:pointer; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;
+  flex:0 0 104px; width:104px; height:104px; min-height:104px; border-radius:50%;
+  padding:20px 12px; border:1px solid #d9c08888; background:#17334e99;
+  box-shadow:inset 0 1px #fff3,0 8px 28px #0005; color:#f7e9cc; font-size:14px;
+}
+.setup-review-confirm:disabled { color:#a3b5c9; border-color:#8094ae66; cursor:default; }
 .setup-review-confirm:focus-visible { outline:2px solid white; outline-offset:4px; }
-.setup-review-confirm:disabled { cursor:default; opacity:1; color:#bceacb; }
-.setup-review-confirm svg { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); pointer-events:none; }
-.setup-review-confirm circle { fill:none; stroke:#8be7b0; stroke-width:4; stroke-linecap:round; stroke-dasharray:1; stroke-dashoffset:calc(1 - var(--progress)); }
 .setup-review-confirm span { position:relative; pointer-events:none; }
-@media(max-width:600px) { .setup-review { padding:12px; } .setup-review-players { grid-template-columns:1fr; gap:10px; } .setup-review-player { padding:10px; } .setup-review h3 { font-size:14px; margin-bottom:8px; } .setup-review figure img { height:110px; } .setup-review p { font-size:12px; } .setup-review-status { font-size:13px; margin-top:10px; } }
+.setup-review-confirm svg { position:absolute; pointer-events:none; inset:0; width:100%; height:100%; transform:rotate(-90deg); }
+.setup-review-confirm circle { fill:none; stroke:#efd195; stroke-width:3; stroke-linecap:round; stroke-dasharray:1; stroke-dashoffset:calc(1 - var(--progress)); }
+.setup-review-confirm[hidden] { display:none; }
+.setup-review-player.is-rolling-player { border-color:var(--side); box-shadow:0 0 20px #739ab51a; }
+.setup-roll-result { font-size:26px; font-weight:800; color:#f4d391; }
+.setup-roll-result:empty { display:none; }
+.setup-review[data-stage="rolling"] .setup-review-players,
+.setup-review[data-stage="result"] .setup-review-players,
+.setup-review[data-stage="clearing"] .setup-review-players { opacity:.35; pointer-events:none; }
+.setup-dice-stage { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:2; }
+.setup-dice-world { position:absolute; inset:0; }
+.setup-dice-flight { position:absolute; width:68px; height:68px; left:0; top:0; transform-style:preserve-3d; }
+.setup-dice-camera { width:100%; height:100%; transform-style:preserve-3d; }
+.setup-die { width:100%; height:100%; transform-style:preserve-3d; }
+.setup-die-face {
+  position:absolute; inset:0; display:grid; grid-template:repeat(3,1fr) / repeat(3,1fr); gap:4px; padding:11px;
+  border:1px solid #ffefd6; border-radius:9px; backface-visibility:hidden;
+  background:linear-gradient(145deg,#fff7e4,#dac6a0); box-shadow:inset 0 0 12px #92693033;
+}
+.setup-die-face i { border-radius:50%; }
+.setup-die-face .pip { background:radial-gradient(circle at 60% 70%,#213249,#020a13); box-shadow:inset 0 2px 3px #000,0 1px #fff; }
+.setup-die-face.face-1 { transform:translateZ(34px); }
+.setup-die-face.face-6 { transform:rotateY(180deg) translateZ(34px); }
+.setup-die-face.face-3 { transform:rotateY(90deg) translateZ(34px); }
+.setup-die-face.face-4 { transform:rotateY(-90deg) translateZ(34px); }
+.setup-die-face.face-2 { transform:rotateX(90deg) translateZ(34px); }
+.setup-die-face.face-5 { transform:rotateX(-90deg) translateZ(34px); }
+.setup-dice-shadow { position:absolute; width:68px; height:68px; left:0; top:0; border-radius:9px; background:#000; }
+.setup-dice-number { position:absolute; min-height:0; color:#ffe4ac; font-size:48px; font-weight:900; text-shadow:0 3px 15px #000; transform:translate(-50%,-100%); }
+.setup-dice-stage.is-clearing { opacity:0; transition:opacity .3s; }
+.setup-order-options { display:flex; gap:12px; }
+.setup-order-option { min-width:150px; padding:15px 22px; border:1px solid #c6a661; border-radius:10px; background:linear-gradient(#29415bcc,#142638ee); color:#f8e6c3; box-shadow:inset 0 1px #fff2,0 5px 14px #0004; }
+.setup-order-option strong { display:block; font-size:22px; }
+.setup-order-option small { display:block; margin-top:5px; color:#baccde; font-size:12px; }
+.setup-order-option:hover, .setup-order-option:focus-visible { border-color:#ffe3a7; background:#35516c; outline:2px solid #ffe3a755; outline-offset:2px; }
+/* 손패 정보는 크게, 선택 결과는 색과 배지로 동시에 표시한다. */
+#modal-shell #modal-box:has(.mulligan-grid) { width:820px; }
+.mulligan-heading { flex:none; text-align:center; margin-bottom:16px; }
+#modal-box .mulligan-heading h3 { color:#f2e5c9; margin:8px 0 5px; }
+.mulligan-heading p { margin:0; color:#aebdd0; font-size:13px; }
+.mulligan-order { display:inline-block; color:#edd094; border:1px solid #b8975855; border-radius:20px; padding:3px 12px; font-size:12px; background:#b8975815; }
+.mulligan-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; padding:10px 6px; overflow:auto; min-height:0; }
+.mulligan-grid .mulligan-card { width:100%; height:auto; aspect-ratio:744/1039; max-height:none; margin:0; flex:none; border:2px solid #687b96; border-radius:8px; cursor:pointer; }
+.mulligan-grid .mulligan-card.selected { border:3px solid #f5d185; box-shadow:0 0 0 3px #f5d18544,0 5px 18px #0007; transform:translateY(-5px); }
+.mulligan-card:focus-visible { outline:3px solid #9ecdf8; outline-offset:3px; }
+.mulligan-selected { display:none; position:absolute; top:7px; right:5px; background:#f5d185; color:#172333; padding:4px 7px; border-radius:4px; font-size:12px; font-weight:800; z-index:2; }
+.mulligan-card.selected .mulligan-selected { display:block; }
+.mulligan-grid .cm-name { font-size:12px; padding:6px 2px; }
+.mulligan-count { align-self:center; color:#b5c5d8; font-size:12px; white-space:nowrap; }
+#modal-box .mulligan-actions { align-items:center; gap:14px; }
+#modal-box .mulligan-actions button { flex:1; max-width:320px; min-height:48px; }
+@media(max-width:600px) {
+  .setup-review-confirm, .setup-review-confirm:disabled { flex-basis:84px; width:84px; height:84px; min-height:84px; font-size:12px; }
+  .setup-order-options { gap:7px; }
+  .setup-order-option { min-width:90px; padding:12px; }
+  .setup-order-option strong { font-size:18px; }
+  .setup-order-option small { font-size:10px; }
+  .setup-dice-world { transform:none; margin:0; }
+  .mulligan-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+  .mulligan-heading { margin-bottom:8px; }
+}
+@media(max-height:540px) and (min-width:601px) {
+  .setup-review-confirm, .setup-review-confirm:disabled { flex-basis:68px; width:68px; height:68px; min-height:68px; font-size:11px; padding:9px; }
+  .setup-review-player { padding-top:6px; padding-bottom:6px; }
+  .setup-review figure img { height:62px; }
+  .setup-roll-result { font-size:20px; }
+  .setup-dice-world { transform:none; margin:0; }
+  .setup-order-option { padding:8px 18px; }
+  .mulligan-heading { margin-bottom:4px; }
+  .mulligan-grid { max-height:200px; grid-template-columns:repeat(4,minmax(0,120px)); justify-content:center; }
+  .mulligan-grid .cm-name { font-size:10px; }
+}
+
+@media(max-width:600px) and (max-height:650px) {
+  .setup-review-header { margin-bottom:8px; }
+  .setup-review-header p, .setup-review-guidance > small { display:none; }
+  .setup-review-players { gap:10px; }
+  .setup-review-player { padding:9px; gap:6px; }
+  .setup-review figure img { height:70px; }
+  .setup-review figcaption { margin-top:4px; font-size:10px; }
+  .setup-review figure > div { margin-bottom:4px; font-size:10px; }
+}

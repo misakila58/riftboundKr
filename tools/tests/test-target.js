@@ -7,6 +7,7 @@ if(typeof globalThis.withBattlefieldSource==='undefined') globalThis.withBattlef
 var PICKS=[];   // pickUnitFrom 호출 기록 (프롬프트)
 var UI = { log(){}, render(){}, toast(){}, fx:{ unit(){}, cast(){}, chainAdd(){}, score(){}, turnEnd(){}, priority(){}, check(){}, setOn(){}, on:false },
   confirmP:()=>Promise.resolve(false),
+  revealAurora:()=>Promise.resolve(), pickBoardOrder:(p,t,o)=>Promise.resolve(o.map((_,i)=>i)),
   pickUnitFrom:(p,c,t)=>{ PICKS.push(String(t||'')); return Promise.resolve(c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0]); },
   pickOption:(p,t,o)=>Promise.resolve(o[0].v),
   pickReaction:()=>Promise.resolve(null),

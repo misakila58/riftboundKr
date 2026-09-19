@@ -9,6 +9,9 @@ const NET = {
   onRooms:null, onStart:null, onErr:null, onOppLeft:null,
 };
 
+// 방 입장·P2P·채팅 버전 확인에 쓰는 클라이언트 버전 문자열
+NET.clientVersion = ()=>(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');   // 빌드마다 버전이 오르므로 별도 접미사는 두지 않는다
+
 // 서버 주소 설정/정규화 (끝 슬래시 제거)
 NET.setBase = function(url){
   NET.base = String(url||'').trim().replace(/\/+$/,'');
@@ -108,7 +111,7 @@ const VERCHK_PREFIX = '[버전 확인] v';
 NET._peerVer = null;
 NET._verSendCheck = function(){
   NET._peerVer = null; NET._verEcho = false;
-  const my = (typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');
+  const my = NET.clientVersion();
   NET.send({ t:'chat', msg: VERCHK_PREFIX + my + ' — 이 메시지가 채팅에 보이면 이 앱이 구버전입니다. 최신 버전으로 업데이트해 주세요.' });
   // 상대의 버전 확인이 일정 시간 안 오면 = 상대가 이 기능 이전 버전 → 어긋남 위험 경고.
   // 내 에코조차 없으면 서버가 채팅 릴레이 자체를 모르는 아주 옛 서버 — 판정 불가라 침묵한다
@@ -124,7 +127,7 @@ NET._verIntercept = function(m){
   if(m.from === NET.userId){ NET._verEcho = true; return true; }   // 내 에코는 숨기기만
   const peer = (m.msg.slice(VERCHK_PREFIX.length).split(' ')[0] || '?');
   NET._peerVer = peer;
-  const my = (typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');
+  const my = NET.clientVersion();
   if(peer !== my){
     const msg = `🔄 앱 버전이 다릅니다 (나 v${my} / 상대 v${peer}) — 진행하면 게임이 어긋날 수 있습니다. 두 분 모두 최신 버전으로 업데이트한 뒤 다시 시작하세요.`;
     UI.toast(msg, 'warn'); UI.log(msg, 'sys');
@@ -173,8 +176,10 @@ NET._authorized = function(a, seat){
   // 행동 주체가 명시된 경우: 발신 좌석과 일치해야 함
   if(typeof a.p === 'number' && a.p !== seat) return false;
   switch(a.k){
-    case 'endTurn':   return seat === G.turn && G.state !== 'showdown';
-    case 'pass':      return G.state === 'showdown' && seat === G.actingPlayer;
+    case 'endTurn':   return seat === G.turn && G.phase === 'action' && G.state === 'neutral'
+      && G.turn === G.actingPlayer && !G._endingTurn;
+    case 'pass':      return G.state === 'showdown' && seat === G.actingPlayer && G.showdown
+      && !G.showdown.resolvingItem && !G.showdown.finalizingTriggers && !G.showdown.pendingTriggers?.length;
     case 'move':      return seat === G.turn && G.turn === G.actingPlayer;
     case 'play': case 'hide': case 'playHidden': case 'ability': case 'equip':
       // 자기 카드/능력만 (a.p 검증으로 이미 보장). 결전 중엔 acting 좌석만.
@@ -191,7 +196,7 @@ NET._execAction = async function(a){
   switch(a.k){
     case 'play':      await playCardFromHand(a.p, a.handIdx, a.opts||{}); break;
     case 'hide':      await hideCard(a.p, a.handIdx); break;
-    case 'playHidden':await playHidden(a.p, a.bfIdx); break;
+    case 'playHidden':await playHidden(a.p, a.bfIdx, G.bfs[a.bfIdx]?.hiddenCards[a.hiddenIndex]); break;
     case 'move': {
       if(typeof UI.finishCombatMove==='function') UI.finishCombatMove();
       const units = a.uids.map(uid=>everyUnit().find(u=>u.uid===uid)).filter(Boolean);
@@ -235,6 +240,12 @@ NET.dispatch = function(action, localFn){
   if(UI.placementPending){ UI.toast('강조된 위치의 선택을 먼저 마쳐 주세요','warn'); return; }
   if(UI.unitSelectionPending){ UI.toast('카드 선택을 먼저 마쳐 주세요','warn'); return; }
   if(typeof UI.combatMoveBlocks==='function' && UI.combatMoveBlocks(action)) return;
+  if(action.k==='endTurn' && UI.canEndTurn && !UI.canEndTurn()){
+    UI.toast('지금은 턴을 종료할 수 없습니다','warn'); return;
+  }
+  if(action.k==='pass' && UI.canShowdownPass && !UI.canShowdownPass()){
+    UI.toast('지금은 패스할 수 없습니다','warn'); return;
+  }
   if(NET.online){
     NET.sendAction(action);
   } else {

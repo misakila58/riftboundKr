@@ -6,6 +6,7 @@ const BOOT = `
 var RQ=[];   // pickReaction 응답 큐: 'counter'|'ability'|null
 var UI = { log(){}, render(){}, toast(){}, fx:{ unit(){}, cast(){}, chainAdd(){}, score(){}, turnEnd(){}, priority(){}, check(){}, setOn(){}, on:false },
   confirmP:()=>Promise.resolve(false),
+  revealAurora:()=>Promise.resolve(), pickBoardOrder:(p,t,o)=>Promise.resolve(o.map((_,i)=>i)),
   pickUnitFrom:(p,c)=>Promise.resolve(c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0]),
   pickOption:(p,t,o)=>Promise.resolve(o[0].v),
   pickReaction:(p,t,opts)=>{ const w=RQ.shift();

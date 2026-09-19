@@ -431,10 +431,46 @@ button { cursor:pointer; font-family:inherit; }
 .base-zone > .card-mini.exhausted:hover { transform:rotate(90deg) scale(.82); }
 .card-mini.playable { border-color:#7fc8ff; box-shadow:0 0 8px #7fc8ff66; }
 .card-mini.targetable { border-color:#ffe07f; box-shadow:0 0 12px #ffe07faa; animation:pulse .8s infinite alternate; }
+.card-mini.targetable.selected { border-color:#7fe0b0; box-shadow:0 0 12px #7fe0b099; animation:none; }
+.board-order-badge {
+  position:absolute; top:50%; left:50%; z-index:6; transform:translate(-50%,-50%);
+  display:grid; place-items:center; width:32px; height:32px; border:2px solid #fff3b0;
+  border-radius:50%; background:#162238e8; color:#fff3b0; font-size:18px; font-weight:800;
+  box-shadow:0 3px 12px #000c;
+}
+.card-mini.exhausted .board-order-badge { transform:translate(-50%,-50%) rotate(-90deg); }
 .board-pick-alternative { display:inline-flex; align-items:center; gap:6px; text-align:left; }
 .board-pick-alternative img { width:30px; height:42px; object-fit:cover; border-radius:3px; }
-.card-mini.stunned::after { content:'💫'; position:absolute; top:-6px; right:-6px; }
+.card-mini.stunned {
+  border-color:#7cc8ff;
+  box-shadow:0 0 0 2px #10243bcc,0 0 12px #76c8ffb3;
+}
+.card-mini.stunned::after {
+  content:''; position:absolute; inset:0; z-index:1; border-radius:4px; pointer-events:none;
+  background:linear-gradient(135deg,transparent 38%,#9bdcff24 38%,#9bdcff24 48%,transparent 48%,transparent 58%,#9bdcff24 58%,#9bdcff24 68%,transparent 68%);
+  box-shadow:inset 0 0 0 1px #bce8ff99;
+}
+.cm-stunned {
+  position:absolute; z-index:5; top:4px; left:50%; transform:translateX(-50%);
+  padding:2px 6px; border:1px solid #d9f4ff; border-radius:10px;
+  background:#16354aeb; color:#effbff; box-shadow:0 2px 7px #000b,0 0 7px #72d5ff99;
+  font-size:10px; font-weight:800; line-height:1.2; letter-spacing:.04em;
+  white-space:nowrap; pointer-events:none; text-shadow:0 1px 2px #000;
+}
 .card-mini.hidden-card { background:#1a2238 url('../assets/playcard_back.png') 50.318471% 45.662100% / 117.386489% 117.312253% no-repeat !important; display:flex; align-items:center; justify-content:center; font-size:22px; }
+.card-mini.battlefield-hidden-card { border-style:dashed; border-color:#92a0b8; }
+.card-mini.hidden-card-owned {
+  opacity:.82; filter:saturate(.48) brightness(.68); border-color:#9aa9c4;
+  box-shadow:0 2px 5px #0008,inset 0 0 0 2px #c7d3e326;
+}
+.card-mini.hidden-card-owned::after {
+  content:'숨김'; position:absolute; z-index:6; left:50%; top:50%; transform:translate(-50%,-50%);
+  padding:2px 5px; border:1px solid #d6e0f099; border-radius:10px;
+  background:#111b2cdb; color:#eef4ff; font-size:9px; font-weight:800; white-space:nowrap; pointer-events:none;
+}
+.card-mini.hidden-card-owned.playable { border-color:#7fc8ff; box-shadow:0 0 10px #7fc8ffaa; }
+.card-mini.hidden-card-owned.targetable { border-color:#ffe07f; box-shadow:0 0 12px #ffe07fcc; }
+.card-mini.hidden-card { cursor:default; }
 @keyframes pulse { from{box-shadow:0 0 6px #ffe07f66;} to{box-shadow:0 0 16px #ffe07fee;} }
 
 .cm-cost {
@@ -532,6 +568,10 @@ button { cursor:pointer; font-family:inherit; }
 body.modal-open #inspector {
   position:relative; z-index:110;
   background:rgba(20,28,48,.98);
+}
+/* 멀리건 선택창이 열린 동안에는 오른쪽 인스펙터를 선택 오버레이 뒤에 둔다. */
+body.mulligan-open #inspector {
+  position:relative; z-index:0;
 }
 .insp-placeholder { color:#5a6a90; font-size:12px; text-align:center; padding:14px 0; line-height:1.8; }
 #inspector img { width:130px; border-radius:8px; float:left; margin-right:10px; }
@@ -818,6 +858,7 @@ body:is(.fx-disabled,.modal-open) :is(.arcane-wave,.arcane-wave path,.arcane-hue
 .chain-ability { color:#c6cfe3; }
 .chain-state { color:#ffe49a; }
 .chain-target-heading { margin-top:12px; margin-bottom:7px; color:#e0d2ff; font-size:13px; font-weight:600; }
+.chain-affected-heading { color:#9fe4c0; }
 .chain-target-number { color:#c6cfe3; font-size:11px; margin-bottom:5px; }
 .chain-target { margin-top:6px; padding-top:6px; border-top:1px solid #495875; }
 .chain-target-card {
@@ -1281,6 +1322,7 @@ body.modal-peeking #inspector { z-index:auto; }
   .cm-might{ min-width:14px; height:14px; font-size:9px; padding:0 2px; bottom:-3px; left:-3px; }
   .cm-dmg{ min-width:13px; height:13px; font-size:8px; bottom:-3px; right:-3px; }
   .cm-buff{ min-width:13px; height:13px; font-size:8px; top:-3px; right:-3px; }
+  .cm-stunned{ top:2px; padding:1px 4px; font-size:8px; }
   .runes-zone{ --rune-width:18px; --rune-height:26px; }
   .rune-mini{ font-size:9px; }
   .piles{ gap:3px; }
@@ -1696,3 +1738,56 @@ body.replay-mode #legal-footer { display:none; }
   border:1px solid #3a4a70; background:#0e1626; color:#e8e6e0; font-size:13px;
 }
 @media (max-width:560px){ .sb-cols { flex-direction:column; } .sb-list { height:170px; } }
+
+/* Neutral reactions keep the battlefield and responding hand available. */
+#reaction-chain { position:absolute; inset:0; z-index:12; padding:6px; min-width:0; border:1px solid #667daa; border-radius:8px; background:rgba(13,21,37,.55); overflow:hidden; }
+.reaction-chain-list { display:flex; gap:8px; height:100%; overflow:auto; overscroll-behavior:contain; }
+.reaction-chain-entry { flex:0 0 auto; min-width:0; max-width:100%; display:flex; flex-direction:column; gap:4px; }
+.reaction-chain-entry > strong { color:#ffe49a; font-size:12px; line-height:1.3; }
+.reaction-chain-cards { display:flex; align-items:center; gap:6px; min-height:0; flex:1; overflow:auto; }
+#reaction-chain .chain-source-card { flex:0 0 auto; width:auto; height:100%; max-height:150px; aspect-ratio:744/1039; }
+#reaction-chain .chain-target { margin:0; padding:0; border:0; flex:0 0 auto; width:150px; max-width:43vw; }
+#reaction-chain .chain-target-card { flex-direction:column; padding:3px; gap:2px; }
+#reaction-chain .chain-target-card img { flex:0 1 auto; width:auto; height:70px; max-height:12vh; }
+#reaction-chain .chain-target-info { font-size:10px; line-height:1.2; gap:2px; }
+#reaction-chain .chain-target-info small { font-size:9px; }
+.reaction-arrow { color:#ffe49a; font-size:20px; }
+.reaction-effect-label { flex:0 0 auto; color:#9fe4c0; font-size:10px; font-weight:700; white-space:nowrap; }
+@media(max-height:540px) {
+  #reaction-chain { padding:3px; }
+  .reaction-chain-entry > strong { font-size:10px; }
+  #reaction-chain .chain-target-card { flex-direction:row; }
+  #reaction-chain .chain-target-card img { height:46px; max-height:none; }
+}
+
+/* 방향 잠금 미지원 모바일 브라우저에서도 세로 플레이는 열지 않는다. */
+#landscape-guide { position:fixed; inset:0; width:100%; height:100%; max-width:none; max-height:none; margin:0; padding:24px; box-sizing:border-box; border:0; background:#0e1420; color:#e7edfa; text-align:center; }
+#landscape-guide[open] { display:grid; place-items:center; }
+#landscape-guide::backdrop { background:#0e1420; }
+.landscape-guide-content { max-width:420px; }
+.landscape-guide-icon { color:#ffe49a; font-size:64px; }
+#landscape-guide h2 { font-size:22px; }
+#landscape-guide p { line-height:1.6; }
+#landscape-guide button { padding:12px 18px; border:1px solid #719bd8; border-radius:8px; background:#244d87; color:white; font:inherit; cursor:pointer; }
+#landscape-guide .landscape-guide-note { font-size:13px; color:#aebbd2; }
+
+/* 오로라: 상대 진영 위에 공개 순서와 두 플레이어의 확인 상태를 표시한다. */
+#aurora-reveal { position:absolute; inset:0; z-index:20; display:flex; flex-direction:column; gap:6px; padding:10px; border:1px solid #9ba7e6; border-radius:10px; background:rgba(13,21,37,.82); min-height:0; color:#edf1ff; }
+#aurora-reveal > strong { color:#e1d0ff; font-size:14px; }
+.aurora-reveal-note { font-size:12px; line-height:1.4; }
+.aurora-reveal-list { display:flex; flex:1; min-height:0; gap:12px; overflow:auto; padding:5px; }
+.aurora-reveal-entry { display:flex; flex-direction:column; gap:4px; flex:0 0 auto; align-items:center; }
+.aurora-reveal-entry > span { font-size:11px; color:#bdc7dd; white-space:nowrap; }
+.aurora-reveal-entry .card-mini { flex:1; min-height:48px; height:110px; max-height:170px; width:auto; aspect-ratio:74/104; }
+.aurora-reveal-unit > span { color:#ffe49a; font-weight:bold; }
+.aurora-reveal-unit .card-mini { border:2px solid #ffe49a; box-shadow:0 0 12px #e9ba6866; }
+.aurora-reveal-confirm { display:flex; flex-wrap:wrap; gap:8px; }
+.aurora-reveal-confirm button { flex:1; min-height:36px; padding:6px 10px; border:1px solid #adb8ee; border-radius:7px; background:#344774; color:#fff; }
+.aurora-reveal-confirm button:disabled { background:#1a253d; color:#aab5ca; cursor:default; }
+.aurora-reveal-confirm button.confirmed { color:#a6edc3; border-color:#629a7c; }
+@media(max-width:820px),(max-height:600px){
+  #aurora-reveal { padding:5px; gap:3px; }
+  .aurora-reveal-note,.aurora-reveal-entry > span { font-size:10px; }
+  .aurora-reveal-list { gap:8px; padding:3px; }
+  .aurora-reveal-confirm button { min-height:30px; padding:4px; font-size:11px; }
+}

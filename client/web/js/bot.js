@@ -9,6 +9,7 @@
 //  - 결전 대응: [행동]/[반응] 트릭은 아껴뒀다가 박빙 결전에서 사용 (riftbound.zone combat-and-showdown)
 
 const BOT = { active:false, seat:1, level:'skilled', busy:false, ctx:{ tried:new Set(), movesLeft:0, tc:-1 } };
+const BOT_ACTION_REVIEW_MS = 650;
 
 // 난이도 5단계 — 판단의 '깊이'와 '정보'로 구분한다.
 //   think : 0 = 즉흥(휴리스틱만) · 1 = 한 수 앞을 실제로 두어 보고 고름 · 2 = 턴 전체를 계획(빔 서치)
@@ -58,10 +59,31 @@ botWrap('confirmP',     (p,t,c,x)=>POLICY.confirm(p,t,c,x));
 botWrap('pickNumber',   (p,t,mn,mx,x)=>POLICY.number(p,t,mn,mx,x));
 botWrap('pickHandCard', (p,t)=>POLICY.hand(p,t));
 botWrap('pickBuffs',    (p,t,c)=>POLICY.buffs(p,t,c));
+botWrap('pickBoardOrder',(p,t,options)=>{
+  const remaining=options.map((option,index)=>({option,index})), ordered=[];
+  while(remaining.length){
+    const pick=POLICY.option(p,t,remaining.map((x,i)=>({...x.option,v:i})));
+    const at=Number.isInteger(pick)&&remaining[pick]?pick:0;
+    ordered.push(remaining.splice(at,1)[0].index);
+  }
+  return ordered;
+});
 botWrap('pickReaction', (p,t,o)=>POLICY.reaction(p,t,o));
 botWrap('pickMulligan', (p)=>POLICY.mulligan(p));
 
-// ── 턴 드라이버 (900ms마다 한 가지 행동) ──
+// 행동 결과를 먼저 보여 준 뒤 다음 판단까지 최소 관찰 시간을 보장한다.
+async function botRunPaced(action){
+  BOT.busy=true;
+  try{ await action(); }
+  catch(e){ console.error('[BOT]',e); }
+  finally{
+    UI.render();
+    await new Promise(resolve=>setTimeout(resolve, BOT_ACTION_REVIEW_MS));
+    BOT.busy=false;
+  }
+}
+
+// ── 턴 드라이버 (한 번에 한 가지 행동) ──
 setInterval(()=>{
   if(!BOT.active || !G || G.winner!==null || NET.online || BOT.busy) return;
   if(UI.isPicking && UI.isPicking()) return;                       // 사람이 선택 중
@@ -70,14 +92,12 @@ setInterval(()=>{
   // 결전: 봇 응답 차례 — 어려움은 박빙일 때 트릭 카드 시도 후 패스
   if(G.state==='showdown'){
     if(G.actingPlayer===BOT.seat){
-      BOT.busy=true;
-      botShowdown().catch(e=>console.error('[BOT]',e)).finally(()=>{ BOT.busy=false; UI.render(); });
+      botRunPaced(botShowdown);
     }
     return;
   }
   if(G.turn!==BOT.seat || G.phase!=='action' || G.state!=='neutral') return;
-  BOT.busy=true;
-  botStep().catch(e=>console.error('[BOT]',e)).finally(()=>{ BOT.busy=false; UI.render(); });
+  botRunPaced(botStep);
 }, 900);
 
 // 결전·턴 진행의 '무엇을 할까'는 전부 POLICY에 있다 (tools/selfplay.js와 같은 코드를 쓰기 위해서).

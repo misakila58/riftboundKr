@@ -14,6 +14,7 @@ var CONFIRM=()=>false; // confirmP 응답 함수(prompt)
 var CONFIRMS=[];      // confirmP 프롬프트 기록
 var UI = { log(){}, render(){}, toast(){}, fx:{ unit(){}, cast(){}, chainAdd(){}, score(){}, turnEnd(){}, priority(){}, check(){}, setOn(){}, on:false },
   confirmP:(p,t)=>{ CONFIRMS.push(String(t||'')); return Promise.resolve(!!CONFIRM(String(t||''))); },
+  revealAurora:()=>Promise.resolve(), pickBoardOrder:(p,t,o)=>Promise.resolve(o.map((_,i)=>i)),
   pickUnitFrom:(p,c,t)=>Promise.resolve(PICK ? (c.find(u=>PICK(u))||c[0]) : (c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0])),
   pickOption:(p,t,o)=>Promise.resolve(o[0].v),
   pickReaction:(p,t,opts)=>{ const w=RQ.shift();

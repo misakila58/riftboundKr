@@ -56,6 +56,7 @@ var UI = {
   isPicking(){ return false; }, logEntryEl(){ return null; },
   fx:{ unit(){}, cast(){}, chainAdd(){}, score(){}, turnEnd(){}, priority(){}, check(){}, setOn(){}, on:false },
   confirmP:     (p,t,c,x)  => Promise.resolve(SEATP(p).confirm(p,t,c,x)),
+  revealAurora:()=>Promise.resolve(), pickBoardOrder:(p,t,o)=>Promise.resolve(o.map((_,i)=>i)),
   pickUnitFrom: (p,c,t,o,x)=> Promise.resolve(SEATP(p).unit(p,c,t,o,x)),
   // 버프 소모 개수 지정(유닛별) — 옛 동결 봇(baseline)에는 없으므로 그때는 소모하지 않는다
   pickBuffs:    (p,t,c)    => Promise.resolve(SEATP(p).buffs ? SEATP(p).buffs(p,t,c) : []),

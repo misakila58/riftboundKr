@@ -72,7 +72,48 @@ const polWeakest   = a => [...a].sort((x,y)=>might(x)-might(y))[0];
 
 // 엔진과 동일한 기준으로 "지금 낼 수 있는가"를 묻는다.
 // 룬 1개가 에너지(탈진)와 힘(재활용)을 모두 낼 수 있으므로 e+pips 단순합은 양방향으로 틀린다.
+// 공격 주문의 적법 대상과 유익한 대상을 구분한다. 아군 희생을 명시한 비용/효과는 제외한다.
+function polOffensiveOp(op){
+  return !!op && !op.self && op.spec?.side!=='friendly' &&
+    (['damage','damageAll','kill','stun','dealSplit','dmgEqMyMight'].includes(op.op)
+      || op.op==='might' && op.n<0);
+}
+function polOffensivePlayable(p,n,bfIdx,fromHidden=false){
+  if(card(n).type!=='Spell') return true;
+  const fx=FX[n]||{}, saved=[_ctxBf,_hiddenBf,_ctxUnit,_curKind];
+  _ctxBf=bfIdx??null; _hiddenBf=fromHidden&&!fx.hiddenFreeTarget?bfIdx:null;
+  _ctxUnit=null; _curKind='spell';
+  try{
+    const c=card(n), cost=fromHidden?{energy:0,pips:[],spellOK:true}:
+      {energy:applyCostMods(p,c,c.e||0),pips:powerPips(c),spellOK:true};
+    const prev=[];
+    for(const group of fx.playOps||[]){
+      if(group.legion && G.players[p].playedCards<1) continue;
+      for(const op of group.ops||[]){
+        const offensive=polOffensiveOp(op);
+        const specs=preTargetSpecs(op);
+        // 대상을 지정하지 않는 광역 공격도 실제 범위 안에 적이 있어야 한다.
+        if(offensive && !specs.length && op.spec){
+          if(!unitsBySpec(op.spec,p).some(u=>u.ctrl!==p)) return false;
+        }
+        for(const entry of specs){
+          const spec=typeof entry==='function'?entry(p,prev):entry;
+          if(spec.battlefield) continue;
+          const eligible=unitsBySpec(spec,p).filter(u=>canPayDeflect(p,u,cost));
+          const useful=offensive?eligible.filter(u=>u.ctrl!==p):eligible;
+          if(offensive && !useful.length && !spec.optional) return false;
+          // 첫 선택부터 적이 전혀 없는 선택적 공격도 카드만 낭비하지 않는다.
+          if(offensive && !useful.length && spec.optional && !prev.some(u=>u&&u.ctrl!==p)) return false;
+          prev.push(useful[0]||null);
+        }
+      }
+    }
+    return true;
+  }finally{ [_ctxBf,_hiddenBf,_ctxUnit,_curKind]=saved; }
+}
+
 function polCanPlay(p, c){
+  if(!polOffensivePlayable(p,c.n)) return false;
   try {
     const e = (typeof applyCostMods==='function') ? applyCostMods(p, c, c.e||0) : (c.e||0);
     if(!canPay(p, e, powerPips(c))) return false;
@@ -611,6 +652,10 @@ POLICY.unit = async function(p, candidates, promptText, optional, selection){
     const c=selection.costConfirmation;
     if(!POLICY.confirm(p,c.text,c.preview)) return null;
     return candidates.length===1?candidates[0]:POLICY.unit(p,candidates,c.pickTitle,false);
+  }
+  if(polOffensiveOp(selection?.op)){
+    candidates=candidates.filter(u=>u.ctrl!==p);
+    if(!candidates.length) return null;
   }
   const txt = String(promptText||'');
   const damage=txt.match(/피해를 배분할 유닛 선택 \(남은 피해 (\d+)\)/);
@@ -1598,6 +1643,7 @@ POLICY.pickPlay = async function(p, blocked){
     if(blocked && blocked.has('h'+n)) return;
     const c = card(n);
     if(polAssaultBonus(n)) return; // 공격 결전의 전용 평가까지 보류
+    if(!polOffensivePlayable(p,n)) return;
     if(POLICY.ab.canpay ? !polCanPlay(p, c) : polCost(c) > readyRunes(p).length) return;
     if(POLICY.ab.reserve && polCost(c) > Math.max(0, budget)) return;  // 상대 턴 응수분은 남긴다
     if(polMfNeutralCardBlocked(p,n)) return;
@@ -1964,7 +2010,7 @@ function polAbLegal(p, c){
   if(ab.legion && !(P.playedCards >= 1)) return false;
   if(ab.onlyAtBf && c.src.kind === 'unit' && c.src.u.loc === 'base') return false;
   if(typeof abilityHasTargets === 'function' && !abilityHasTargets(p, c.src, ab)) return false;   // 대상 없으면 발동 불가 (404 — 엔진 preTargetAbility와 같은 판단)
-  // A legal target can still gain no buff. Preserve the engine's legal choices for humans.
+  // 봇은 효과가 없는 추가 버프를 피한다. 사람은 경고를 확인한 뒤 규칙상 적법한 대상을 유지할 수 있다.
   if(ab.ops?.length===1 && ab.ops[0].op==='buff' &&
     !unitsBySpec(ab.ops[0].spec,p).some(u=>u.ctrl===p&&polCanBuff(u))) return false;
   if(cost.exhaustSelf){
@@ -2085,6 +2131,7 @@ POLICY.hiddenPlan = function(p, ctx, wantTrick){
       if(h.turn === G.turnCount && G.turn === p) continue;                    // 숨긴 턴에는 못 낸다
       if(ctx && ctx.tried.has('v' + i + ':' + h.n)) continue;
       const c = card(h.n), fx = FX[h.n] || {kw:{}};
+      if(!polOffensivePlayable(p,h.n,i,true)) continue;
       if(polAssaultBonus(h.n)) continue;
       if(polMfTimelineBlocked(p,h.n)) continue;
       const trick = !!(fx.kw.action || fx.kw.reaction);
@@ -2385,6 +2432,7 @@ async function polEmergencyAction(p,ctx){
       if(bf.units.some(u=>u.ctrl!==p&&unitFx(u).blockReveal)) continue;
       for(const h of bf.hiddenCards){
         if(h.by!==p||h.turn===G.turnCount||ctx.tried.has('v'+i+':'+h.n)) continue;
+        if(!polOffensivePlayable(p,h.n,i,true)) continue;
         if(candidates.some(a=>a.kind==='hidden'&&a.bfIdx===i)) continue;
         candidates.push({kind:'hidden',n:h.n,bfIdx:i,label:'숨김 '+card(h.n).ko,
           run:()=>playHidden(p,i)});

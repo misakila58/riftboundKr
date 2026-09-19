@@ -72,8 +72,8 @@ UI.promptForState = function(){
   if(typeof G==='undefined' || !G) return;
   const move=pendingCombatMove();
   if(move){
-    UI.prompt(move.action ? '교전 이동 확인 중...'
-      : `교전 이동 대기: ${card(G.bfs[move.dest].n).ko}, ${move.uids.size}기. 유닛을 눌러 추가/제외 후 [교전 이동 확인]을 누르세요.`);
+    UI.prompt(move.action ? '이동 적용 중...'
+      : `이동 대기: ${move.dest==='base'?'기지':card(G.bfs[move.dest].n).ko}, ${move.uids.size}기. Space로 적용하거나 S로 취소하세요.`);
     return;
   }
   // 승부가 났으면 대기 문구만 지운다 (승리 화면이 그 위를 덮는다)
@@ -105,8 +105,6 @@ UI.promptShowdown = function(){
     : `${pname(G.actingPlayer)}: [행동]/[반응] 카드·능력을 사용하거나 패스하세요`);
   document.getElementById('btn-pass').style.display='';
   document.getElementById('btn-endturn').style.display='none';
-  // 우선권이 나에게 왔고 쓸 수 있는 숨김 카드가 있으면 알려 준다
-  setTimeout(()=>{ try{ UI.askHidden(); }catch(e){} }, 0);
 };
 
 // ---------- 체인 보기 (게임 선택/온라인 응답과 독립적인 정보창) ----------
@@ -188,18 +186,30 @@ function chainTargetEl(target, chain, key){
   } else row.appendChild(info);
   return row;
 }
+function appendChainTargets(parent,targets,chain,keyPrefix,numberLabel){
+  targets.forEach((target,j)=>{
+    const row=chainTargetEl(target,chain,`${keyPrefix}-${j}`);
+    if(targets.length>1){
+      const number=document.createElement('div'); number.className='chain-target-number';
+      number.textContent=`${numberLabel} ${j+1}`; row.prepend(number);
+    }
+    parent.appendChild(row);
+  });
+}
 UI.updateChainView = function(){
   const chain=visibleChain();
+  const boardView=boardChainView();
   document.getElementById('modal-shell').classList.toggle('has-chain',chain.length>0);
   for(const id of ['btn-chain','btn-modal-chain']){
     const button=document.getElementById(id);
     button.style.display=chain.length?'':'none';
     if(id==='btn-chain'){
       document.getElementById('btn-chain-count').textContent=chain.length;
-      button.title=`체인 보기 (${chain.length})`;
+      button.title=`${boardView && !boardView.hidden?'체인 숨기기':'체인 보기'} (${chain.length})`;
+      button.setAttribute('aria-controls',boardView?'reaction-chain':'chain-overlay');
       button.setAttribute('aria-label',button.title);
     } else button.textContent=`🔗 체인 보기 (${chain.length})`;
-    button.setAttribute('aria-expanded',String(chainIsOpen() && chain.length>0));
+    button.setAttribute('aria-expanded',String(chain.length>0 && (id==='btn-chain' && boardView ? !boardView.hidden : chainIsOpen())));
   }
   if(!chain.length){ UI.hideChain(); return; }
   if(!chainIsOpen()) return;
@@ -233,17 +243,16 @@ UI.updateChainView = function(){
       state.textContent=it.countered?'무효화됨':`현재 통제: ${pname(it.execAs)}`; entry.appendChild(state);
     }
     const targets=it.displayTargets || (it.target ? [snapshotChainTarget(it.target,chain)] : snapshotCastTargets(it.pre,it.preAb));
+    const affected=it.displayAffected||[];
     const heading=document.createElement('div'); heading.className='chain-target-heading'; heading.textContent='지정 대상'; entry.appendChild(heading);
-    if(targets.length) targets.forEach((target,j)=>{
-      const row=chainTargetEl(target,chain,`target-${i}-${j}`);
-      if(targets.length>1){
-        const number=document.createElement('div'); number.className='chain-target-number'; number.textContent=`대상 ${j+1}`;
-        row.prepend(number);
-      }
-      entry.appendChild(row);
-    });
+    if(targets.length) appendChainTargets(entry,targets,chain,`target-${i}`,'대상');
     else {
       const empty=document.createElement('p'); empty.className='chain-hint'; empty.textContent='적재 시 지정된 대상 없음'; entry.appendChild(empty);
+    }
+    if(affected.length){
+      const appliedHeading=document.createElement('div'); appliedHeading.className='chain-target-heading chain-affected-heading';
+      appliedHeading.textContent='적용 대상'; entry.appendChild(appliedHeading);
+      appendChainTargets(entry,affected,chain,`affected-${i}`,'적용');
     }
     list.appendChild(entry);
   });
@@ -319,6 +328,81 @@ function clearPicking(){
     : (G && G.winner===null ? `<div class="prompt-title">${esc(pname(G.turn))}의 행동 단계</div>` : '');
 }
 
+
+// 공개 정보는 양쪽에서 같은 순서로 보여 주고, 각 좌석의 확인을 모두 받은 뒤 진행한다.
+UI.revealAurora = async function(p, revealed, unitIndex){
+  if(replayLock()) return;
+  const game=G, previousResolver=_resolver, previousPending=UI.unitSelectionPending;
+  const lock=()=>{};
+  _resolver=lock; UI.unitSelectionPending=true;
+  hideMenu(); UI.hideHover();
+  const panel=document.createElement('section'); panel.id='aurora-reveal';
+  panel.setAttribute('aria-label','눈부신 오로라 공개 카드');
+  const title=document.createElement('strong'); title.textContent=pname(p)+'의 눈부신 오로라';
+  const note=document.createElement('div'); note.className='aurora-reveal-note';
+  note.textContent='메인 덱 위에서부터 유닛이 나올 때까지 공개합니다';
+  const list=document.createElement('div'); list.className='aurora-reveal-list';
+  const footer=document.createElement('div'); footer.className='aurora-reveal-confirm';
+  panel.append(title,note,list,footer);
+  const viewer=NET.online?NET.seat:(typeof BOT!=='undefined' && BOT.active?opp(BOT.seat):UI._orient);
+  document.getElementById('parea-'+opp(viewer)).appendChild(panel);
+  updateButtons();
+  let shown=false;
+  const buttons=[], localResolvers=[];
+  // 두 클라이언트가 애니메이션을 시작하기 전에 동일한 순서로 응답 슬롯을 등록한다.
+  const confirmations=[0,1].map(seat=>{
+    const button=document.createElement('button'); button.type='button'; button.disabled=true;
+    const local=!NET.online || seat===NET.seat;
+    const bot=!NET.online && typeof botIs==='function' && botIs(seat);
+    button.textContent=pname(seat)+' · '+(local&&!bot?'공개 중':'확인 대기');
+    footer.appendChild(button); buttons[seat]={button,local,bot};
+    const interactive=()=>new Promise(resolve=>{
+      localResolvers[seat]=resolve;
+      button.onclick=()=>{
+        if(!shown || button.disabled) return;
+        button.disabled=true; button.textContent=pname(seat)+' · 확인 전달 중';
+        resolve(true);
+      };
+    });
+    const wait=NET.online?NET.choice(seat,interactive,v=>v,v=>v):interactive();
+    return wait.then(()=>{
+      button.disabled=true; button.classList.add('confirmed');
+      button.textContent=pname(seat)+' · 확인 완료';
+    });
+  });
+  try{
+    for(let i=0;i<revealed.length;i++){
+      const entry=document.createElement('div'); entry.className='aurora-reveal-entry';
+      const label=document.createElement('span');
+      label.textContent=(i+1)+'. '+(i===unitIndex?'배치할 유닛':'플레이 후 재활용');
+      if(i===unitIndex) entry.classList.add('aurora-reveal-unit');
+      entry.append(label,cardMiniEl(card(revealed[i]))); list.appendChild(entry);
+      list.scrollLeft=list.scrollWidth;
+      if(i<revealed.length-1) await new Promise(resolve=>setTimeout(resolve,450));
+    }
+    shown=true;
+    note.textContent=unitIndex>=0
+      ? '강조된 유닛을 추방한 뒤 비용 없이 플레이합니다. 두 플레이어가 확인하면 진행합니다.'
+      : '유닛이 없습니다. 두 플레이어가 확인하면 공개한 카드를 재활용합니다.';
+    for(let seat=0;seat<2;seat++){
+      const {button,local,bot}=buttons[seat];
+      if(bot) localResolvers[seat](true);
+      else if(local){ button.disabled=false; button.textContent=pname(seat)+' · 확인'; }
+    }
+    UI.prompt('눈부신 오로라: 공개 카드 확인 중');
+    await Promise.all(confirmations);
+    note.textContent='두 플레이어 모두 확인했습니다';
+    await new Promise(resolve=>setTimeout(resolve,450));
+  }finally{
+    panel.remove();
+    if(G===game){
+      if(_resolver===lock) _resolver=previousResolver;
+      UI.unitSelectionPending=previousPending;
+      updateButtons();
+    }
+  }
+};
+
 // ── 온라인 라우팅 래퍼 ──
 // 내 좌석이면 인터랙티브, 상대 좌석이면 대기. 결과는 서버 에코로 양측 동시 해결.
 let _turnGlowPick=null;
@@ -326,12 +410,14 @@ async function routedPick(p, interactiveFn, serialize, deserialize){
   const previous=_turnGlowPick;
   _turnGlowPick={game:G,p};
   updateTurnGlow();
+  updateButtons();
   try{
     if(!NET.online) return await interactiveFn();
     return await NET.choice(p, interactiveFn, serialize, deserialize);
   } finally {
     _turnGlowPick=previous;
     updateTurnGlow();
+    updateButtons();
   }
 }
 
@@ -386,14 +472,32 @@ function _pickUnitLocal(p, candidates, promptText, optional, otherOptions=[]){
   });
 };
 let _pickableUids = null;
-UI.isPicking = ()=>!!_resolver || UI.unitSelectionPending; // 온라인 선택 에코 대기도 포함
+UI.isPicking = ()=>!!_resolver || UI.unitSelectionPending || UI.placementPending
+  || !!(_turnGlowPick && _turnGlowPick.game===G);
+function localControlsPlayer(p){
+  if(NET.online) return p===NET.seat;
+  return !(typeof botIs==='function' && botIs(p));
+}
+UI.canEndTurn = ()=>!!(G && G.winner===null && G.phase==='action' && G.state==='neutral'
+  && !G._endingTurn && G.turn===G.actingPlayer && !pendingCombatMove()
+  && !UI.isPicking() && localControlsPlayer(G.turn));
+UI.canShowdownPass = ()=>{
+  const sd=G?.showdown;
+  return !!(G && G.winner===null && G.state==='showdown' && sd
+    && !sd.resolvingItem && !sd.finalizingTriggers && !sd.pendingTriggers?.length
+    && !UI.isPicking() && localControlsPlayer(G.actingPlayer));
+};
 // 선택창을 닫고 보드를 보여 주는 동안 다른 메뉴가 선택 안내를 덮지 않게 한다.
 document.addEventListener('click',e=>{
-  if(!UI.unitSelectionPending || e.target.closest('#prompt-area,#card-zoom,#chain-overlay,.bf-scroll')) return;
+  if(!UI.unitSelectionPending || e.target.closest('#prompt-area,#reaction-chain,#aurora-reveal,#card-zoom,#chain-overlay,#ctx-menu,.bf-scroll')) return;
+  if(_suppressClick) return; // 롱프레스 정보 보기 뒤에 따라오는 클릭은 아래 전용 리스너가 막는다.
+  if(e.target.closest('#btn-chain') || (canPassReaction() && e.target.closest('#btn-endturn'))) return;
   const choice=e.target.closest('[data-board-choice]');
   if(choice && _boardCardPick){
     e.preventDefault(); e.stopImmediatePropagation();
-    _boardCardPick.finish(Number(choice.dataset.boardChoice)); return;
+    const i=Number(choice.dataset.boardChoice);
+    if(_reactionPick){ showReactionChoiceMenu(i,e); return; }
+    _boardCardPick.finish(i); return;
   }
   const unit=e.target.closest('#board [data-uid]');
   if(unit && _pickableUids?.has(Number(unit.dataset.uid))) return;
@@ -420,9 +524,11 @@ function optionBoardCard(o){
 }
 function boardCardElement(t){
   if(!t) return null;
+  if(t.kind==='legend') return document.querySelector('#legend-'+t.p+' .card-mini');
   if(t.kind==='unit') return document.querySelector('#board [data-uid="'+t.uid+'"]');
   if(t.kind==='gear') return document.querySelector('#base-'+t.p+' [data-gear-index="'+t.index+'"]:not([data-equipped-uid])');
   if(t.kind==='hand') return document.querySelector('#hand-'+t.p+' [data-hand-index="'+t.index+'"]');
+  if(t.kind==='hidden') return document.querySelector('[data-hidden-bf="'+t.bfIdx+'"][data-hidden-index="'+t.index+'"]');
   if(t.kind==='attached') return document.querySelector('[data-equipped-uid="'+t.uid+'"][data-gear-index="'+t.index+'"]');
   return null;
 }
@@ -478,6 +584,39 @@ async function pickCardOption(p,title,options,targets,cancel=true){
     _boardCardPick=null; UI.unitSelectionPending=false; UI.render(); UI.promptForState();
   }
 }
+// 같은 시점에 생긴 여러 효과의 해결 순서를 보드 카드에서 한 번에 정한다.
+// 선택한 카드를 다시 누르면 해제되며, 숫자는 먼저 해결할 순서다.
+UI.pickBoardOrder = async function(p,title,options,targets){
+  if(options.length<2) return options.map((_,i)=>i);
+  UI.unitSelectionPending=!(NET.online && p!==NET.seat);
+  try{
+    return await routedPick(p,async()=>{
+      const selected=[];
+      while(true){
+        const choices=options.map((o,i)=>({...o,v:i}));
+        if(selected.length===options.length) choices.push({v:'done',label:'이 순서로 확정'});
+        if(selected.length) choices.push({v:'reset',label:'순서 초기화'});
+        const choiceTargets=choices.map((_,i)=>i<options.length?targets[i]:null);
+        const pending=_pickCardOptionLocal(p,
+          `${title} — 카드를 순서대로 누르세요 (${selected.length}/${options.length})`,choices,choiceTargets,false);
+        selected.forEach((optionIndex,orderIndex)=>{
+          const el=boardCardElement(targets[optionIndex]); if(!el) return;
+          el.classList.add('selected');
+          const badge=document.createElement('span'); badge.className='board-order-badge'; badge.textContent=orderIndex+1;
+          el.appendChild(badge);
+          el.setAttribute('aria-label',`${options[optionIndex].label}, ${orderIndex+1}번째 해결, 다시 누르면 해제`);
+        });
+        const picked=await pending;
+        if(picked===null) continue;
+        const choice=choices[picked].v;
+        if(choice==='done') return selected;
+        if(choice==='reset'){selected.length=0;continue;}
+        const at=selected.indexOf(choice);
+        if(at>=0) selected.splice(at,1); else selected.push(choice);
+      }
+    },v=>v,v=>v);
+  }finally{_boardCardPick=null;UI.unitSelectionPending=false;UI.render();UI.promptForState();}
+};
 
 // 텍스트 안의 「카드명」에 호버 미리보기를 달아 el에 채운다.
 // 로그(logEntryEl)와 같은 규칙이지만, 모달 안에서는 사이드 인스펙터가 오버레이에 가려지므로
@@ -659,15 +798,20 @@ function appendResourcePayment(box,p,payment){
   box.appendChild(note);
 }
 function _pickOptionLocal(p, title, options, cancelLabel){
+  if(options[0]?.setupOrder && UI.setupOrderLocal) return UI.setupOrderLocal(p,options);
   return new Promise(res=>{
     const box=document.getElementById('modal-box');
     box.innerHTML='';
     const payment=options.find(o=>o.resourcePayment)?.resourcePayment;
+    const optionalTrash=options.some(o=>o.optionalTrash);
     const h=document.createElement('h3');
     cardifyInto(h, payment ? '자원 사용 선택' : `👉 ${p===null?'':pname(p)+': '}${title}`);
     box.appendChild(h);
     appendBattlefieldSource(box);
-    if(payment) appendResourcePayment(box,p,payment);
+    const content=document.createElement('div'); content.className=payment?'resource-layout':'option-content';
+    const summary=document.createElement('div');
+    if(payment){ appendResourcePayment(summary,p,payment); content.appendChild(summary); }
+    const actions=document.createElement('div'); actions.className='modal-btns decision-actions';
     const btns=document.createElement('div'); btns.className='modal-btns';
     if(payment) btns.classList.add('resource-options');
     if(options.some(o=>optionCard(o))) btns.classList.add('card-options');
@@ -690,7 +834,7 @@ function _pickOptionLocal(p, title, options, cancelLabel){
         } else art.textContent=c.ko;
         b.appendChild(art);
         const label=document.createElement('span'); label.className='option-label';
-        label.textContent=payment && o.resourceOps ? `${c.ko}\n${resourceAbilityText(o.resourceOps)}` : o.label;
+        label.textContent=payment && o.resourceOps ? `${c.ko}\n비용: ${o.resourceCost||'없음'}\n결과: ${resourceAbilityText(o.resourceOps)}` : o.label;
         b.appendChild(label);
         b.setAttribute('aria-label',label.textContent);
       } else {
@@ -708,31 +852,111 @@ function _pickOptionLocal(p, title, options, cancelLabel){
       }
       b.onclick=()=>{ closeModal(); res(i); };
       attachCardHover(b, c);
-      btns.appendChild(b);
+      (payment && !c ? actions : btns).appendChild(b);
     });
     if(!payment){
-      const cancel=document.createElement('button'); cancel.textContent=cancelLabel||'취소';
-      cancel.style.opacity=.6;
+      const cancel=document.createElement('button'); cancel.textContent=cancelLabel||(options.some(o=>o.optionalTrash)?'사용 안 함':'취소');
+      if(!optionalTrash) cancel.style.opacity=.6;
       cancel.onclick=()=>{ closeModal(); res(null); };
-      btns.appendChild(cancel);
+      (optionalTrash?actions:btns).appendChild(cancel);
     }
-    box.appendChild(btns);
+    content.appendChild(btns); box.appendChild(content);
+    if(payment||optionalTrash) box.appendChild(actions);
     openModal();
   });
 }
 
 // 중립 응수 창 전용 선택 (pickOption과 동일 계약 — 봇이 별도 정책을 적용할 수 있게 이름 분리)
-UI.pickReaction = function(p, title, options){
-  return routedPick(p,
-    ()=>_pickOptionLocal(p,title,options,'응수 안 함'),
-    v=>v, v=>v
-  ).then(idx=>idx===null?null:options[idx].v);
+let _reactionPick=null;
+let _showdownChainView=null;
+function boardChainView(){
+  if(!G || G.winner!==null || !G.showdown?.chain.length) _showdownChainView=null;
+  if(_reactionPick) return _reactionPick;
+  if(!G || G.winner!==null || G.state!=='showdown' || !G.showdown?.chain.length) return null;
+  if(_showdownChainView?.showdown!==G.showdown)
+    _showdownChainView={showdown:G.showdown,hidden:false};
+  _showdownChainView.p=NET.online ? NET.seat
+    : (typeof BOT!=='undefined' && BOT.active) ? opp(BOT.seat) : G.actingPlayer;
+  return _showdownChainView;
+}
+function canPassReaction(){
+  return !!(_reactionPick && _boardCardPick && _resolver && G && G.winner===null
+    && G.state!=='showdown' && (!NET.online || _reactionPick.p===NET.seat));
+}
+function toggleBoardChain(){
+  const view=boardChainView();
+  if(!view){ if(chainIsOpen()) UI.hideChain(); else UI.showChain(); return; }
+  view.hidden=!view.hidden;
+  UI.hideHover(); renderReactionChain(); UI.updateChainView();
+}
+
+function reactionBoardTarget(p,o){
+  if(o.v?.hand!==undefined) return {kind:'hand',p,index:o.v.hand,reveal:true};
+  if(o.v?.hidden){
+    const {bf,index}=o.v.hidden;
+    return G.bfs[bf]?.hiddenCards[index]?.by===p ? {kind:'hidden',bfIdx:bf,index} : null;
+  }
+  const src=o.v?.ab?.src;
+  if(src?.kind==='legend') return {kind:'legend',p};
+  if(src?.kind==='unit') return {kind:'unit',uid:src.u.uid};
+  if(src?.kind==='gear') return {kind:'gear',p,index:G.players[p].gear.indexOf(src.g)};
+  return null;
+}
+function renderReactionChain(){
+  document.getElementById('reaction-chain')?.remove();
+  const view=boardChainView();
+  if(!view || view.hidden) return;
+  const chain=visibleChain();
+  const panel=document.createElement('section'); panel.id='reaction-chain';
+  panel.setAttribute('aria-label','현재 주문, 지정 대상과 적용 대상');
+  const list=document.createElement('div'); list.className='reaction-chain-list';
+  // 가장 먼저 해결할 주문을 앞에 두고 나머지는 가로로 넘겨 본다.
+  [...chain].reverse().forEach((it,ri)=>{
+    const i=chain.length-1-ri, c=chainCard(it);
+    const entry=document.createElement('article'); entry.className='reaction-chain-entry chain-player-'+it.p;
+    const heading=document.createElement('strong');
+    heading.textContent=`${ri===0?'먼저 해결':'대기'} #${i+1}: ${c?.ko||it.srcName||'능력'}${it.countered?' (무효화됨)':''}`;
+    const cards=document.createElement('div'); cards.className='reaction-chain-cards';
+    if(c) cards.appendChild(chainPreview(c,it.p,`reaction-source-${i}`));
+    const arrow=document.createElement('span'); arrow.className='reaction-arrow'; arrow.textContent='→'; cards.appendChild(arrow);
+    const targets=it.displayTargets || (it.target ? [snapshotChainTarget(it.target,chain)] : snapshotCastTargets(it.pre,it.preAb));
+    const affected=it.displayAffected||[];
+    if(targets.length) targets.forEach((t,j)=>cards.appendChild(chainTargetEl(t,chain,`reaction-target-${i}-${j}`)));
+    else {
+      const note=document.createElement('span'); note.className='chain-hint';
+      note.textContent=affected.length?'지정 대상 없음 · 자동 적용':'지정 대상 없음'; cards.appendChild(note);
+    }
+    if(affected.length){
+      const label=document.createElement('span'); label.className='reaction-effect-label'; label.textContent='적용 대상'; cards.appendChild(label);
+      affected.forEach((t,j)=>cards.appendChild(chainTargetEl(t,chain,`reaction-affected-${i}-${j}`)));
+    }
+    entry.append(heading,cards); list.appendChild(entry);
+  });
+  panel.appendChild(list);
+  document.getElementById('parea-'+opp(view.p)).appendChild(panel);
+}
+UI.pickReaction = async function(p, title, options){
+  lockUnitSelection(p);
+  try{
+    const idx=await routedPick(p,()=>{
+      _reactionPick={p,hidden:false,passIndex:options.length};
+      const targets=options.map(o=>reactionBoardTarget(p,o));
+      // 한 카드에 능력이 여러 개면 추가 능력을 이름 붙은 버튼으로 제공한다.
+      const seen=new Set();
+      targets.forEach((t,i)=>{if(!t)return;const key=JSON.stringify(t);if(seen.has(key))targets[i]=null;else seen.add(key);});
+      return _pickCardOptionLocal(p,options.length?'강조된 손패나 필드 카드로 반응하거나 패스하세요':'사용 가능한 반응이 없습니다. 주문과 대상을 확인한 뒤 패스하세요',options,targets,false);
+    },v=>v,v=>v);
+    return idx===null || idx===options.length ? null : options[idx].v;
+  }finally{
+    _reactionPick=null; _boardCardPick=null; UI.unitSelectionPending=false;
+    UI.render(); UI.promptForState();
+  }
 };
 
 // 확인 (예/아니오)
 UI.confirmP = function(p, text, previewCard, context){
   if(context?.boardCard) return confirmBoardCard(p,text,previewCard,context.boardCard);
-  return routedPick(p, ()=>_confirmLocal(p,text,previewCard), v=>v, v=>v);
+  return routedPick(p, ()=>_confirmLocal(p,text,previewCard,context), v=>v, v=>v);
 };
 async function confirmBoardCard(p,text,previewCard,target){
   lockUnitSelection(p);
@@ -746,30 +970,45 @@ async function confirmBoardCard(p,text,previewCard,target){
     _boardCardPick=null;UI.unitSelectionPending=false;UI.render();UI.promptForState();
   }
 }
-function _confirmLocal(p, text, previewCard){
+function _confirmLocal(p, text, previewCard, context){
   return new Promise(res=>{
     const box=document.getElementById('modal-box');
-    box.innerHTML=`<h3>👉 ${esc(pname(p))}</h3>`;
+    const d=context?.decision;
+    box.innerHTML='';
+    const heading=document.createElement('h3'); heading.textContent=d?.title||pname(p);
+    box.appendChild(heading);
     appendBattlefieldSource(box);
-    const body=document.createElement('div');
-    body.className='modal-copy confirm-copy';
-    cardifyInto(body, text);                      // 확인 창의 「카드명」도 호버로 확인 가능
-    box.appendChild(body);
+    const content=document.createElement('div'); content.className='decision-content';
     if(previewCard){
       const cards=Array.isArray(previewCard)?previewCard:[previewCard];
       UI.inspect(cards[0]);
-      const wrap=document.createElement('div'); wrap.className='modal-cards';
-      cards.forEach(c=>wrap.appendChild(attachCardHover(cardMiniEl(c),c)));
-      box.appendChild(wrap);
+      const wrap=document.createElement('div'); wrap.className='decision-source';
+      cards.forEach(c=>{
+        const preview=document.createElement('button'); preview.type='button';
+        preview.className='decision-preview'; preview.setAttribute('aria-label',c.ko+' 카드 확대');
+        const img=document.createElement('img'); img.src=cardImgUrl(c.img,280); img.alt=c.ko;
+        preview.appendChild(img); preview.onclick=()=>UI.showZoom(c); attachCardHover(preview,c);
+        const name=document.createElement('strong'); name.textContent=c.ko;
+        wrap.append(preview,name);
+      });
+      content.appendChild(wrap);
     }
-    const btns=document.createElement('div'); btns.className='modal-btns';
-    const y=document.createElement('button'); y.className='primary'; y.textContent='예';
+    const body=document.createElement('div'); body.className='decision-details';
+    if(d){
+      for(const [label,value] of [['비용',d.cost],['결과',d.result],['참고',d.note]]){
+        if(!value) continue;
+        const row=document.createElement('section'); row.className='decision-row';
+        const caption=document.createElement('small'); caption.textContent=label;
+        const detail=document.createElement('div'); cardifyInto(detail,value); row.append(caption,detail); body.appendChild(row);
+      }
+    }else{ body.classList.add('modal-copy'); cardifyInto(body,text); }
+    content.appendChild(body); box.appendChild(content);
+    const btns=document.createElement('div'); btns.className='modal-btns decision-actions';
+    const y=document.createElement('button'); y.className='primary'; y.textContent=d?.accept||'예';
     y.onclick=()=>{ closeModal(); res(true); };
-    const n=document.createElement('button'); n.textContent='아니오';
+    const n=document.createElement('button'); n.textContent=d?.decline||'아니오';
     n.onclick=()=>{ closeModal(); res(false); };
-    btns.appendChild(y); btns.appendChild(n);
-    box.appendChild(btns);
-    openModal();
+    btns.append(n,y); box.appendChild(btns); openModal();
   });
 }
 
@@ -810,6 +1049,52 @@ function handFaceUp(p){
   if(NET.online) return p === NET.seat;
   if(botHandHidable(p)) return !!UI.peekBotHand;
   return true;
+}
+
+// 숨김 카드는 소유자 화면에만 앞면을 흐리게 보여 준다. 상대에게 만드는 노드에는
+// 카드 데이터와 확대 이벤트를 붙이지 않아 우클릭, 길게 누르기, 정보 패널로도 정체가 새지 않는다.
+function hiddenCardFaceUp(p){
+  if(replayLock()) return true;
+  if(NET.online) return p===NET.seat;
+  if(typeof BOT!=='undefined' && BOT.active) return p!==BOT.seat;
+  return !!G && p===G.actingPlayer;
+}
+function hiddenCardPlayable(h,bfIdx){
+  if(!G || G.winner!==null || !h || h.by!==G.actingPlayer) return false;
+  if(G.state==='neutral'){
+    if(G.phase!=='action' || G.turn!==h.by) return false;
+  }else if(G.state!=='showdown') return false;
+  const bf=G.bfs[bfIdx];
+  if(!bf || !bf.hiddenCards.includes(h)) return false;
+  if(bf.units.some(u=>u.ctrl!==h.by && unitFx(u).blockReveal)) return false;
+  if(h.turn===G.turnCount && G.turn===h.by) return false;
+  if(playRestriction(card(h.n),h.by,true,bfIdx)) return false;
+  return card(h.n).type!=='Unit' || unitPlayLocationOptions(h.by,h.n).some(x=>x.v===bfIdx);
+}
+function hiddenBattlefieldCardEl(h,bfIdx,hiddenIndex){
+  if(!hiddenCardFaceUp(h.by)){
+    const back=document.createElement('div');
+    back.className='card-mini card-back hidden-card battlefield-hidden-card';
+    back.setAttribute('role','img');
+    back.setAttribute('aria-label','상대의 숨김 카드');
+    back.title='상대의 숨김 카드';
+    return back;
+  }
+  const c=card(h.n);
+  const el=cardMiniEl(c,{owner:h.by});
+  el.classList.add('battlefield-hidden-card','hidden-card-owned');
+  el.dataset.hiddenBf=bfIdx;
+  el.dataset.hiddenIndex=hiddenIndex;
+  const playable=hiddenCardPlayable(h,bfIdx);
+  if(playable) el.classList.add('playable');
+  el.setAttribute('aria-label',`${c.ko}, 내가 숨겨 둔 카드. ${playable?'클릭하여 비용 없이 사용. ':''}우클릭하거나 길게 눌러 정보 확인`);
+  el.title='내 숨김 카드, 우클릭하거나 길게 눌러 정보 확인';
+  el.onclick=e=>{
+    if(e.altKey) return;
+    e.stopPropagation();
+    showHiddenCardMenu(h,bfIdx,hiddenIndex,e);
+  };
+  return el;
 }
 
 // 선택자의 손패에서 직접 선택. 온라인 결과는 기존 손패 인덱스 그대로다.
@@ -929,7 +1214,7 @@ function openModal(){
   hideMenu();                                          // 열려 있던 선택 메뉴가 모달 위에 남지 않게
   UI.updateChainView();
 }
-function closeModal(){ setModalPeeking(false); UI.hideHover(); document.getElementById('modal-overlay').style.display='none'; document.body.classList.remove('modal-open'); }
+function closeModal(){ setModalPeeking(false); UI.hideHover(); document.getElementById('modal-overlay').style.display='none'; document.body.classList.remove('modal-open','mulligan-open'); }
 // 정보성 모달(도움말/밴 리스트/대회 덱 등): 모바일 뒤로 가기로 닫아도 안전함을 표시
 function markModalDismissable(){ document.getElementById('modal-overlay').dataset.dismiss='1'; }
 
@@ -939,36 +1224,36 @@ UI.pickMulligan = function(p){
 };
 function _pickMulliganLocal(p){
   return new Promise(res=>{
-    const P=G.players[p];
-    const box=document.getElementById('modal-box');
-    // 선후공을 알아야 멀리건 판단이 선다 — 여기서 함께 안내한다
-    const firstTxt = G.turn===p
-      ? '<b style="color:#ffe990">🎲 당신이 선공입니다</b>'
-      : `<b style="color:#9fc8ff">🎲 선공: ${esc(pname(G.turn))}</b> — 당신은 후공입니다`;
-    box.innerHTML=`<h3>🔄 ${esc(pname(p))}: 멀리건</h3>
-      <div class="modal-copy">${firstTxt}</div>
-      <div class="modal-note">
-      교체할 카드를 <b>최대 2장</b> 선택하세요. 그 수만큼 새로 뽑은 뒤, 선택한 카드는 덱 맨 아래로 갑니다. (1회)</div>`;
-    const wrap=document.createElement('div'); wrap.className='modal-cards';
-    const sel=new Set();
+    const P=G.players[p], box=document.getElementById('modal-box');
+    box.innerHTML=`<header class="mulligan-heading"><span class="mulligan-order">${G.turn===p?'선공':'후공'}</span><h3>${esc(pname(p))}의 시작 손패</h3><p>최대 2장 교체</p></header>`;
+    const wrap=document.createElement('div'); wrap.className='mulligan-grid';
+    const sel=new Set(), cards=[];
+    const btns=document.createElement('div');btns.className='modal-btns decision-actions mulligan-actions';
+    const count=document.createElement('span'); count.className='mulligan-count';count.setAttribute('aria-live','polite');
+    const ok=document.createElement('button'); ok.type='button';ok.className='primary';
+    const update=()=>{
+      count.textContent=`${sel.size} / 2장 선택`;
+      ok.textContent=sel.size?`선택한 ${sel.size}장 교체`:'이대로 시작';
+      cards.forEach((el,i)=>{el.classList.toggle('selected',sel.has(i));el.setAttribute('aria-pressed',String(sel.has(i)));});
+    };
     P.hand.forEach((n,i)=>{
-      const el=cardMiniEl(card(n));
-      el.onclick=()=>{
-        if(sel.has(i)){ sel.delete(i); el.classList.remove('selected'); }
-        else if(sel.size<2){ sel.add(i); el.classList.add('selected'); }
-        else UI.toast('최대 2장까지 선택할 수 있습니다','warn');
+      const el=cardMiniEl(card(n));el.classList.add('mulligan-card');el.setAttribute('role','button');el.tabIndex=0;
+      el.setAttribute('aria-label',card(n).ko+' 교체 선택');
+      const badge=document.createElement('span');badge.className='mulligan-selected';badge.textContent='✓ 교체';el.appendChild(badge);
+      const toggle=()=>{
+        if(sel.has(i)) sel.delete(i);
+        else if(sel.size<2) sel.add(i);
+        else {UI.toast('최대 2장까지 선택할 수 있습니다','warn');return;}
+        update();
       };
-      attachCardHover(el, card(n));   // 멀리건도 모달 — 무엇을 바꿀지 보고 정할 수 있어야 한다
-      wrap.appendChild(el);
+      el.onclick=toggle;el.onkeydown=e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();toggle();}};
+      // 멀리건에서는 카드 위에 마우스를 올려도 정보 패널을 띄우지 않는다.
+      // 우클릭과 길게 누르기 확대는 유지해 필요한 경우에만 상세 정보를 확인한다.
+      el._card=card(n); attachZoom(el); cards.push(el);wrap.appendChild(el);
     });
-    box.appendChild(wrap);
-    const btns=document.createElement('div'); btns.className='modal-btns';
-    const ok=document.createElement('button'); ok.className='primary'; ok.textContent='선택한 카드 교체';
-    ok.onclick=()=>{ closeModal(); res([...sel]); };
-    const keep=document.createElement('button'); keep.textContent='그대로 시작';
-    keep.onclick=()=>{ closeModal(); res([]); };
-    btns.appendChild(ok); btns.appendChild(keep);
-    box.appendChild(btns);
+    ok.onclick=()=>{closeModal();res([...sel]);};
+    btns.append(count,ok);box.append(wrap,btns);update();
+    document.body.classList.add('mulligan-open');
     openModal();
   });
 }
@@ -1061,7 +1346,15 @@ function unitEl(u){
   el.className='card-mini';
   el.dataset.uid=u.uid;
   if(u.ex) el.classList.add('exhausted');
-  if(u.stunned) el.classList.add('stunned');
+  if(u.stunned){
+    el.classList.add('stunned');
+    const stunned=document.createElement('div');
+    stunned.className='cm-stunned';
+    stunned.textContent='기절';
+    stunned.title='기절 상태: 전투 피해 기여는 0이지만 현재 위력은 그대로 표시됩니다.';
+    stunned.setAttribute('aria-label', stunned.title);
+    el.appendChild(stunned);
+  }
   if(_pickableUids && _pickableUids.has(u.uid)) el.classList.add('targetable');
   if(_moveSel.has(u.uid)) el.classList.add('selected');
   if(pendingCombatMove()?.uids.has(u.uid)){
@@ -1079,7 +1372,8 @@ function unitEl(u){
   el.appendChild(name);
   const m=document.createElement('div');
   const baseM=(u.isToken?u.tokenMight:(c.m||0));
-  const curM=might(u, combatRoleOf(u));
+  // 기절은 전투 기여만 0으로 만든다. 카드 위에는 기절 직전과 같은 현재 위력을 표시한다.
+  const curM=might(u, combatRoleOf(u), {forKill:true});
   m.className='cm-might'+(curM>baseM?' buffed':curM<baseM?' weakened':'');
   m.textContent=curM+'⚔';
   el.appendChild(m);
@@ -1277,11 +1571,12 @@ function dropMove(uid, dest){
   }
   // 드래그한 유닛이 다중 선택에 포함돼 있으면 선택된 유닛 전부 함께 이동
   let units=[u];
+  const confirm=_moveArmed || (_moveSel.size && _moveSel.has(uid));
   if(_moveSel.size && _moveSel.has(uid)){
     units=everyUnit().filter(x=>_moveSel.has(x.uid));
   }
   _moveArmed=false; _moveSel.clear(); updateButtons();
-  requestUnitMove(p,units,dest);
+  requestUnitMove(p,units,dest,confirm);
 }
 function combatRoleOf(u){
   if(!G.showdown || u.loc!==G.showdown.bfIdx) return null;
@@ -1379,6 +1674,10 @@ function attachCardHover(el, c){
 function optionCard(o){
   if(!o) return null;
   if(o.card) return o.card;
+  if(o.v?.hidden){
+    const h=G.bfs[o.v.hidden.bf]?.hiddenCards[o.v.hidden.index];
+    if(h) return card(h.n);
+  }
   if(o.n !== undefined && o.n !== null){ try { return card(o.n) || null; } catch(e){ return null; } }
   return null;
 }
@@ -1517,7 +1816,6 @@ UI.showZoom = function(c, owner){
     .filter((v,i,a)=>a.indexOf(v)===i)
     .map(k=>KEYWORDS_KO[k]?`<div class="cz-kw">· <b>[${KEYWORDS_KO[k].ko}]</b> ${KEYWORDS_KO[k].desc}</div>`:'')
     .join('');
-  const zoomArt = artImg(c,owner);
   const statBits = [];
   if(c.m!==null && c.m!==undefined) statBits.push(`위력 ${c.m}`);
   if(c.e!==null && c.e!==undefined) statBits.push(`비용 ${c.e}${c.p?'+힘'+c.p:''}`);
@@ -1528,7 +1826,7 @@ UI.showZoom = function(c, owner){
         <button type="button" class="cz-close" aria-label="카드 설명 닫기">닫기 <span aria-hidden="true">×</span></button>
       </div>
       <div class="cz-body">
-      ${zoomArt?`<img class="cz-img" src="${cardImgUrl(zoomArt,280)}" alt="${esc(c.ko||c.name||'카드 이미지')}">`:'<div class="cz-noimg">🃏</div>'}
+      ${artImg(c,owner)?`<img class="cz-img" src="${cardImgUrl(artImg(c,owner))}" alt="">`:'<div class="cz-noimg">🃏</div>'}
       <div class="cz-info">
         <div class="cz-name">${esc(c.ko||'')}</div>
         <div class="cz-en">${esc(c.name||'')}${c.n?` · #${c.n}`:''}</div>
@@ -1542,16 +1840,6 @@ UI.showZoom = function(c, owner){
       </div>
       </div>
     </div>`;
-  // 기본 이미지는 즉시 표시하고, 확대본을 정상적으로 받은 경우에만 교체한다.
-  const zoomImage = ov.querySelector('.cz-img');
-  if(zoomImage){
-    const fullUrl = cardImgUrl(zoomArt);
-    if(fullUrl!==cardImgUrl(zoomArt,280)){
-      const fullImage = new Image();
-      fullImage.onload = ()=>{ zoomImage.src=fullUrl; };
-      fullImage.src = fullUrl;
-    }
-  }
   UI.renderZoomArts(c);   // 편집기에서 열었으면 일러스트 선택 버튼이 붙는다
   ov.querySelector('.cz-close').addEventListener('click', UI.hideZoom);
   ov.querySelector('.cz-box').addEventListener('click', e=>e.stopPropagation()); // CSP가 인라인 onclick 차단 → 리스너로 연결
@@ -1686,7 +1974,7 @@ function moveDisplayLoc(u){
 function prepareCombatMove(p,units,dest){
   if(!canArrangeMove(p) || !units.length) return;
   const move=pendingCombatMove();
-  if(move && move.dest!==dest){ UI.toast('대기 중인 전장의 투입 유닛만 변경할 수 있습니다','warn'); return; }
+  if(move && move.dest!==dest){ UI.toast('대기 중인 목적지의 이동 유닛만 변경할 수 있습니다','warn'); return; }
   for(const u of units){
     const why=moveProblem(p,u,dest);
     if(why){ UI.toast(`${unitName(u)}: ${why}`,'warn'); return; }
@@ -1704,9 +1992,9 @@ function toggleCombatMover(u){
   if(!move.uids.size) _combatMove=null;
   UI.render(); UI.promptForState();
 }
-function requestUnitMove(p,units,dest){
+function requestUnitMove(p,units,dest,confirm=false){
   if(!canArrangeMove(p) || !units.length) return;
-  if(pendingCombatMove() || (!G.manual && dest!=='base' && G.bfs[dest]
+  if(confirm || pendingCombatMove() || (!G.manual && dest!=='base' && G.bfs[dest]
     && (G.bfs[dest].controller!==p || G.bfs[dest].units.some(u=>u.ctrl!==p)))){
     prepareCombatMove(p,units,dest); return;
   }
@@ -1728,11 +2016,18 @@ function confirmCombatMove(){
     await moveUnits(move.p,units,move.dest); UI.render();
   });
 }
+function cancelCombatMove(){
+  const move=pendingCombatMove();
+  if(!move || move.action) return false;
+  _combatMove=null; _moveArmed=false; _moveSel.clear(); hideMenu();
+  UI.render(); UI.promptForState();
+  return true;
+}
 UI.finishCombatMove = function(){ _combatMove=null; UI.promptForState(); };
 UI.combatMoveBlocks = function(action){
   const move=pendingCombatMove();
   if(!move || action===move.action || ['surrender','rematch','rematchDecline','rematchGo','playmat'].includes(action.k)) return false;
-  UI.toast('교전 이동을 확인하거나 투입 유닛을 모두 빼세요','warn');
+  UI.toast('이동을 적용하거나 S로 취소하세요','warn');
   return true;
 };
 function onUnitClick(u, e){
@@ -1842,88 +2137,59 @@ function openMenuAt(menu, e){
   menu.style.top =Math.max(4, Math.min(sp.y, sp.height-menu.offsetHeight-6))+'px';
 }
 
+// 체인 반응 카드는 첫 탭으로 바로 쓰지 않는다. 카드 정보 확인과 사용 확정을
+// 일반 카드 메뉴와 같은 작은 메뉴에서 나눠 모바일 오입력을 막는다.
+function showReactionChoiceMenu(i,e){
+  const pick=_boardCardPick, option=pick?.options[i], target=pick?.targets[i];
+  if(!pick || !option || !target) return;
+  const c=optionCard(option);
+  const menu=document.getElementById('ctx-menu');
+  menu.innerHTML='';
+  const title=document.createElement('div'); title.className='ctx-title';
+  title.textContent=c?.ko||option.label; menu.appendChild(title);
+  const use=document.createElement('div'); use.className='ctx-item';
+  use.textContent=option.label;
+  use.onclick=()=>{ hideMenu(); if(_boardCardPick===pick) pick.finish(i); };
+  menu.appendChild(use);
+  if(c){
+    const info=document.createElement('div'); info.className='ctx-item'; info.textContent='🔍 카드 정보 보기';
+    info.onclick=()=>{ hideMenu(); UI.showZoom(c); };
+    menu.appendChild(info);
+  }
+  openMenuAt(menu,e);
+}
+
+// 전장에 놓인 내 숨김 카드는 손패 카드처럼 작은 메뉴에서 사용을 확정한다.
+// 반응 선택 중에는 showReactionChoiceMenu가 먼저 처리하므로 같은 카드를 즉시 발동하지 않는다.
+function showHiddenCardMenu(h,bfIdx,hiddenIndex,e){
+  if(replayLock() || !hiddenCardFaceUp(h.by)) return;
+  const c=card(h.n);
+  const menu=document.getElementById('ctx-menu');
+  menu.innerHTML='';
+  const title=document.createElement('div'); title.className='ctx-title'; title.textContent=c.ko;
+  menu.appendChild(title);
+  if(hiddenCardPlayable(h,bfIdx)){
+    const use=document.createElement('div'); use.className='ctx-item';
+    use.textContent='▶ 비용 없이 공개해 사용';
+    use.onclick=()=>{
+      hideMenu();
+      if(!canInitiate(h.by) || !hiddenCardPlayable(h,bfIdx)) return;
+      NET.dispatch({k:'playHidden',p:h.by,bfIdx,hiddenIndex},()=>playHidden(h.by,bfIdx,h));
+    };
+    menu.appendChild(use);
+  }
+  const info=document.createElement('div'); info.className='ctx-item'; info.textContent='🔍 카드 정보 보기';
+  info.onclick=()=>{ hideMenu(); UI.showZoom(c); };
+  menu.appendChild(info);
+  openMenuAt(menu,e);
+}
+
 // ---------- 손패 클릭 ----------
 // 온라인: 내 좌석의 행동만 개시 가능
 // 이 좌석을 지금 사람이 조작해도 되는가.
 // 오프라인은 로컬 핫시트(2인이 번갈아 두기) 때문에 좌석을 가리지 않는다.
 // 다만 BOT 대전의 봇 좌석은 예외 — 봇이 스스로 두는 자리를 사람이 대신 조작하면
 // 규칙 밖의 수가 되고, 봇의 비공개 정보([숨겨짐] 카드, 비용으로 버리는 손패)까지 드러난다.
-// ══════════ 숨겨 둔 카드 알림 ══════════
-// 숨김 카드는 전장을 눌러야만 공개된다. 화면에 '🕶숨김카드×N' 표시만 있어서
-// 결전 중에 트릭을 그냥 흘려보내는 일이 잦았다 → 내 차례가 오면 한 번 물어본다.
-// 같은 상황에서 반복해 뜨지 않도록 '언제 물었는지'를 기억한다.
-let _hiddenAskedKey = null;
-let _hiddenMuted = false;          // 이번 판에는 그만 묻기
-UI.resetHiddenAsk = function(){ _hiddenAskedKey = null; _hiddenMuted = false; };
-
-// 지금 공개해서 쓸 수 있는 내 숨김 카드 목록
-function myPlayableHidden(p){
-  const out = [];
-  if(typeof G==='undefined' || !G || !G.bfs) return out;
-  G.bfs.forEach((bf, i) => {
-    // 「녹서스 파괴공작원」이 있으면 이곳은 공개 자체가 막힌다
-    if(bf.units.some(u => u.ctrl !== p && unitFx(u).blockReveal)) return;
-    bf.hiddenCards.forEach(h => {
-      if(h.by !== p) return;
-      if(h.turn === G.turnCount && G.turn === p) return;   // 숨긴 턴에는 못 쓴다
-      if(playRestriction(card(h.n), p, true, i)) return;   // 지금 타이밍에 못 내는 카드 · 이 전장에 대상 없는 주문(737)
-      out.push({ bfIdx: i, n: h.n });
-    });
-  });
-  return out;
-}
-
-// 내 차례가 왔을 때 한 번 물어본다
-UI.askHidden = function(){
-  if(_hiddenMuted) return;
-  if(typeof G==='undefined' || !G || G.winner!==null) return;
-  if(typeof replayLock==='function' && replayLock()) return;
-  if(document.getElementById('modal-overlay').style.display !== 'none') return;  // 다른 창이 떠 있으면 미룬다
-  const p = G.actingPlayer;
-  if(p==null) return;
-  if(typeof botIs==='function' && botIs(p)) return;          // 봇 차례엔 묻지 않는다
-  if(NET.online && p !== NET.seat) return;                   // 온라인: 내 좌석일 때만
-  const list = myPlayableHidden(p);
-  if(!list.length) return;
-
-  // 같은 상황에서 다시 뜨지 않게 (턴·상태·체인 길이·행동권자·남은 장수로 구분)
-  const key = [G.turnCount, G.state, G.showdown ? G.showdown.chain.length : -1, p, list.length].join(':');
-  if(key === _hiddenAskedKey) return;
-  _hiddenAskedKey = key;
-
-  const box = document.getElementById('modal-box');
-  const where = G.state==='showdown' ? '결전 중입니다' : '내 행동 단계입니다';
-  box.innerHTML = `<h3>🕶 숨겨 둔 카드가 있습니다</h3>
-    <div class="modal-note">${where} — 지금 공개해서 쓸 수 있습니다.</div>`;
-  const btns = document.createElement('div');
-  btns.className = 'modal-btns';
-  btns.style.flexDirection = 'column';
-  list.forEach(h => {
-    const b = document.createElement('button');
-    b.className = 'primary';
-    b.textContent = `공개: ${card(h.n).ko}  (${card(G.bfs[h.bfIdx].n).ko})`;
-    b.onmouseenter = () => UI.inspect(card(h.n));
-    b.onclick = () => {
-      closeModal();
-      if(!canInitiate(p)) return;
-      NET.dispatch({k:'playHidden', p, bfIdx:h.bfIdx}, () => playHidden(p, h.bfIdx));
-    };
-    btns.appendChild(b);
-  });
-  const no = document.createElement('button');
-  no.textContent = '지금은 두기';
-  no.onclick = closeModal;
-  btns.appendChild(no);
-  const mute = document.createElement('button');
-  mute.className = 'link-btn';
-  mute.textContent = '이번 판에는 그만 묻기';
-  mute.onclick = () => { _hiddenMuted = true; closeModal(); };
-  btns.appendChild(mute);
-  box.appendChild(btns);
-  openModal();
-  markModalDismissable();
-};
-
 function canInitiate(p){
   if(pendingCombatMove()){ UI.toast('교전 이동을 먼저 확인하세요','warn'); return false; }
   if(typeof botIs==='function' && botIs(p)){ UI.toast('봇의 카드는 조작할 수 없습니다','warn'); return false; }
@@ -2400,6 +2666,9 @@ UI.render = function(){
       row.dataset.player=String(p);
       row.setAttribute('role','group'); row.setAttribute('aria-label',pname(p)+'의 전장 카드');
       displayUnits.filter(u=>u.ctrl===p && moveDisplayLoc(u)===i).forEach(u=>appendSelectableUnit(row,u));
+      bf.hiddenCards.forEach((h,hiddenIndex)=>{
+        if(h.by===p) row.appendChild(hiddenBattlefieldCardEl(h,i,hiddenIndex));
+      });
       const arrows=[-1,1].map(dir=>{
         const btn=document.createElement('button'); btn.type='button'; btn.className='bf-scroll';
         btn.textContent=dir<0?'‹':'›';
@@ -2423,21 +2692,16 @@ UI.render = function(){
     updateBattlefieldScroll(el);
     el.querySelectorAll('.bf-row').forEach(row=>{ row.scrollLeft=rowScroll[+row.dataset.player]; row.parentElement._syncScroll(); });
     attachDropZone(el, i); // 드래그 이동: 이 전장으로
-    // 클릭: 이동 목적지 / 숨김 카드 플레이
+    // 클릭: 이동 목적지. 숨김 카드는 카드 자체를 눌러 선택한다.
     el.onclick=(e)=>{
       if(e.target.closest('.card-mini')) return;
       if(_moveArmed && _moveSel.size){ executeMove(i); return; }
-      const hp=G.actingPlayer;
-      if(bf.hiddenCards.some(h=>h.by===hp)){
-        // 봇 차례에 사람이 전장을 누르면 봇이 숨겨둔 카드가 강제로 공개·플레이됐다
-        if(!canInitiate(hp)) return;
-        NET.dispatch({k:'playHidden',p:hp,bfIdx:i}, ()=>playHidden(hp,i));
-      }
     };
   });
 
   updateButtons();
   highlightBoardCards();
+  renderReactionChain();
   UI.fx.check();          // 행동 차례가 바뀌었으면 연출
 };
 
@@ -2455,16 +2719,66 @@ function updateButtons(){
   const btnMove=document.getElementById('btn-move');
   const pending=pendingCombatMove();
   btnMove.className='act-btn'+(pending?' armed combat-confirm':_moveArmed?' armed':'');
-  btnMove.textContent=pending ? (pending.action?'이동 확인 중...':`⚔️ 교전 이동 확인 (${pending.uids.size}기)`)
+  btnMove.textContent=pending ? (pending.action?'이동 적용 중...':`이동 적용 (${pending.uids.size}기)`)
     : _moveArmed?`🚶 이동: 목적지 클릭 (${_moveSel.size}개 선택)`:'🚶 이동';
+  btnMove.title=pending ? (pending.action?'이동을 적용하고 있습니다':'Space: 이동 적용, S: 이동 취소')
+    : 'S: 이동 활성화/비활성화';
   btnMove.disabled=!canArrangeMove(G.turn);
   const btnEnd=document.getElementById('btn-endturn');
-  const mySeat=NET.online ? NET.seat : (typeof BOT!=='undefined' && BOT.active) ? 1-BOT.seat : 0;
-  btnEnd.classList.toggle('primary',G.turn===mySeat && G.state!=='showdown' && G.winner===null);
-  btnEnd.disabled = !!pending || G.state==='showdown' || G.winner!==null;
-  document.getElementById('btn-pass').classList.toggle('primary',
-    G.state==='showdown' && G.actingPlayer===mySeat && G.winner===null);
+  const reactionPass=canPassReaction();
+  const canEndTurn=UI.canEndTurn();
+  const endLabel=reactionPass?'패스':'턴 종료';
+  // 장식 SVG를 유지하고 버튼의 텍스트만 바꾼다.
+  const labelNode=[...btnEnd.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);
+  if(labelNode) labelNode.textContent=endLabel;
+  btnEnd.setAttribute('aria-label',endLabel);
+  btnEnd.title=(reactionPass?'이 체인에 반응하지 않고 패스합니다':'턴 종료')+((reactionPass||canEndTurn)?' (Space)':'');
+  btnEnd.classList.toggle('primary',reactionPass || canEndTurn);
+  btnEnd.disabled=!reactionPass && !canEndTurn;
+  const btnPass=document.getElementById('btn-pass');
+  const canShowdownPass=UI.canShowdownPass();
+  btnPass.classList.toggle('primary',canShowdownPass);
+  btnPass.disabled=!canShowdownPass;
+  btnPass.title=canShowdownPass?'패스 (Space)':'지금은 패스할 수 없습니다';
 }
+
+// 게임 단축키는 실제로 실행 가능한 버튼 조건을 그대로 따르고, 길게 누르기와 연타를 막는다.
+const GAME_SHORTCUT_INTERVAL=350;
+const _gameShortcutAt={Space:-Infinity,KeyS:-Infinity};
+function gameShortcutBlocked(e){
+  if(e.defaultPrevented) return true;
+  if(e.ctrlKey||e.metaKey||e.altKey) return true;
+  if(e.target?.closest?.('input,textarea,select,[contenteditable="true"]')) return true;
+  const game=document.getElementById('game-screen');
+  if(!game || game.offsetParent===null || replayLock()) return true;
+  return document.getElementById('modal-overlay')?.style.display!=='none'
+    || document.getElementById('card-zoom')?.style.display==='flex'
+    || chainIsOpen() || document.getElementById('ctx-menu')?.style.display==='block';
+}
+function runGameShortcut(e){
+  const code=e.code;
+  if((code!=='Space'&&code!=='KeyS') || gameShortcutBlocked(e)) return;
+  if(e.repeat){ e.preventDefault(); return; }
+  const now=performance.now();
+  if(now-_gameShortcutAt[code]<GAME_SHORTCUT_INTERVAL){ e.preventDefault(); return; }
+  let handled=false;
+  if(code==='KeyS'){
+    const pending=pendingCombatMove();
+    if(pending) handled=cancelCombatMove();
+    else if(canArrangeMove(G.turn)){ document.getElementById('btn-move').click(); handled=true; }
+  }else{
+    const pending=pendingCombatMove();
+    if(pending && !pending.action && canArrangeMove(pending.p)){ confirmCombatMove(); handled=true; }
+    else if(_moveArmed) return;
+    else if(canPassReaction()){ document.getElementById('btn-endturn').click(); handled=true; }
+    else if(UI.canShowdownPass()){ document.getElementById('btn-pass').click(); handled=true; }
+    else if(UI.canEndTurn()){ document.getElementById('btn-endturn').click(); handled=true; }
+  }
+  if(!handled) return;
+  _gameShortcutAt[code]=now;
+  e.preventDefault(); e.stopImmediatePropagation();
+}
+document.addEventListener('keydown',runGameShortcut);
 
 // 이동 실행
 async function executeMove(dest){
@@ -2494,7 +2808,7 @@ async function executeMove(dest){
     }
   }
   if(units.length){
-    requestUnitMove(p,units,dest);
+    requestUnitMove(p,units,dest,true);
   }
   UI.render();
 }
@@ -2621,15 +2935,16 @@ UI.showVictory = function(p){
 
 // ---------- 버튼 바인딩 ----------
 window.addEventListener('DOMContentLoaded', ()=>{
-  document.getElementById('btn-chain').onclick=UI.showChain;
+  document.getElementById('btn-chain').onclick=toggleBoardChain;
   document.getElementById('btn-modal-chain').onclick=UI.showChain;
   document.getElementById('btn-chain-close').onclick=UI.hideChain;
   document.getElementById('chain-overlay').onclick=e=>{ if(e.target.id==='chain-overlay') UI.hideChain(); };
   document.getElementById('btn-endturn').onclick=()=>{
-    if(pendingCombatMove()) return;
-    if(G.state==='showdown'||G.winner!==null) return;
-    if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
-    if(NET.online && G.turn!==NET.seat){ UI.toast('자신의 턴이 아닙니다','warn'); return; }
+    if(_reactionPick){
+      if(canPassReaction()) _boardCardPick.finish(_reactionPick.passIndex);
+      return;
+    }
+    if(!UI.canEndTurn()) return;
     // 아직 쓸 수 있는 자원이 남아 있으면 한 번 물어본다 (실수로 턴을 넘기는 일이 잦다)
     const P=G.players[G.turn];
     const readyRunes=P.runes.filter(r=>!r.ex).length;
@@ -2652,7 +2967,10 @@ window.addEventListener('DOMContentLoaded', ()=>{
     box.appendChild(t);
     const btns=document.createElement('div'); btns.className='modal-btns';
     const y=document.createElement('button'); y.className='primary'; y.textContent='턴 종료';
-    y.onclick=()=>{ closeModal(); NET.dispatch({k:'endTurn'}, ()=>endTurn()); };
+    y.onclick=()=>{
+      if(!UI.canEndTurn()){ closeModal(); UI.render(); return; }
+      closeModal(); NET.dispatch({k:'endTurn'}, ()=>endTurn());
+    };
     const n=document.createElement('button'); n.textContent='더 플레이하기'; n.onclick=closeModal;
     btns.appendChild(y); btns.appendChild(n); box.appendChild(btns);
     openModal(); markModalDismissable();
@@ -2669,9 +2987,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     UI.render();
   };
   document.getElementById('btn-pass').onclick=()=>{
-    if(G.state!=='showdown') return;
-    if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
-    if(NET.online && G.actingPlayer!==NET.seat){ UI.toast('상대의 응답 차례입니다','warn'); return; }
+    if(!UI.canShowdownPass()) return;
     NET.dispatch({k:'pass'}, ()=>showdownPass());
   };
   document.getElementById('btn-settings').onclick=openSystemMenu;
@@ -2685,7 +3001,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     · <b>비용</b>: 에너지는 룬 탈진, 힘는 룬 재활용(룬 덱으로 반환)으로 자동 지불됩니다.<br>
     · <b>이동</b>: 유닛을 <b>드래그해서 전장/기지에 놓기</b>, 또는 [이동] 버튼 → 유닛들 클릭 → 목적지 클릭. 이동한 유닛은 탈진됩니다.<br>
     · 여러 유닛을 함께 보내려면 [이동] 버튼으로 유닛들을 선택한 뒤 그중 하나를 드래그하세요.<br>
-    <b>교전 이동 확인</b>: 빈 전장이나 상대 전장으로 이동하면 먼저 투입 대기 상태가 됩니다. 유닛을 눌러 추가/제외하거나 원래 위치로 드래그해 빼세요. 모두 빼면 취소되며, <b>[교전 이동 확인]</b>을 눌러야 이동과 결전이 시작됩니다. 대기 중에는 투입 유닛만 변경할 수 있습니다.<br>
+    <b>이동 적용</b>: 이동 버튼이나 S로 시작한 이동은 목적지를 고른 뒤 대기 상태가 됩니다. Space로 적용하거나 S로 취소할 수 있습니다. 대기 중에는 같은 목적지의 이동 유닛만 변경할 수 있습니다.<br>
     결전 중 낸 카드와 능력은 <b>체인</b>에 쌓이고,
       양측이 모두 패스하면 <b>마지막에 낸 것부터 하나씩</b> 해결됩니다. 각 해결 사이에 [반응]으로 다시 응수할 수 있습니다.
       빈 체인에서 양측이 패스하면 전투가 벌어집니다.<br>

@@ -45,12 +45,22 @@ function closeHomePanel(){
 }
 // 고정 푸터의 실제 높이를 CSS 변수(--legal-h)로 알려, 각 화면이 그만큼 하단 여백을 확보한다
 // (여백 없이는 낮은 해상도에서 스크롤 끝까지 내려도 마지막 내용이 푸터에 깔려 안 보인다)
+let legalPadFrame=0;
 function updateLegalPad(){
   const lf=document.getElementById('legal-footer');
   const h=(lf && lf.style.display!=='none') ? lf.offsetHeight : 0;
-  document.documentElement.style.setProperty('--legal-h', h+'px');
+  const value=h+'px';
+  if(document.documentElement.style.getPropertyValue('--legal-h')!==value)
+    document.documentElement.style.setProperty('--legal-h', value);
 }
-window.addEventListener('resize', updateLegalPad);
+function scheduleLegalPad(){
+  if(legalPadFrame) return;
+  legalPadFrame=requestAnimationFrame(()=>{
+    legalPadFrame=0;
+    updateLegalPad();
+  });
+}
+window.addEventListener('resize', scheduleLegalPad);
 // 게임 행동은 대부분 async라, 안에서 예외가 나면 프로미스만 조용히 거부되고 화면은 그 자리에 멈춘다
 // (오프라인 이동 경로 moveUnits(...).then(...)에는 catch가 없다). 어떤 예외든 로그·토스트로 드러내야
 // 사용자가 "멈췄다" 대신 원인을 알려줄 수 있다 (2026-09-10 이동 멈춤 제보 — 재현 불가로 원인 미상).
@@ -61,12 +71,21 @@ function reportInternalError(kind, err){
   try{ if(typeof UI!=='undefined'){ UI.log('⚠️ 내부 오류('+kind+'): '+line+' — 이 문구를 제보해 주세요', 'sys'); UI.toast('내부 오류가 발생했습니다 — 로그의 ⚠️ 문구를 제보해 주세요', 'warn'); } }catch(e){}
 }
 window.addEventListener('unhandledrejection', e=>reportInternalError('promise', e.reason));
-window.addEventListener('error', e=>reportInternalError('script', e.error||e.message));
+window.addEventListener('error', e=>{
+  const issue=e.error||e.message;
+  // ResizeObserver의 전달 지연 알림은 브라우저가 창 크기를 바꾸는 중 내보내는 진단이며,
+  // 앱 스크립트 예외가 아니다. 사용자에게 내부 오류 제보를 요구하지 않는다.
+  if(/ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)/i.test(String(issue||''))){
+    e.preventDefault();
+    return;
+  }
+  reportInternalError('script', issue);
+});
 // 초기 로드 직후엔 폰트·줄바꿈이 확정되기 전이라 푸터 높이가 실제보다 작게 재어진다
 // → 푸터의 렌더 크기 변화를 직접 감시해 그때마다 다시 잰다
 window.addEventListener('DOMContentLoaded', ()=>{
   const lf=document.getElementById('legal-footer');
-  if(lf && window.ResizeObserver) new ResizeObserver(updateLegalPad).observe(lf);
+  if(lf && window.ResizeObserver) new ResizeObserver(scheduleLegalPad).observe(lf);
 });
 
 // ---------- 화면 배율 ----------
@@ -1463,14 +1482,14 @@ function renderRooms(roomsArr){
         if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
         // 밴 적용 여부는 방장이 정한다 — 밴 방이면 내 덱에 밴 카드가 없어야 입장할 수 있다
         if(!banSelfCheck(r.banRule, lobbySelectedDeck())) return;
-        withPw(password=>NET.send({t:'joinRoom', roomId:r.id, ...pay, password, banRule:document.getElementById('lobby-ban').checked, ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')}));
+        withPw(password=>NET.send({t:'joinRoom', roomId:r.id, ...pay, password, banRule:document.getElementById('lobby-ban').checked, ver:NET.clientVersion()}));
       };
       btns.appendChild(bj);
     }
     if(r.allowSpectate){
       const bs=document.createElement('button'); bs.textContent=r.started?'👁 관전 (진행 중)':'👁 관전';
       bs.title='이 방의 게임을 관전합니다 — 덱 없이 들어가며 조작은 할 수 없습니다';
-      bs.onclick=()=>withPw(password=>NET.send({t:'spectate', roomId:r.id, password, ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')}));
+      bs.onclick=()=>withPw(password=>NET.send({t:'spectate', roomId:r.id, password, ver:NET.clientVersion()}));
       btns.appendChild(bs);
     }
     div.appendChild(btns);
@@ -1491,7 +1510,7 @@ function initLobby(){
     if(!banSelfCheck(ban, lobbySelectedDeck())) return;
     const allowSpectate=!!document.getElementById('lobby-spectate')?.checked;
     const password=(document.getElementById('lobby-password')?.value||'').trim();
-    NET.send({t:'createRoom', ...pay, manual, banRule:ban, allowSpectate, password, name:document.getElementById('lobby-room-name').value.trim(), ver:(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?')});
+    NET.send({t:'createRoom', ...pay, manual, banRule:ban, allowSpectate, password, name:document.getElementById('lobby-room-name').value.trim(), ver:NET.clientVersion()});
   };
   NET.onRooms=renderRooms;
   NET.onSpectating=(room)=>{
@@ -1977,8 +1996,7 @@ function openSystemMenu(){
       add(game,'🔄 다시 하기 · 핫시트 새 게임',()=>{ closeModal(); startHotseat(); },'primary');
       add(game,'🚪 처음 화면으로',()=>location.reload());
     }
-    if(G.winner===null && G.state==='showdown'
-       && !(NET.online && G.actingPlayer!==NET.seat) && canInitiate(G.actingPlayer)){
+    if(UI.canShowdownPass?.()){
       add(game,'⏭ 현재 행동 넘기기 · 패스',()=>{ closeModal(); NET.dispatch({k:'pass'},()=>showdownPass()); });
     }
     if(G.winner===null) add(game,'🏳 항복하기',()=>{ closeModal(); confirmSurrender(); },'danger');
@@ -2045,6 +2063,7 @@ function startHotseat(){
   const bf1=d1.bfs[Math.floor(Math.random()*3)];
   const autoHs=document.getElementById('hs-auto')?.checked;
   newGame({
+    reviewSetup: true,
     manual: !autoHs,   // 선후공은 주사위(decideFirstPlayer)로 정한다
     players:[
       { name:document.getElementById('p0-name').value||'플레이어 1', legendN:p0legend, champN:d0.champN, deck:d0.deck, runes:d0.runes, arts:d0.arts },

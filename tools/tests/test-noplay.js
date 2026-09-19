@@ -8,6 +8,7 @@ var SEEN=[];   // 응수 창에 실제로 제시된 선택지 기록
 var RQ=[];     // pickReaction 응답 큐: 'counter'|'any'|null
 var UI = { log(){}, render(){}, toast(){}, fx:{ unit(){}, cast(){}, chainAdd(){}, score(){}, turnEnd(){}, priority(){}, check(){}, setOn(){}, on:false },
   confirmP:()=>Promise.resolve(false),
+  revealAurora:()=>Promise.resolve(), pickBoardOrder:(p,t,o)=>Promise.resolve(o.map((_,i)=>i)),
   pickUnitFrom:(p,c)=>Promise.resolve(c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0]),
   pickOption:(p,t,o)=>Promise.resolve((o.find(x=>/기지/.test(x.label||''))||o[0]).v),   // 유닛 배치는 기지로 (결전을 열지 않게)
   pickReaction:(p,t,opts)=>{ SEEN.push(opts.map(o=>o.label)); const w=RQ.shift();
