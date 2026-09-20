@@ -309,8 +309,10 @@ function appendBattlefieldSource(parent){
     const side=(p,role,icon)=>{
       const us=G.bfs[sd.bfIdx].units.filter(u=>u.ctrl===p);
       if(!us.length) return `${icon} ${esc(pname(p))}: 유닛 없음`;
-      const m=u=>{ try{ return might(u, role); }catch(e){ return u.m; } };
-      return `${icon} ${esc(pname(p))} ${role==='attacker'?'공격':'방어'} ${us.map(u=>`${esc(unitName(u))}(${m(u)})`).join(', ')} · 합계 ${us.reduce((s,u)=>s+m(u),0)}`;
+      // 기절 유닛은 위력이 0이 되는 게 아니라 전투 피해에 기여하지 않을 뿐(룰 4181·4184) — 원래 위력을 보이고 '기절'을 붙인다
+      const full=u=>{ try{ return might(u, role, {forKill:true}); }catch(e){ return u.m; } };
+      const contrib=u=>{ try{ return might(u, role); }catch(e){ return u.m; } };
+      return `${icon} ${esc(pname(p))} ${role==='attacker'?'공격':'방어'} ${us.map(u=>`${esc(unitName(u))}(${full(u)}${u.stunned?'·기절':''})`).join(', ')} · 전투 기여 합계 ${us.reduce((s,u)=>s+contrib(u),0)}`;
     };
     const combat=document.createElement('div'); combat.className='battlefield-source-combat';
     combat.innerHTML=[side(sd.attacker,'attacker','⚔'), side(sd.defender,'defender','🛡')].join('<br>');
