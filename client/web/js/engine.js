@@ -675,7 +675,9 @@ async function decideFirstPlayer(){
   }
   do{
     d0=1+Math.floor(rng()*6); d1=1+Math.floor(rng()*6); tries++;
-    if(animated){
+    if(animated && typeof UI.rollSetupDiceBoth==='function'){
+      await UI.rollSetupDiceBoth(d0,d1,tries);          // 두 주사위 동시·자동 (입력 없음)
+    } else if(animated){
       const roll0=await UI.rollSetupDice(0,d0,tries); instant=instant||!!roll0?.instant;
       const roll1=await UI.rollSetupDice(1,d1,tries); instant=instant||!!roll1?.instant;
     }

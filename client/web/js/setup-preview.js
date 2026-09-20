@@ -154,6 +154,28 @@ async function setupSyncClock(view){
 }
 function setupNow(view){ return Date.now()-view.clockOffset; }
 
+// 두 주사위를 동시에, 자동으로 굴린다 — 길게 누르기·즉시 결정 없이 카드 확인 화면 뒤 바로 (요청 2026-09-20).
+// 온라인은 방장 시계 기준 공통 시작 시각을 한 번 나눠 받아 양쪽이 같은 순간에 같은 연출을 본다. 값은 엔진 시드에서 온다.
+UI.rollSetupDiceBoth = async function(d0,d1,round){
+  const view=_setupView; if(!view || view.game!==G) return;
+  view.overlay.dataset.stage='hold'; view.overlay.dataset.round=round; delete view.overlay.dataset.roller;
+  if(round===1) view.overlay.querySelectorAll('.setup-roll-result').forEach(el=>el.textContent='');
+  view.overlay.querySelectorAll('.setup-review-player').forEach(el=>el.classList.remove('is-rolling-player'));
+  view.button.hidden=true; view.instantButton.hidden=true;
+  view.status.textContent=round>1?'무승부 — 다시 굴립니다':'선후공을 정하는 주사위를 굴립니다';
+  view.hint.textContent='';
+  let startsAt;
+  if(NET.online){
+    await setupSyncClock(view);
+    startsAt=await setupChoice(0,async()=>Date.now()+700);
+    if(!Number.isFinite(startsAt)) throw new Error('Invalid dice start time');
+  } else startsAt=Date.now()+(round>1?300:900);
+  UI.hideHover(); UI.hideZoom();
+  const both=Promise.all([animateSetupDie(view,0,d0,round,startsAt), animateSetupDie(view,1,d1,round,startsAt)]);
+  // 양쪽 모두 연출을 마쳐야 다음(재굴림·선후공 선택)으로 — 한쪽만 먼저 넘어가지 않게
+  if(NET.online) await Promise.all([0,1].map(seat=>setupChoice(seat,()=>both.then(()=>true))));
+  else await both;
+};
 UI.rollSetupDice = async function(p,value,round){
   const view=_setupView; if(!view || view.game!==G) return;
   const local=!NET.online||NET.seat===p;

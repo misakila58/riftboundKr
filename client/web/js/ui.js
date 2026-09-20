@@ -406,16 +406,21 @@ UI.revealAurora = async function(p, revealed, unitIndex){
 // ── 온라인 라우팅 래퍼 ──
 // 내 좌석이면 인터랙티브, 상대 좌석이면 대기. 결과는 서버 에코로 양측 동시 해결.
 let _turnGlowPick=null;
+// 진행 중인 라우팅 선택 전부. 온라인 멀리건처럼 두 좌석의 선택이 동시에 시작해 어느 순서로든 끝나므로
+// '이전 값 복원' 방식은 낡은 선택을 되살려 isPicking()이 영원히 참이 됐다 → 턴 종료·패스 버튼이 잠김 (제보 2026-09-20).
+const _pendingRoutedPicks=new Set();
 async function routedPick(p, interactiveFn, serialize, deserialize){
-  const previous=_turnGlowPick;
-  _turnGlowPick={game:G,p};
+  const pick={game:G,p};
+  _pendingRoutedPicks.add(pick);
+  _turnGlowPick=pick;
   updateTurnGlow();
   updateButtons();
   try{
     if(!NET.online) return await interactiveFn();
     return await NET.choice(p, interactiveFn, serialize, deserialize);
   } finally {
-    _turnGlowPick=previous;
+    _pendingRoutedPicks.delete(pick);
+    _turnGlowPick=[..._pendingRoutedPicks].filter(x=>x.game===G).pop()||null;
     updateTurnGlow();
     updateButtons();
   }
@@ -1816,6 +1821,7 @@ UI.showZoom = function(c, owner){
     .filter((v,i,a)=>a.indexOf(v)===i)
     .map(k=>KEYWORDS_KO[k]?`<div class="cz-kw">· <b>[${KEYWORDS_KO[k].ko}]</b> ${KEYWORDS_KO[k].desc}</div>`:'')
     .join('');
+  const zoomArt = artImg(c,owner);
   const statBits = [];
   if(c.m!==null && c.m!==undefined) statBits.push(`위력 ${c.m}`);
   if(c.e!==null && c.e!==undefined) statBits.push(`비용 ${c.e}${c.p?'+힘'+c.p:''}`);
@@ -1826,7 +1832,7 @@ UI.showZoom = function(c, owner){
         <button type="button" class="cz-close" aria-label="카드 설명 닫기">닫기 <span aria-hidden="true">×</span></button>
       </div>
       <div class="cz-body">
-      ${artImg(c,owner)?`<img class="cz-img" src="${cardImgUrl(artImg(c,owner))}" alt="">`:'<div class="cz-noimg">🃏</div>'}
+      ${zoomArt?`<img class="cz-img" src="${cardImgUrl(zoomArt,280)}" alt="${esc(c.ko||c.name||'카드 이미지')}">`:'<div class="cz-noimg">🃏</div>'}
       <div class="cz-info">
         <div class="cz-name">${esc(c.ko||'')}</div>
         <div class="cz-en">${esc(c.name||'')}${c.n?` · #${c.n}`:''}</div>
@@ -1840,6 +1846,16 @@ UI.showZoom = function(c, owner){
       </div>
       </div>
     </div>`;
+  // 기본(작은) 이미지를 즉시 표시하고, 확대본을 정상적으로 받은 경우에만 교체한다.
+  const zoomImage = ov.querySelector('.cz-img');
+  if(zoomImage && zoomArt){
+    const fullUrl = cardImgUrl(zoomArt);
+    if(fullUrl!==cardImgUrl(zoomArt,280)){
+      const fullImage = new Image();
+      fullImage.onload = ()=>{ zoomImage.src=fullUrl; };
+      fullImage.src = fullUrl;
+    }
+  }
   UI.renderZoomArts(c);   // 편집기에서 열었으면 일러스트 선택 버튼이 붙는다
   ov.querySelector('.cz-close').addEventListener('click', UI.hideZoom);
   ov.querySelector('.cz-box').addEventListener('click', e=>e.stopPropagation()); // CSP가 인라인 onclick 차단 → 리스너로 연결
