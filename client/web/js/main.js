@@ -1719,12 +1719,26 @@ const RM = {
     const legend=card(deck.legendN);
     const legendTags=(legend&&legend.tags)||[];
     // 상대 전설·선발 챔피언은 공개 정보다 (룰 352.10.a.1) — 무엇을 상대했는지 보고 고르라고 띄워 준다
-    let oppInfo='';
+    let oppInfo='', oppCards=null;
     try{
       const o=(opts.start&&opts.start.players)?opts.start.players[opp(NET.seat)].deck
         : (typeof G!=='undefined'&&G&&G.players)?G.players[opp(NET.seat)]:null;
-      if(o) oppInfo=`상대: ${card(o.legendN).ko} · 선발 ${o.champN?card(o.champN).ko:'-'}`;
+      if(o){
+        oppInfo=`상대: ${card(o.legendN).ko} · 선발 ${o.champN?card(o.champN).ko:'-'}`;
+        oppCards={legendN:o.legendN, champN:o.champN, name:(opts.start&&opts.start.players)?opts.start.players[opp(NET.seat)].id:(G&&G.players?pname(opp(NET.seat)):'상대')};
+      }
     }catch(e){}
+    // 상대 전설·선발 챔피언(공개 정보)을 카드 그림으로 — 무엇을 상대할지 보고 사이드보딩한다
+    const oppPanel=()=>{
+      const row=document.createElement('div'); row.className='sb-opp';
+      const put=(label,n)=>{ const cell=document.createElement('div'); cell.className='sb-opp-cell';
+        const t=document.createElement('div'); t.className='sb-opp-label'; t.textContent=label; cell.appendChild(t);
+        if(n){ cell.appendChild(cardMiniEl(card(n))); } else { const e=document.createElement('div'); e.className='sb-opp-none'; e.textContent='-'; cell.appendChild(e); }
+        row.appendChild(cell); };
+      if(oppCards){ put(`상대(${oppCards.name}) 전설`, oppCards.legendN); put('상대 선발 챔피언'+(opts.pregame?'':' (지난 게임)'), oppCards.champN); }
+      put('내 전설', deck.legendN);
+      return row;
+    };
 
     const box=document.getElementById('modal-box');
     const render=()=>{
@@ -1762,6 +1776,7 @@ const RM = {
           <button id="sb-cancel">${opts.pregame?'교체 없이 시작':'취소'}</button>
         </div>`;
 
+      const noteEl=box.querySelector('.sb-note'); if(noteEl) noteEl.insertAdjacentElement('afterend', oppPanel());
       box.querySelectorAll('.sb-row').forEach(row=>{
         const n=+row.dataset.n;
         row.onmouseenter=()=>UI.inspect(card(n));
