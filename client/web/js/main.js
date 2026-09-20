@@ -1619,6 +1619,7 @@ function initP2P(){
   $('btn-p2p-host').onclick=async ()=>{
     const deck=p2pGetDeck();
     if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+    MATCH.myDeck=deck;   // 게임 시작 사이드보딩은 등록 덱(사이드 포함) 기준
     const ban=$('p2p-ban').checked;
     if(!banSelfCheck(ban, deck)) return;
     role='host';
@@ -1646,6 +1647,7 @@ function initP2P(){
   $('btn-p2p-join').onclick=async ()=>{
     const deck=p2pGetDeck();
     if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+    MATCH.myDeck=deck;   // 게임 시작 사이드보딩은 등록 덱(사이드 포함) 기준
     const ban=$('p2p-ban').checked;
     if(!banSelfCheck(ban, deck)) return;
     const raw=$('p2p-code-in').value.trim();
@@ -1660,6 +1662,7 @@ function initP2P(){
   $('btn-p2p-host-manual').onclick=async ()=>{
     const deck=p2pGetDeck();
     if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+    MATCH.myDeck=deck;   // 게임 시작 사이드보딩은 등록 덱(사이드 포함) 기준
     const ban=$('p2p-ban').checked;
     if(!banSelfCheck(ban, deck)) return;
     role='host';
@@ -1683,6 +1686,7 @@ function initP2P(){
   $('btn-p2p-join-manual').onclick=async ()=>{
     const deck=p2pGetDeck();
     if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
+    MATCH.myDeck=deck;   // 게임 시작 사이드보딩은 등록 덱(사이드 포함) 기준
     const ban=$('p2p-ban').checked;
     if(!banSelfCheck(ban, deck)) return;
     const code=$('p2p-offer-in').value.trim();
@@ -1708,7 +1712,7 @@ const RM = {
   // ── 사이드덱 교체 (게임 사이에만) ──
   // 공식 규칙: 1장 넣으면 1장 빼서 메인은 항상 40장, 사이드는 8장.
   // 선발 챔피언도 이때 바꿀 수 있다 (전설 태그가 맞고 메인에 들어 있어야 한다).
-  openSideboard(deck, ban, onDone){
+  openSideboard(deck, ban, onDone, opts={}){
     const main=[...deck.main], side=[...(deck.side||[])];
     const sideSize=side.length;   // 1장 넣으면 1장 빼므로 시작 장수를 그대로 유지한다
     let champN=deck.champN;
@@ -1717,7 +1721,8 @@ const RM = {
     // 상대 전설·선발 챔피언은 공개 정보다 (룰 352.10.a.1) — 무엇을 상대했는지 보고 고르라고 띄워 준다
     let oppInfo='';
     try{
-      const o=(typeof G!=='undefined'&&G&&G.players)?G.players[opp(NET.seat)]:null;
+      const o=(opts.start&&opts.start.players)?opts.start.players[opp(NET.seat)].deck
+        : (typeof G!=='undefined'&&G&&G.players)?G.players[opp(NET.seat)]:null;
       if(o) oppInfo=`상대: ${card(o.legendN).ko} · 선발 ${o.champN?card(o.champN).ko:'-'}`;
     }catch(e){}
 
@@ -1736,7 +1741,7 @@ const RM = {
         return c.type==='Unit' && c.super==='Champion' && (c.tags||[]).some(t=>legendTags.includes(t)); }))];
       if(champCands.length && !champCands.includes(champN)) champN=champCands[0];
 
-      box.innerHTML=`<h3>🔁 사이드덱 교체</h3>
+      box.innerHTML=`<h3>🔁 사이드덱 교체${opts.pregame?' — 게임 시작 전':''}</h3>
         <div class="sb-note">${esc(oppInfo)}${oppInfo?' · ':''}같은 수만큼 주고받아 메인 40장을 맞추세요${ban?' · 🚫 밴 적용 대전':''}</div>
         <div class="sb-cols">
           <div class="sb-col">
@@ -1754,7 +1759,7 @@ const RM = {
         <div class="modal-btns">
           <button class="primary" id="sb-ok"${okNow?'':' disabled'}>이 구성으로 시작</button>
           <button id="sb-reset">처음 구성으로</button>
-          <button id="sb-cancel">취소</button>
+          <button id="sb-cancel">${opts.pregame?'교체 없이 시작':'취소'}</button>
         </div>`;
 
       box.querySelectorAll('.sb-row').forEach(row=>{
@@ -1774,7 +1779,7 @@ const RM = {
         side.length=0; side.push(...(deck.side||[]));
         champN=deck.champN; render();
       };
-      box.querySelector('#sb-cancel').onclick=()=>{ closeModal(); UI.prompt(''); };
+      box.querySelector('#sb-cancel').onclick=()=>{ closeModal(); UI.prompt(''); if(opts.pregame) onDone(deck); };   // 게임 전엔 취소 = 등록 덱 그대로 시작
       const okBtn=box.querySelector('#sb-ok');
       okBtn.onclick=()=>{
         if(main.length!==40 || side.length!==sideSize){ UI.toast(`메인 40장 · 사이드 ${sideSize}장을 맞춰주세요`,'warn'); return; }
@@ -1830,6 +1835,7 @@ const RM = {
   },
   onRequest(a){
     RM.decks[a.p]=a.deck;
+    if(MATCH.pregame){ RM._tryStart(); return; }   // 첫 게임 사이드보딩: 양쪽 덱이 모이면 방장이 시작 신호
     if(MATCH.active() && !MATCH.finished()){
       // Bo3 다음 게임: 요청/수락이 아니라 양쪽이 각자 사이드보딩을 마치면 진행된다
       if(a.p!==NET.seat && !RM.decks[NET.seat] && !NET.spectating && !MATCH._sent && !document.querySelector('#sb-ok')){
@@ -1863,7 +1869,7 @@ const RM = {
       const seed=crypto.getRandomValues(new Uint32Array(1))[0];
       // 덱을 시작 신호에 같이 실어 보낸다 — 양쪽이 각자 기억한 덱이 아니라 이 값을 쓰므로
       // 한쪽 덱만 예전 것으로 시작되는 어긋남이 생기지 않는다.
-      NET.sendAction({k:'rematchGo', p:0, seed, decks:[RM.decks[0], RM.decks[1]], match:MATCH.payloadForGo()});
+      NET.sendAction({k:'rematchGo', p:0, seed, decks:[RM.decks[0], RM.decks[1]], pregame:!!MATCH.pregame, match:MATCH.pregame?null:MATCH.payloadForGo()});
     }
   },
   onGo(a){
@@ -1871,7 +1877,7 @@ const RM = {
     const decks = (a.decks && a.decks[0] && a.decks[1]) ? a.decks : RM.decks;  // 신호에 실린 덱이 우선
     if(!decks[0] || !decks[1]) return;
     const m={ t:'start', seed:a.seed, yourSeat:NET.seat, spectate:!!NET.spectating, manual:ls.manual, banRule:ls.banRule,
-      format:ls.format||'bo1', match:a.match||null,
+      format:ls.format||'bo1', match:a.pregame?null:(a.match||null), sideboarded:true,
       players:[ {id:ls.players[0].id, deck:decks[0]}, {id:ls.players[1].id, deck:decks[1]} ] };
     RM.reset();
     const ov=document.getElementById('modal-overlay'); if(ov.style.display!=='none') closeModal();
@@ -1886,6 +1892,7 @@ const RM = {
 // 매치 상태는 양쪽이 각자 같은 결과에서 같은 값을 만들지만, 시작 신호(rematchGo)에도 실어 보내 어긋남을 막는다.
 const MATCH = {
   format:'bo1', wins:[0,0], game:0, used:[[],[]], chooser:null, myDeck:null, _lastGame:null, _sent:false,
+  pregame:false,   // 첫 게임 사이드보딩 중 (덱 교환이 끝나면 false)
   active(){ return NET.online && MATCH.format==='bo3'; },
   finished(){ return Math.max(MATCH.wins[0],MATCH.wins[1])>=2; },
   label(){ return `Bo3 ${MATCH.game}게임 · ${MATCH.wins[0]}:${MATCH.wins[1]}`; },
@@ -2083,6 +2090,20 @@ function openSystemMenu(){
 // ---------- 게임 시작 ----------
 async function startOnlineGame(m){
   NET.spectating=!!m.spectate;
+  // 첫 게임 사이드보딩: 서버의 start 직후 각자 사이드덱을 교체하고(없으면 자동 통과) 덱을 교환한 뒤에야 게임을 만든다.
+  // 재대결 핸드셰이크(rematch → rematchGo)를 그대로 쓰며, rematchGo로 다시 들어올 때는 m.sideboarded가 켜져 있어 건너뛴다.
+  if(!m.sideboarded && !m.match){
+    NET.online=true; NET.seat=NET.spectating?-1:m.yourSeat; NET.lastStart=m;
+    MATCH.start(m); MATCH.pregame=true; RM.reset(); NET.resetGameSync();
+    const status=t=>{ const el=document.getElementById('lobby-status'); if(el) el.textContent=t; UI.toast(t); };
+    if(NET.spectating){ status('👁 플레이어들이 사이드보딩 중... 끝나면 자동으로 관전 화면으로 갑니다'); return; }
+    const base=MATCH.myDeck || m.players[NET.seat].deck;
+    const send=d=>{ NET.sendAction({k:'rematch', p:NET.seat, deck:deckForMatch(d)}); status('⏳ 상대의 사이드보딩을 기다리는 중... (사이드덱이 없으면 바로 시작됩니다)'); };
+    if(base.side && base.side.length) RM.openSideboard(base, !!m.banRule, send, {pregame:true, start:m});
+    else send(base);
+    return;
+  }
+  MATCH.pregame=false;
   MATCH.start(m);
   // 관전자는 통계·리플레이 제공 대상이 아니다 (좌석이 없어 리플레이 업로드 조건 seat===0에도 안 걸린다)
   if(typeof STATS!=='undefined'){ if(NET.spectating){ STATS.mode=null; STATS._ended=true; } else STATS.gameStart((typeof P2P!=='undefined' && P2P.active) ? 'p2p' : 'online'); }

@@ -1051,6 +1051,8 @@ function botHandHidable(p){
 function handFaceUp(p){
   if(NET.online && NET.spectating) return NET.spectView==='both' || NET.spectView===p;   // 관전자: 고른 쪽만
   if(replayLock()) return true;
+  // 효과로 공개된 손패(파괴 공작 등): 공개를 시킨 쪽에게는 상대 손패 전체가 앞면 (선택 후보만이 아니라)
+  if(G && G._revealHand && G._revealHand.p===p && (!NET.online || NET.seat===G._revealHand.by)) return true;
   if(NET.online) return p === NET.seat;
   if(botHandHidable(p)) return !!UI.peekBotHand;
   return true;

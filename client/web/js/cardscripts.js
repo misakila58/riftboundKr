@@ -637,9 +637,19 @@ const EXTRA_OPS = {
     let cands=O.hand.map((n,i)=>({n,i}));
     if(op.filter==='nonunit') cands=cands.filter(x=>card(x.n).type!=='Unit');
     UI.log(`상대 손패 공개: ${O.hand.map(n=>card(n).ko).join(', ')}`,'sys');
-    if(!cands.length) return;
-    // n을 함께 실어 보내면 선택 모달이 마우스 오버로 그 카드의 효과를 보여 준다 (ui.js optionCard)
-    let sel=await UI.pickOption(ctx.p, op.action==='discard'?'버리게 할 카드':'재활용시킬 카드', cands.map(x=>({v:x,label:card(x.n).ko,n:x.n,resolvingSpell:ctx.resolvingSpell,boardCard:{kind:'hand',p:o,index:x.i,reveal:true}})),'cardsRequired');
+    // "손패를 공개한다" — 고를 수 있는 카드만이 아니라 손패 전체가 시전자에게 앞면으로 보여야 한다 (제보 2026-09-21).
+    // 공개 상태는 게임 상태에 두어 양쪽 클라이언트가 같은 시점에 그린다 (ui.js handFaceUp).
+    G._revealHand={p:o, by:ctx.p};
+    UI.render();
+    let sel=null;
+    try{
+      if(!cands.length){
+        await UI.pickOption(ctx.p, `상대 손패 공개 — ${op.filter==='nonunit'?'유닛이 아닌 카드가 없어 ':''}${op.action==='discard'?'버리게 할':'재활용시킬'} 카드가 없습니다`, [{v:1,label:'확인'}]);
+        return;
+      }
+      // n을 함께 실어 보내면 선택 모달이 마우스 오버로 그 카드의 효과를 보여 준다 (ui.js optionCard)
+      sel=await UI.pickOption(ctx.p, `상대 손패 공개 — ${op.action==='discard'?'버리게 할 카드':'재활용시킬 카드'}${op.filter==='nonunit'?' (유닛 제외)':''}`, cands.map(x=>({v:x,label:card(x.n).ko,n:x.n,resolvingSpell:ctx.resolvingSpell,boardCard:{kind:'hand',p:o,index:x.i,reveal:true}})),'cardsRequired');
+    } finally { G._revealHand=null; UI.render(); }
     // 원문에 may가 없다("Choose a non-unit card ... and recycle") — 후보가 있으면 반드시 고른다, 손패만 보고 취소 불가 (RiftJudge #4264)
     if(!sel){ sel=cands[0]; UI.log(`「${card(sel.n).ko}」 — 취소할 수 없는 지시라 첫 후보로 확정`,'sys'); }
     if(op.action==='discard'){ await discardFromHand(o, sel.i); }

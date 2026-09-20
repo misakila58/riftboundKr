@@ -172,7 +172,8 @@ NET._pump = async function(){
 };
 // 발신 좌석이 해당 행동을 할 권한이 있는지 검증 (상대 명의 조작·턴 훔치기 차단)
 NET._authorized = function(a, seat){
-  if(!G) return false;
+  // 게임 시작 전(첫 게임 사이드보딩)에는 덱 교환 핸드셰이크만 받는다
+  if(!G) return ['rematch','rematchGo','rematchDecline'].includes(a.k) && (typeof a.p !== 'number' || a.p === seat);
   // 행동 주체가 명시된 경우: 발신 좌석과 일치해야 함
   if(typeof a.p === 'number' && a.p !== seat) return false;
   switch(a.k){
