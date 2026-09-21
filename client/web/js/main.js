@@ -1707,7 +1707,7 @@ function initP2P(){
 //       양쪽 덱이 모이면 좌석 0(호스트 권한)이 {k:'rematchGo', seed} → 양측이 동일하게 새 게임 시작.
 const RM = {
   decks: [null, null],
-  reset(){ RM.decks=[null,null]; },
+  reset(){ RM.decks=[null,null]; RM.fresh=false; },
   // 덱 선택 모달 (fromRequest: 상대의 요청을 받고 여는 경우)
   // ── 사이드덱 교체 (게임 사이에만) ──
   // 공식 규칙: 1장 넣으면 1장 빼서 메인은 항상 40장, 사이드는 8장.
@@ -1810,6 +1810,7 @@ const RM = {
 
   openPick(fromRequest){
     if(!NET.online || !NET.lastStart){ UI.toast('온라인 대전 중에만 사용할 수 있습니다','warn'); return; }
+    MATCH._continue=false; RM.fresh=true;   // 재대결(다시 하기·새 매치)은 Bo3 매치를 처음부터 — 1게임·주사위·전장 전부 새로
     const ban=!!NET.lastStart.banRule;
     const box=document.getElementById('modal-box');
     box.innerHTML=`<h3>🔄 ${fromRequest?'상대가 재대결을 요청했습니다':'상대와 다시 하기'}</h3>
@@ -1827,7 +1828,8 @@ const RM = {
       if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
       if(ban && !banSelfCheck(true, deck)) return;
       const send=d=>{
-        NET.sendAction({k:'rematch', p:NET.seat, deck:deckForMatch(d)});
+        // fresh: '새 매치' 의사 — Bo3 방에서 상대가 [다음 게임 준비]로 이어 가려 해도 재대결이면 매치를 처음부터 시작한다
+        NET.sendAction({k:'rematch', p:NET.seat, deck:deckForMatch(d), fresh:true});
         UI.prompt('🔄 재대결 준비 완료 — 상대의 덱 선택을 기다리는 중...');
       };
       // 사이드덱이 있는 덱이면 교체 화면을 한 번 거친다 (게임 사이에만 가능한 절차)
@@ -1851,7 +1853,8 @@ const RM = {
   onRequest(a){
     RM.decks[a.p]=a.deck;
     if(MATCH.pregame){ RM._tryStart(); return; }   // 첫 게임 사이드보딩: 양쪽 덱이 모이면 방장이 시작 신호
-    if(MATCH.active() && !MATCH.finished()){
+    if(a.fresh) MATCH._continue=false;              // 한쪽이라도 '새 매치'면 매치를 이어 가지 않는다 (1게임·주사위부터)
+    if(MATCH.active() && !MATCH.finished() && !a.fresh && !RM.fresh){
       // Bo3 다음 게임: 요청/수락이 아니라 양쪽이 각자 사이드보딩을 마치면 진행된다
       if(a.p!==NET.seat && !RM.decks[NET.seat] && !NET.spectating && !MATCH._sent && !document.querySelector('#sb-ok')){
         const ov=document.getElementById('modal-overlay'); if(ov.style.display!=='none') closeModal();
@@ -1908,13 +1911,17 @@ const RM = {
 const MATCH = {
   format:'bo1', wins:[0,0], game:0, used:[[],[]], chooser:null, myDeck:null, _lastGame:null, _sent:false,
   pregame:false,   // 첫 게임 사이드보딩 중 (덱 교환이 끝나면 false)
+  // 다음 시작 신호가 '매치 계속(다음 게임)'인지 '새 매치(재시작)'인지. MATCH.next()만 true로 켠다.
+  // 예전엔 Bo3 방에서 재대결(다시 하기·새 매치)도 매치를 이어 가서 — 게임 번호가 늘고 이전 패자가 선후공을 고르느라
+  // 주사위가 안 굴렀고, 이긴 게임의 전장이 계속 빠졌다 (제보 2026-09-21 "재시작하면 주사위가 안 굴러간다").
+  _continue:false,
   active(){ return NET.online && MATCH.format==='bo3'; },
   finished(){ return Math.max(MATCH.wins[0],MATCH.wins[1])>=2; },
   label(){ return `Bo3 ${MATCH.game}게임 · ${MATCH.wins[0]}:${MATCH.wins[1]}`; },
   start(m){
     if(m.match){ MATCH.format=m.match.format||'bo3'; MATCH.wins=[...m.match.wins]; MATCH.game=m.match.game; MATCH.used=(m.match.used||[[],[]]).map(a=>[...a]); MATCH.chooser=m.match.chooser; }
     else { MATCH.format=(m.format==='bo3')?'bo3':'bo1'; MATCH.wins=[0,0]; MATCH.game=1; MATCH.used=[[],[]]; MATCH.chooser=null; }
-    MATCH._lastGame=null; MATCH._sent=false;
+    MATCH._lastGame=null; MATCH._sent=false; MATCH._continue=false;
   },
   // 게임 결과 기록 (게임당 한 번). 이긴 게임의 전장 둘은 매치에서 제외된다.
   recordResult(winner){
@@ -1928,10 +1935,12 @@ const MATCH = {
     const used=[...(MATCH.used[p]||[])];
     return (deckBfs||[]).filter(n=>{ const i=used.indexOf(n); if(i>=0){ used.splice(i,1); return false; } return true; });
   },
-  payloadForGo(){ return MATCH.active() ? {format:'bo3', wins:[...MATCH.wins], game:MATCH.game+1, used:MATCH.used.map(a=>[...a]), chooser:MATCH.chooser} : null; },
+  // 매치 계속일 때만 다음 게임 정보를 싣는다. 재시작(새 매치·다시 하기)이나 끝난 매치면 null → 1게임부터 주사위로 새로 시작.
+  payloadForGo(){ return (MATCH.active() && MATCH._continue && !MATCH.finished()) ? {format:'bo3', wins:[...MATCH.wins], game:MATCH.game+1, used:MATCH.used.map(a=>[...a]), chooser:MATCH.chooser} : null; },
   // 다음 게임 준비: 사이드보딩(사이드덱이 있을 때) → 덱 전송
   next(){
     const ls=NET.lastStart; if(!ls || NET.spectating) return;
+    MATCH._continue=true;
     const base=MATCH.myDeck || ls.players[NET.seat].deck;
     const ban=!!ls.banRule;
     const send=d=>{ MATCH._sent=true; NET.sendAction({k:'rematch', p:NET.seat, deck:deckForMatch(d)});
@@ -1955,7 +1964,9 @@ const MATCH = {
       const box=document.getElementById('modal-box');
       const o=m.players[opp(p)].deck, mine=m.players[p].deck;
       box.innerHTML=`<h3>🏟️ ${MATCH.game}게임 전장 선택</h3>
-        <div class="modal-copy" style="font-size:13px;color:#9aa4bd">이긴 게임에 쓴 전장은 이 매치에서 다시 쓸 수 없습니다 (룰 487.4). 남은 전장 중 하나를 고르세요 — 두 사람이 동시에 고르고 함께 공개됩니다.<br>
+        <div class="modal-copy" style="font-size:13px;color:#9aa4bd">${MATCH.game>1
+          ? '이긴 게임에 쓴 전장은 이 매치에서 다시 쓸 수 없습니다 (룰 487.4). 남은 전장 중 하나를 고르세요'
+          : 'Bo3는 각자 자기 전장 3개 중 하나를 고릅니다 (룰 487.2). 이긴 게임의 전장은 다음 게임에서 빠집니다'} — 두 사람이 동시에 고르고 함께 공개됩니다.<br>
         상대: 전설 「${esc(card(o.legendN).ko)}」 · 선발 「${esc(o.champN?card(o.champN).ko:'-')}」 &nbsp;|&nbsp; 나: 전설 「${esc(card(mine.legendN).ko)}」 · 선발 「${esc(mine.champN?card(mine.champN).ko:'-')}」</div>`;
       const wrap=document.createElement('div'); wrap.className='modal-cards';
       rem.forEach((n,i)=>{ const el=cardMiniEl(card(n)); el.style.cursor='pointer'; el.title='이 전장으로'; el.onclick=()=>{ closeModal(); res(n); }; wrap.appendChild(el); });
@@ -2130,7 +2141,9 @@ async function startOnlineGame(m){
   // 결정론: 시드 → 전장 선택(각자 3개 중 1개 무작위)도 rng 사용
   seedRng(m.seed);
   // Bo3 2·3게임: 이긴 게임의 전장은 매치에서 빠지고, 각자 남은 전장 중 하나를 고른다 (487.3~487.4). 1게임과 단판은 무작위.
-  const bfs = (MATCH.active() && MATCH.game>1)
+  // Bo3는 1게임부터 각자 전장 3개 중 하나를 골라 동시에 공개한다(487.2 "Each player selects one") — 무작위는 단판(485.5)만.
+  // 예전엔 1게임을 단판처럼 무작위로 정해 "Bo3 첫 판 전장이 랜덤"이라는 제보가 있었다 (2026-09-21).
+  const bfs = MATCH.active()
     ? await MATCH.chooseBattlefields(m)
     : m.players.map(pl=>pl.deck.bfs[Math.floor(rng()*pl.deck.bfs.length)]);
   if(!bfs) return;   // 선택 도중 게임이 바뀜(이탈 등)
