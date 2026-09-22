@@ -132,7 +132,10 @@ function openBotSelect(){
   try{ saved=JSON.parse(localStorage.getItem(BOT_SETUP_KEY)); }catch(e){}
   const automatic={key:'auto', name:'무작위 자동 덱', detail:'레전드 무작위 · 자동 구성', deck:null};
   const mine=[automatic, ...DeckStore._read().map(d=>({key:deckToCode(d), name:d.name, detail:card(d.legendN).ko, deck:d}))];
-  const opponents=[automatic, ...BOT_DECKS.map(d=>({key:d.id, name:d.name, detail:`${d.place} · ${d.tag || d.event}`, deck:d}))];
+  // 봇이 내 저장 덱으로 플레이할 수도 있다 (요청 2026-09-22) — 키는 덱 내용(deckToCode)이라 목록 순서가 바뀌어도 복원된다
+  const opponents=[automatic,
+    ...DeckStore._read().map(d=>({key:'mine:'+deckToCode(d), name:d.name, detail:`내 덱 · ${card(d.legendN).ko}`, deck:d, mine:true})),
+    ...BOT_DECKS.map(d=>({key:d.id, name:d.name, detail:`${d.place} · ${d.tag || d.event}`, deck:d}))];
   // 목록 순번 대신 덱 내용으로 복원한다. 덱을 수정했다면 이름·레전드가 같은 덱이 하나일 때만 이어 쓴다.
   const sameName=mine.filter(c=>c.deck && c.name===saved?.myDeck?.name && c.deck.legendN===saved?.myDeck?.legendN);
   let my=mine.find(c=>c.key===saved?.myDeck?.key) || (sameName.length===1?sameName[0]:null) || (saved?automatic:(mine[1] || automatic));
@@ -209,7 +212,7 @@ function openBotSelect(){
     });
     updateLevel();
     box.querySelector('#bot-start').onclick=()=>{
-      const myDeck=botMyDeck(my.deck), oppDeck=botOppDeck(opponent.key);
+      const myDeck=botMyDeck(my.deck), oppDeck=botOppDeck(opponent.key, opponent.deck);
       save(); closeModal(); startBotGame(BOT_LEVELS[levelIndex],myDeck,oppDeck);
     };
     box.scrollTop=0;
@@ -220,7 +223,7 @@ function openBotSelect(){
     const back=()=>renderSetup(isMine?'bot-deck':'bot-opp-deck');
     goBack=back;
     box.innerHTML=`<section class="bot-dialog bot-deck-picker" role="dialog" aria-modal="true" aria-labelledby="bot-dialog-title">
-      ${header(isMine?'내 덱 선택':'상대 덱 선택','CHOOSE YOUR DECK',isMine?'이 기기에 저장된 덱에서 골라 주세요.':'레전드와 덱 이름을 보고 연습 상대를 골라 주세요.')}
+      ${header(isMine?'내 덱 선택':'상대 덱 선택','CHOOSE YOUR DECK',isMine?'이 기기에 저장된 덱에서 골라 주세요.':'내 저장 덱을 봇에게 쥐여 주거나, 대회 덱을 연습 상대로 골라 주세요.')}
       <div class="bot-deck-list" aria-label="${isMine?'내':'상대'} 덱 목록"></div>
       <footer class="bot-dialog-footer"><p>${isMine && mine.length===1?'저장된 덱이 없습니다. 시작 화면의 ‘내 덱’에서 만들어 주세요.':'덱을 누르면 선택하고 설정으로 돌아갑니다.'}</p>
         <button type="button" class="bot-back-button">설정으로 돌아가기</button></footer>
@@ -229,7 +232,7 @@ function openBotSelect(){
     choices.forEach(choice=>{
       const button=document.createElement('button'); button.type='button'; button.className='bot-deck-option';
       button.setAttribute('aria-pressed',String(choice===selected));
-      button.innerHTML=`${thumb(choice)}<span class="bot-deck-copy"><strong>${esc(choice.name)}</strong><span>${esc(choice.detail)}</span>${!isMine && choice.deck?`<small>${esc(choice.deck.event)}</small>`:''}</span><span class="bot-deck-check" aria-hidden="true">${choice===selected?'✓':'›'}</span>`;
+      button.innerHTML=`${thumb(choice)}<span class="bot-deck-copy"><strong>${esc(choice.name)}</strong><span>${esc(choice.detail)}</span>${!isMine && choice.deck?.event?`<small>${esc(choice.deck.event)}</small>`:''}</span><span class="bot-deck-check" aria-hidden="true">${choice===selected?'✓':'›'}</span>`;
       button.onclick=()=>{ if(isMine) my=choice; else opponent=choice; notice=''; save(); back(); };
       list.appendChild(button);
     });
@@ -269,7 +272,9 @@ function botMyDeck(selected){
   return selected;
 }
 // 상대(봇) 덱: 무작위 자동 또는 대회 덱
-function botOppDeck(v){
+function botOppDeck(v, saved){
+  if(typeof v==='string' && v.startsWith('mine:') && saved)   // 내 저장 덱을 봇이 든다
+    return { name:`내 덱 「${saved.name}」`, legendN:saved.legendN, champN:saved.champN, main:[...saved.main], runes:[...saved.runes], bfs:[...saved.bfs], arts:saved.arts||null };
   if(v==='auto'){
     const l=botRand(legendList());
     const d=buildDeck(l.n);
