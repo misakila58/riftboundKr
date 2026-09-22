@@ -2118,7 +2118,8 @@ async function startOnlineGame(m){
   NET.spectating=!!m.spectate;
   // 첫 게임 사이드보딩: 서버의 start 직후 각자 사이드덱을 교체하고(없으면 자동 통과) 덱을 교환한 뒤에야 게임을 만든다.
   // 재대결 핸드셰이크(rematch → rematchGo)를 그대로 쓰며, rematchGo로 다시 들어올 때는 m.sideboarded가 켜져 있어 건너뛴다.
-  if(!m.sideboarded && !m.match){
+  // Bo3는 공식 규정(487)대로 1게임을 등록 덱 그대로 시작한다 — 사이드보딩은 게임 사이(MATCH.next)에서만. 시작 사이드보딩(하우스 룰)은 단판에만.
+  if(!m.sideboarded && !m.match && (m.format||'bo1')!=='bo3'){
     NET.online=true; NET.seat=NET.spectating?-1:m.yourSeat; NET.lastStart=m;
     MATCH.start(m); MATCH.pregame=true; RM.reset(); NET.resetGameSync();
     const status=t=>{ const el=document.getElementById('lobby-status'); if(el) el.textContent=t; UI.toast(t); };
