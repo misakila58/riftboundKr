@@ -380,6 +380,8 @@
       <div class="setup-player">
         <h2>플레이어 1</h2>
         <input id="p0-name" type="text" value="플레이어 1" maxlength="12">
+        <label>덱 선택</label>
+        <select id="p0-deck" title="내 덱(이 컴퓨터·계정에 저장된 덱) 또는 전설 기준 자동 구성 덱"></select>
         <label>전설(레전드) 선택</label>
         <select id="p0-legend"></select>
         <div id="p0-legend-preview" class="legend-preview"></div>
@@ -387,6 +389,8 @@
       <div class="setup-player">
         <h2>플레이어 2</h2>
         <input id="p1-name" type="text" value="플레이어 2" maxlength="12">
+        <label>덱 선택</label>
+        <select id="p1-deck" title="내 덱(이 컴퓨터·계정에 저장된 덱) 또는 전설 기준 자동 구성 덱"></select>
         <label>전설(레전드) 선택</label>
         <select id="p1-legend"></select>
         <div id="p1-legend-preview" class="legend-preview"></div>
@@ -395,7 +399,7 @@
     <label class="mode-chk" style="justify-content:center;margin:10px 0"><input type="checkbox" id="hs-auto" checked> 자동 규칙 처리 (효과·전투·득점 자동 · 해제 시 수동)</label>
     <button id="btn-start" class="big-btn">게임 시작</button>
     <button class="link-btn" id="btn-setup-back">← 돌아가기</button>
-    <p class="hint">덱은 선택한 전설의 영역에 맞춰 자동 구성됩니다.</p>
+    <p class="hint">'자동 덱'은 선택한 전설의 영역에 맞춰 구성됩니다. 내 덱을 고르면 그 덱의 전설·선발 챔피언·전장을 그대로 씁니다.</p>
   </div>
 </div>
 

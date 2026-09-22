@@ -456,7 +456,7 @@ function initConnect(){
       event.preventDefault(); (event.shiftKey?last:first).focus();
     }
   },true);
-  document.getElementById('btn-offline').onclick=()=>showScreen('setup-screen');
+  document.getElementById('btn-offline').onclick=()=>{ hsRefreshDecks(); showScreen('setup-screen'); };
   document.getElementById('btn-tutorial').onclick=()=>TUT.start();
   document.getElementById('btn-local-decks').onclick=()=>{
     DeckStore.local=true; DeckStore.returnTo='connect-screen';
@@ -654,7 +654,7 @@ function initMenu(){
       showScreen('lobby-screen');
     }catch(e){ alert(e.message); }
   };
-  document.getElementById('btn-goto-hotseat').onclick=()=>showScreen('setup-screen');
+  document.getElementById('btn-goto-hotseat').onclick=()=>{ hsRefreshDecks(); showScreen('setup-screen'); };
   document.getElementById('btn-logout').onclick=()=>{
     localStorage.removeItem('rb_token'); localStorage.removeItem('rb_id');
     location.reload();
@@ -2184,21 +2184,49 @@ async function startOnlineGame(m){
   mulliganPhase().then(()=>startTurn());
 }
 
+// 핫시트 덱 선택: 'auto' = 전설 기준 자동 구성 / 'l<i>' = 이 컴퓨터 덱 / 's<i>' = 계정 덱(로그인 시)
+function hsDeckChoices(){
+  const out=[{v:'auto', label:'🎲 자동 덱 (아래 전설 기준)', deck:null}];
+  DeckStore._read().forEach((d,i)=>out.push({v:'l'+i, label:`📱 ${d.name} (${card(d.legendN).ko})`, deck:d}));
+  if(NET.token && !DeckStore.local) (myDecks||[]).forEach((d,i)=>out.push({v:'s'+i, label:`🌐 ${d.name} (${card(d.legendN).ko})`, deck:d}));   // myDecks가 로컬 목록을 담고 있을 땐 중복 방지
+  return out;
+}
+// 설정 화면에 들어올 때마다 덱 목록을 다시 채운다 (덱 관리에서 만들고 돌아와도 바로 보이게). 이전 선택은 유지.
+function hsRefreshDecks(){
+  ['p0','p1'].forEach(pid=>{
+    const sel=document.getElementById(pid+'-deck'); if(!sel) return;
+    const prev=sel.value;
+    sel.innerHTML='';
+    hsDeckChoices().forEach(c=>{ const o=document.createElement('option'); o.value=c.v; o.textContent=c.label; sel.appendChild(o); });
+    sel.value=[...sel.options].some(o=>o.value===prev)?prev:'auto';
+    sel.dispatchEvent(new Event('change'));
+  });
+}
+function hsPickedDeck(pid){
+  const v=document.getElementById(pid+'-deck')?.value||'auto';
+  return hsDeckChoices().find(c=>c.v===v)?.deck||null;
+}
 function startHotseat(){
   if(typeof STATS!=='undefined') STATS.gameStart('hotseat');
   NET.online=false; NET.seat=null;
-  const p0legend=+document.getElementById('p0-legend').value;
-  const p1legend=+document.getElementById('p1-legend').value;
-  const d0=buildDeck(p0legend), d1=buildDeck(p1legend);
-  const bf0=d0.bfs[Math.floor(Math.random()*3)];
-  const bf1=d1.bfs[Math.floor(Math.random()*3)];
   const autoHs=document.getElementById('hs-auto')?.checked;
+  // 저장 덱을 골랐으면 그 덱(전설·선발·메인·룬·전장·일러스트)을 그대로, 아니면 전설 기준 자동 구성
+  const side=(pid)=>{
+    const saved=hsPickedDeck(pid);
+    if(saved) return { legendN:saved.legendN, champN:saved.champN, deck:[...saved.main], runes:[...saved.runes], bfs:[...saved.bfs], arts:saved.arts||null };
+    const legendN=+document.getElementById(pid+'-legend').value;
+    const d=buildDeck(legendN);
+    return { legendN, champN:d.champN, deck:d.deck, runes:d.runes, bfs:d.bfs, arts:d.arts };
+  };
+  const d0=side('p0'), d1=side('p1');
+  const bf0=d0.bfs[Math.floor(Math.random()*d0.bfs.length)];
+  const bf1=d1.bfs[Math.floor(Math.random()*d1.bfs.length)];
   newGame({
     reviewSetup: true,
     manual: !autoHs,   // 선후공은 주사위(decideFirstPlayer)로 정한다
     players:[
-      { name:document.getElementById('p0-name').value||'플레이어 1', legendN:p0legend, champN:d0.champN, deck:d0.deck, runes:d0.runes, arts:d0.arts },
-      { name:document.getElementById('p1-name').value||'플레이어 2', legendN:p1legend, champN:d1.champN, deck:d1.deck, runes:d1.runes, arts:d1.arts },
+      { name:document.getElementById('p0-name').value||'플레이어 1', legendN:d0.legendN, champN:d0.champN, deck:d0.deck, runes:d0.runes, arts:d0.arts },
+      { name:document.getElementById('p1-name').value||'플레이어 2', legendN:d1.legendN, champN:d1.champN, deck:d1.deck, runes:d1.runes, arts:d1.arts },
     ],
     bfs:[bf0,bf1],
   });
@@ -2225,7 +2253,17 @@ function initHotseat(){
     };
     sel.onchange=preview; preview();
     initCardSelect(sel,`플레이어 ${pi+1} 전설 선택`);
+    // 덱 선택: 저장 덱을 고르면 전설 선택은 그 덱의 전설로 잠기고(미리보기도 그 전설), '자동 덱'이면 다시 풀린다
+    const dsel=document.getElementById(pid+'-deck');
+    dsel.onchange=()=>{
+      const saved=hsPickedDeck(pid);
+      const picker=document.getElementById(pid+'-legend-picker');
+      if(saved){ sel.value=String(saved.legendN); sel._refreshCardPicker?.(); }
+      if(picker) picker.disabled=!!saved;
+      preview();
+    };
   });
+  hsRefreshDecks();
   document.getElementById('btn-start').onclick=startHotseat;
   document.getElementById('btn-setup-back').onclick=()=>{
     showScreen(NET.token?'menu-screen':'offline-screen');
