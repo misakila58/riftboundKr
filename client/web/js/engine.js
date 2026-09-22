@@ -561,15 +561,17 @@ function payUsesRunes(p, energy, pips, spellOK){
 // 인장을 꺾어 낼 수 있는데도 룬이 재활용됐다 (제보 2026-09-22). 반환: true=지불 가능, false=취소(자원 부족 포함).
 //   · 룬을 건드려야 하는 지불이고 아낄 수 있는 능력이 있으면 "먼저 쓸까요?"를 묻고(거절 가능),
 //   · 그래도 모자라면 "충당할까요?"를 묻는다(여기서 취소하면 행동 자체가 취소).
+// 지금 이 비용에 보탤 수 있는 [반응] 자원 능력 목록 (인장·전설). 없으면 빈 배열.
+function listResourceFunding(p, energy, pips, spellOK){
+  if(!(typeof polAbList==='function' && typeof polAbLegal==='function' && typeof polAbIsResource==='function')) return [];
+  try{
+    return polAbList(p).filter(cd=>cd.ab && cd.ab.reaction && polAbIsResource(cd) && polAbLegal(p,cd)
+      && resourceAbilityHelpsPay(p,cd.ab,energy,pips,spellOK));
+  }catch(e){ return []; }
+}
 async function askResourceFunding(p, label, energy, pips, spellOK, n, stopLabel){
   const P=G.players[p];
-  const fundList=()=>{
-    if(!(typeof polAbList==='function' && typeof polAbLegal==='function' && typeof polAbIsResource==='function')) return [];
-    try{
-      return polAbList(p).filter(cd=>cd.ab && cd.ab.reaction && polAbIsResource(cd) && polAbLegal(p,cd)
-        && resourceAbilityHelpsPay(p,cd.ab,energy,pips,spellOK));
-    }catch(e){ return []; }
-  };
+  const fundList=()=>listResourceFunding(p, energy, pips, spellOK);
   const fundOptions=(funds,stop)=>[
     ...funds.map((cd,i)=>({v:i, label:`⚡ ${cd.name} — ${cd.ab.label}`, resourceOps:cd.ab.ops, resourceCost:[cd.ab.cost?.exhaustSelf?'이 카드 탈진':'',cd.ab.cost?.killFriendlyOrGear?'아군 유닛 또는 도구 1개 처치':''].filter(Boolean).join(', '),
       card:cd.src.kind==='legend' ? card(P.legendN) : cd.src.kind==='unit' ? unitCard(cd.src.u) : card(cd.src.g.n)})),
@@ -1423,10 +1425,20 @@ async function playCardFromHand(p, handIdx, opts={}){
   const discE = opts.discountE||0;
   if(c.type==='Unit' && fx.kw.accelerate){
     const accPips = [ (c.dom&&c.dom.length===1)?c.dom[0]:'Any' ];
-    if(canPay(p, Math.max(0,energy+1-discE), discPips([...pips, ...accPips]))){
+    const accE=Math.max(0,energy+1-discE), accP=discPips([...pips, ...accPips]);
+    // 풀·룬으로는 모자라도 인장·전설의 [반응] 자원 능력으로 낼 수 있으면 [가속]을 제안한다 (요청 2026-09-22 — 예전엔 룬만 보고 제안을 생략)
+    const accCanPay=canPay(p, accE, accP), accCanFund=!accCanPay && listResourceFunding(p, accE, accP, false).length>0;
+    if(accCanPay || accCanFund){
       accel = await UI.confirmP(p, `[가속] 추가 비용(에너지 1+힘 1)을 지불하고 준비 상태로 등장시킬까요?`, c,
         {decision:{title:'가속',cost:`에너지 1, ${DOMAIN_KO[accPips[0]]||'아무 영역'} 힘 1 추가`,result:'준비 상태로 등장',accept:'가속하여 등장',decline:'가속 없이 등장'},cost:{energy:Math.max(0,energy+1-discE),pips:discPips([...pips,...accPips]),spellOK:false}});
-      if(accel){ energy+=1; pips=[...pips,...accPips]; }
+      if(accel){
+        energy+=1; pips=[...pips,...accPips];
+        // 인장 등을 써야만 가속 비용이 나오는 경우: 여기서 먼저 묻는다. 거절·취소하면 카드는 그대로 내되 가속만 포기한다.
+        if(accCanFund && !(await askResourceFunding(p, `${c.ko} [가속]`, Math.max(0,energy-discE), discPips(pips,false), false, c.n, '가속 없이 플레이'))){
+          accel=false; energy-=1; pips=pips.slice(0, pips.length-accPips.length);
+          UI.log(`「${c.ko}」 [가속] 비용을 내지 않아 가속 없이 등장합니다`, 'sys');
+        }
+      }
     }
   }
   pips = discPips(pips, true);
