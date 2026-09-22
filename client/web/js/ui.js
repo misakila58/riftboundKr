@@ -103,8 +103,9 @@ UI.promptShowdown = function(){
   UI.prompt(sd.chain&&sd.chain.length
     ? `${pname(G.actingPlayer)}: [반응]으로 응수하거나 패스 (양측 패스 시 체인 해결)`
     : `${pname(G.actingPlayer)}: [행동]/[반응] 카드·능력을 사용하거나 패스하세요`);
-  document.getElementById('btn-pass').style.display='';
-  document.getElementById('btn-endturn').style.display='none';
+  // 결전 상태에서 열린 응수 창(정복 격발·결전 종료 처리 중)에서는 '패스'(턴 종료 자리) 버튼이 응수 패스다 — 숨기면 패스할 길이 없어 갇힌다(제보 2026-09-22)
+  document.getElementById('btn-pass').style.display=_reactionPick?'none':'';
+  document.getElementById('btn-endturn').style.display=_reactionPick?'':'none';
 };
 
 // ---------- 체인 보기 (게임 선택/온라인 응답과 독립적인 정보창) ----------
@@ -567,6 +568,7 @@ function _pickCardOptionLocal(p,title,options,targets,cancel=true){
     const finish=i=>{_boardCardPick=null;settle(i);UI.render();};
     _boardCardPick={options,targets,finish}; _resolver=res;
     UI.render(); UI.prompt(title); appendBattlefieldSource(document.getElementById('prompt-area'));
+    if(_reactionPick){ document.getElementById('btn-endturn').style.display=''; document.getElementById('btn-pass').style.display='none'; }
     const btns=document.createElement('div'); btns.className='prompt-btns';
     options.forEach((o,i)=>{
       if(targets[i]) return;
@@ -2761,6 +2763,7 @@ function updateButtons(){
   btnPass.classList.toggle('primary',canShowdownPass);
   btnPass.disabled=!canShowdownPass;
   btnPass.title=canShowdownPass?'패스 (Space)':'지금은 패스할 수 없습니다';
+  if(_reactionPick){ btnEnd.style.display=''; btnPass.style.display='none'; }   // 결전 중 응수 창: 응수 패스 버튼을 보이게
 }
 
 // 게임 단축키는 실제로 실행 가능한 버튼 조건을 그대로 따르고, 길게 누르기와 연타를 막는다.
@@ -3024,6 +3027,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     UI.render();
   };
   document.getElementById('btn-pass').onclick=()=>{
+    if(_reactionPick){ if(canPassReaction()) _boardCardPick.finish(_reactionPick.passIndex); return; }   // 응수 창이 열려 있으면 결전 패스 버튼도 응수 패스
     if(!UI.canShowdownPass()) return;
     NET.dispatch({k:'pass'}, ()=>showdownPass());
   };
