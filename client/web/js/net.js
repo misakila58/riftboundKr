@@ -10,6 +10,7 @@ const NET = {
 };
 
 // 방 입장·P2P·채팅 버전 확인에 쓰는 클라이언트 버전 문자열
+// 주문 준비 선택과 주사위 완료 동기화가 없는 원본 클라이언트와의 혼합 매치를 막는다.
 NET.clientVersion = ()=>(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');   // 빌드마다 버전이 오르므로 별도 접미사는 두지 않는다
 
 // 서버 주소 설정/정규화 (끝 슬래시 제거)
@@ -148,6 +149,9 @@ NET.sendAction = function(action){
   NET.send({t:'act', action});
 };
 NET._enqueueAction = function(m){
+  if(m.action?.k==='play' && m.action.opts?.stageSpell && m.seat===NET.seat){
+    UI.spellStageSubmitting=false;
+  }
   // 외형 정보는 선택 대기로 멈춘 액션 큐와 게임/리플레이 기록을 거치지 않는다.
   if(m.action?.k==='playmat'){
     PLAYMAT.receive(m.action,m.seat);
@@ -161,9 +165,11 @@ NET._pump = async function(){
   if(NET.processing) return;
   NET.processing = true;
   while(NET.actionQueue.length){
+    // 턴 시작 연출이 끝날 때까지 큐를 멈추되, 연출이 어떤 이유로든 안 끝나도 3초 뒤엔 진행한다
+    if(G?.phase==='turn-intro' && UI.turnIntroDone) await Promise.race([UI.turnIntroDone, new Promise(r=>setTimeout(r,3000))]);
     const { a, seat } = NET.actionQueue.shift();
     try {
-      if(!NET._authorized(a, seat)){ console.warn('rejected unauthorized action', a, 'seat', seat); continue; }
+      if(!NET._authorized(a, seat)){ console.warn('rejected unauthorized action', a, 'seat', seat); updateButtons(); continue; }
       await NET._execAction(a);
     }
     catch(e){ console.error('action error', a, e); UI.toast('동기화 오류: '+e.message,'warn'); }
@@ -194,6 +200,7 @@ NET._authorized = function(a, seat){
   }
 };
 NET._execAction = async function(a){
+  if(a.k==='play' && a.opts?.stageSpell && a.p===NET.seat) UI.spellStageSubmitting=false;
   switch(a.k){
     case 'play':      await playCardFromHand(a.p, a.handIdx, a.opts||{}); break;
     case 'hide':      await hideCard(a.p, a.handIdx); break;
@@ -242,9 +249,13 @@ NET._execAction = async function(a){
 
 // 로컬 UI가 액션을 개시할 때 호출: 온라인이면 서버 경유, 오프라인이면 즉시 실행
 NET.dispatch = function(action, localFn){
+  if(G?.phase==='turn-intro' && !['surrender','playmat'].includes(action.k)) return;
   // 리플레이 관전 중에는 어떤 행동도 게임 상태를 바꾸지 못하게 한다 (최종 차단선)
   if(typeof REPLAY!=='undefined' && REPLAY.viewing) return;
   if(NET.spectating){ UI.toast('관전 중에는 조작할 수 없습니다','warn'); return; }
+  if(UI.spellStage || UI.spellStageSubmitting){
+    UI.toast('준비 중인 주문을 확인하거나 손패로 되돌려 주세요','warn'); return;
+  }
   if(UI.placementPending){ UI.toast('강조된 위치의 선택을 먼저 마쳐 주세요','warn'); return; }
   if(UI.unitSelectionPending){ UI.toast('카드 선택을 먼저 마쳐 주세요','warn'); return; }
   if(typeof UI.combatMoveBlocks==='function' && UI.combatMoveBlocks(action)) return;
@@ -255,6 +266,13 @@ NET.dispatch = function(action, localFn){
     UI.toast('지금은 패스할 수 없습니다','warn'); return;
   }
   if(NET.online){
+    if(action.k==='play' && action.opts?.stageSpell){
+      UI.spellStageSubmitting=true;
+      updateButtons();
+      // 서버 에코가 오지 않으면(연결 문제·서버 거부) 영구히 잠기지 않게 8초 뒤 풀어 준다
+      clearTimeout(NET._stageTimer);
+      NET._stageTimer=setTimeout(()=>{ if(UI.spellStageSubmitting){ UI.spellStageSubmitting=false; UI.toast('주문 전송 응답이 없어 잠금을 풀었습니다 — 다시 시도해 주세요','warn'); updateButtons(); } }, 8000);
+    }
     NET.sendAction(action);
   } else {
     localFn();
@@ -294,5 +312,7 @@ NET._resolveChoice = function(m){
 
 // ---------- 게임 종료/이탈 정리 ----------
 NET.resetGameSync = function(){
+  UI.resetScorePresentation?.();
+  UI.resetSpellStage?.();
   NET.choiceSeq=0; NET.pendingChoices={}; NET.earlyChoices={}; NET.actionQueue=[]; NET.processing=false;
 };

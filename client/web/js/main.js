@@ -12,6 +12,8 @@ function currentScreen(){
   return SCREENS.find(id=>{ const e=document.getElementById(id); return e && e.style.display!=='none'; }) || 'connect-screen';
 }
 function showScreen(id){
+  if(id!=='game-screen') UI.resetScorePresentation?.();
+  if(id!=='game-screen') UI.resetSpellStage?.();
   clearTimeout(homePanelCloseTimer);
   const homePanel=HOME_PANELS[id];
   if(id!=='game-screen') UI.hideChain();
@@ -2064,6 +2066,12 @@ function openSystemMenu(){
   toggle(play,'setting-confirm-resource-abilities','자원 능력 사용 확인',
     '카드를 낼 때 인장·전설의 에너지·힘 능력을 먼저 사용할지 묻습니다. 끄면 필요할 때 직접 사용하세요.',
     PLAY_OPTIONS.confirmResourceAbilities, value=>PLAY_OPTIONS.set('confirmResourceAbilities',value));
+  toggle(play,'setting-spell-stage','주문 준비 단계',
+    '주문을 내면 중앙에 올려 두고 대상을 고른 뒤 [확인]으로 시전합니다 (손패로 되돌려 취소 가능). 끄면 예전처럼 바로 시전합니다.',
+    PLAY_OPTIONS.spellStage, value=>PLAY_OPTIONS.set('spellStage',value));
+  toggle(play,'setting-turn-intro','턴 시작 연출',
+    '턴이 바뀔 때 몇 번째 턴인지 띠와 소리로 알리고 1초 남짓 멈춥니다. 끄면 바로 진행합니다.',
+    PLAY_OPTIONS.turnIntro, value=>PLAY_OPTIONS.set('turnIntro',value));
   if(inGame && NET.online) toggle(play,'setting-chat','상대 채팅 표시',
     '상대 메시지와 채팅 입력창을 표시합니다.',!UI.chatMuted,
     value=>{ UI.setChatMuted(!value); UI.render(); });

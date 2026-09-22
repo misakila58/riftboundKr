@@ -1,4 +1,4 @@
-// 공개 준비 화면과 결정론적 3D 주사위 연출. 게임 난수는 엔진만 소비한다.
+// 공개 준비 화면과 로컬 물리 주사위 연출. 게임 난수는 엔진만 소비한다.
 let _setupView=null;
 UI.setSetupStage = active=>document.body.classList.toggle('setup-in-progress',active);
 UI.finishSetup = function(){
@@ -154,12 +154,12 @@ async function setupSyncClock(view){
 }
 function setupNow(view){ return Date.now()-view.clockOffset; }
 
-// 두 주사위를 동시에, 자동으로 굴린다 — 길게 누르기·즉시 결정 없이 카드 확인 화면 뒤 바로 (요청 2026-09-20).
-// 온라인은 방장 시계 기준 공통 시작 시각을 한 번 나눠 받아 양쪽이 같은 순간에 같은 연출을 본다. 값은 엔진 시드에서 온다.
+// 무작위 순서로 0.6초 간격을 두고 자동으로 굴린다. 첫 결과를 기다리지 않고 다음 주사위가 이어 나온다.
+// 온라인은 공통 시작 시각으로 순서를 맞춘다. 물리 궤적은 각 기기가 계산하고 결과 값만 엔진 시드에서 받는다.
 UI.rollSetupDiceBoth = async function(d0,d1,round){
   const view=_setupView; if(!view || view.game!==G) return;
   view.overlay.dataset.stage='hold'; view.overlay.dataset.round=round; delete view.overlay.dataset.roller;
-  if(round===1) view.overlay.querySelectorAll('.setup-roll-result').forEach(el=>el.textContent='');
+  view.overlay.querySelectorAll('.setup-roll-result').forEach(el=>el.textContent='');
   view.overlay.querySelectorAll('.setup-review-player').forEach(el=>el.classList.remove('is-rolling-player'));
   view.button.hidden=true; view.instantButton.hidden=true;
   view.status.textContent=round>1?'무승부 — 다시 굴립니다':'선후공을 정하는 주사위를 굴립니다';
@@ -171,10 +171,15 @@ UI.rollSetupDiceBoth = async function(d0,d1,round){
     if(!Number.isFinite(startsAt)) throw new Error('Invalid dice start time');
   } else startsAt=Date.now()+(round>1?300:900);
   UI.hideHover(); UI.hideZoom();
-  const both=Promise.all([animateSetupDie(view,0,d0,round,startsAt), animateSetupDie(view,1,d1,round,startsAt)]);
-  // 양쪽 모두 연출을 마쳐야 다음(재굴림·선후공 선택)으로 — 한쪽만 먼저 넘어가지 않게
-  if(NET.online) await Promise.all([0,1].map(seat=>setupChoice(seat,()=>both.then(()=>true))));
-  else await both;
+  // 공통 시작 시각을 섞어 순서를 정한다. 게임 난수와 온라인 선택 순서는 그대로 유지한다.
+  let orderSeed=(Math.trunc(startsAt)^Math.imul(round,1013904223))>>>0;
+  orderSeed=Math.imul(orderSeed^(orderSeed>>>16),0x45d9f3b);
+  orderSeed=Math.imul(orderSeed^(orderSeed>>>16),0x45d9f3b);
+  const first=(orderSeed^(orderSeed>>>16))&1, values=[d0,d1];
+  await finishSetupDice(view,animateSetupDice(view,[
+    {p:first,value:values[first],delay:0},
+    {p:opp(first),value:values[opp(first)],delay:600},
+  ],startsAt));
 };
 UI.rollSetupDice = async function(p,value,round){
   const view=_setupView; if(!view || view.game!==G) return;
@@ -212,114 +217,120 @@ UI.rollSetupDice = async function(p,value,round){
   UI.hideHover(); UI.hideZoom();
   view.button.disabled=true;view.button.querySelector('span').textContent='굴리는 중';
   view.hint.textContent='';view.status.textContent=`${pname(p)}의 주사위`;
-  const animation=animateSetupDie(view,p,value,round,startsAt);
-  // 양쪽 모두 사라지는 연출을 마쳐야 다음 플레이어의 입력을 받는다.
-  if(NET.online) await Promise.all([0,1].map(seat=>setupChoice(seat,()=>animation.then(()=>true))));
-  else await animation;
+  await finishSetupDice(view,animateSetupDice(view,[{p,value,delay:0}],startsAt));
   return {instant:false};
 };
 
-// 화면이 XY 바닥이고 Z는 바닥에서 뜬 높이. 연출은 게임 난수를 소비하지 않는다.
-function setupDiceRoute(view,p,value,round,startsAt){
-  // 양쪽이 공유하는 시작 시각으로 연출만 변화시킨다. 같은 눈도 매번 다르게 던진다.
-  let visualSeed=(Math.trunc(startsAt)^Math.imul(round,1013904223)^Math.imul(p+1,1664525))>>>0;
-  const random=()=>{
-    visualSeed=(visualSeed+0x6D2B79F5)>>>0;
-    let n=Math.imul(visualSeed^(visualSeed>>>15),visualSeed|1);
-    n^=n+Math.imul(n^(n>>>7),n|61);
-    return ((n^(n>>>14))>>>0)/4294967296;
-  };
-  const width=view.overlay.clientWidth, height=view.overlay.clientHeight, size=68;
-  const start={x:width*(.79+random()*.09),y:height*(.79+random()*.09)};
-  const end={x:width*(.24+random()*.37),y:height*(.22+random()*.25)};
-  const dx=end.x-start.x,dy=end.y-start.y,length=Math.hypot(dx,dy);
-  const heading=Math.atan2(dy,dx)*180/Math.PI;
-  const rollCount=1+Math.floor(random()*2);
-  const rollingDistance=size*rollCount, radius=size/2;
-  const flightDistance=length-rollingDistance;
-  // 중력에 따른 포물선. 충돌할 때마다 반발 속도와 수평 속도가 줄어든다.
-  const gravity=2600+random()*600, upward=140+random()*180, initialHeight=260+random()*120;
-  const restitution=.34+random()*.16, friction=.53+random()*.20;
-  const spin=360*(1+Math.floor(random()*3))+random()*180;
-  const tiltAmount=(random()<.5?-1:1)*(24+random()*42), tiltCycles=2+random()*3;
-  const rollEnd=2.45+random()*.30, wobble=2+random()*3;
-  const first=(upward+Math.sqrt(upward*upward+2*gravity*initialHeight))/gravity;
-  const rebound=(gravity*first-upward)*restitution;
-  const second=2*rebound/gravity, third=second*restitution;
-  const flightTime=first+second+third;
-  const flightWeight=first+second*friction+third*friction*friction;
-  const mine=NET.online?NET.seat===p:!setupBot(p);
-  return {size,sample(t){
-    let distance,heightAbove,angle,tilt=0;
-    if(t<flightTime){
-      let weight;
-      if(t<first){heightAbove=initialHeight+upward*t-gravity*t*t/2;weight=t;}
-      else if(t<first+second){const s=t-first;heightAbove=rebound*s-gravity*s*s/2;weight=first+s*friction;}
-      else {const s=t-first-second;heightAbove=rebound*restitution*s-gravity*s*s/2;weight=first+second*friction+s*friction*friction;}
-      const progress=weight/flightWeight;
-      distance=flightDistance*progress;
-      angle=-rollCount*90-spin*(1-progress);
-      tilt=tiltAmount*Math.sin(progress*Math.PI)*Math.sin(progress*Math.PI*tiltCycles);
-    }else if(t<rollEnd){
-      // 바닥에 닿은 모서리를 축으로 구르며 점차 감속한다.
-      const u=(t-flightTime)/(rollEnd-flightTime), turns=rollCount*(1-Math.pow(1-u,2));
-      const whole=Math.min(rollCount-1,Math.floor(turns)), a=(turns-whole)*Math.PI/2;
-      distance=flightDistance+whole*radius*2+radius*(1-Math.cos(a)+Math.sin(a));
-      heightAbove=radius*(Math.cos(a)+Math.sin(a)-1);
-      angle=-rollCount*90+turns*90;
-    }else{
-      const s=t-rollEnd;
-      angle=wobble*Math.sin(s*22)*Math.exp(-s*9)*Math.max(0,1-s/.65);
-      distance=length+radius*Math.sin(angle*Math.PI/180);
-      heightAbove=radius*(Math.abs(Math.sin(angle*Math.PI/180))+Math.cos(angle*Math.PI/180)-1);
+// Physics is calculated locally before any frames are shown. Only final game values are shared.
+async function animateSetupDice(view,dice,startsAt){
+  UI.prepareDiceAudio?.();
+  let simulation=null;
+  try{
+    if(typeof SetupDicePhysics==='undefined' || typeof CANNON==='undefined') throw new Error('physics library missing');
+    simulation=await SetupDicePhysics.simulate(view.overlay.clientWidth,view.overlay.clientHeight,
+      dice.map(d=>({...d,mine:view.overlay.querySelector(`[data-seat="${d.p}"]`).classList.contains('is-self')})));
+  }catch(e){
+    // 라이브러리가 없거나 시뮬레이션이 정착하지 못하면 연출 없이 결과만 보여 주고 넘어간다 — 게임 시작이 막히면 안 된다
+    console.warn('setup dice physics fallback:', e && e.message);
+    if(view.events.signal.aborted) return false;
+    await new Promise(r=>setTimeout(r, Math.max(0, startsAt-setupNow(view))+400));
+    for(const d of dice){ const el=view.overlay.querySelector(`[data-seat="${d.p}"] .setup-roll-result`); if(el) el.textContent=d.value; }
+    view.overlay.dataset.stage='result';
+    await new Promise(r=>setTimeout(r,900));
+    view.overlay.dataset.stage='finished-roll';
+    return !view.events.signal.aborted;
+  }
+  if(view.events.signal.aborted) return false;
+  const pips={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
+  const stages=simulation.tracks.map(track=>{
+    const stage=document.createElement('div');
+    stage.className='setup-dice-stage '+(track.mine?'is-self':'is-opponent');
+    stage.setAttribute('aria-label',pname(track.p)+' 주사위');
+    stage.style.setProperty('--die-size',simulation.size+'px');
+    stage.style.setProperty('--die-half',simulation.size/2+'px');
+    stage.style.visibility='hidden';
+    stage.innerHTML='<div class="setup-dice-world"><div class="setup-dice-shadow"></div><div class="setup-dice-flight"><div class="setup-dice-camera"><div class="setup-die"></div></div></div></div><output class="setup-dice-number" aria-live="polite"></output>';
+    const cube=stage.querySelector('.setup-die');
+    for(let face=1;face<=6;face++){
+      const el=document.createElement('div');el.className='setup-die-face face-'+face;
+      el.dataset.value=track.labels[face];
+      for(let i=0;i<9;i++){
+        const pip=document.createElement('i');if(pips[track.labels[face]].includes(i)) pip.className='pip';
+        el.appendChild(pip);
+      }
+      cube.appendChild(el);
     }
-    let x=start.x+dx*distance/length,y=start.y+dy*distance/length;
-    if(!mine){x=width-x;y=height-y;}
-    return {x,y,height:Math.max(0,heightAbove),angle,tilt,heading:heading+(mine?0:180)};
-  }};
+    view.overlay.appendChild(stage);
+    return {track,stage,cube,flight:stage.querySelector('.setup-dice-flight'),
+      shadow:stage.querySelector('.setup-dice-shadow'),number:stage.querySelector('output')};
+  });
+  const duration=Math.max(...simulation.tracks.map(t=>t.delay+(t.frames.length-1)*simulation.step));
+  view.overlay.dataset.stage='rolling';
+  // Frame-based completion: a hidden/stalled tab cannot acknowledge an unseen animation via a timer.
+  return new Promise(resolve=>{
+    let frame=0,previous=null,elapsed=0,resultShown=false,clearing=false,impactIndex=0;
+    const finish=completed=>{
+      if(finished) return; finished=true; clearTimeout(hard);
+      cancelAnimationFrame(frame);
+      UI.stopDiceAudio?.();
+      view.events.signal.removeEventListener('abort',abort);
+      stages.forEach(({stage})=>stage.remove());
+      if(completed) view.overlay.dataset.stage='finished-roll';
+      resolve(completed);
+    };
+    const abort=()=>finish(false);
+    view.events.signal.addEventListener('abort',abort,{once:true});
+    const paint=now=>{
+      if(document.hidden || setupNow(view)<startsAt){UI.stopDiceAudio?.();previous=null;frame=requestAnimationFrame(paint);return;}
+      if(previous!==null) elapsed+=Math.min(100,now-previous);
+      previous=now;
+      while(impactIndex<simulation.impacts.length && simulation.impacts[impactIndex].time<=elapsed){
+        UI.playDiceImpact?.(simulation.impacts[impactIndex++]);
+      }
+      for(const {track,stage,cube,flight,shadow,number} of stages){
+        if(elapsed<track.delay) continue;
+        stage.style.visibility='visible';
+        const index=Math.min(track.frames.length-1,Math.floor((elapsed-track.delay)/simulation.step));
+        const sample=track.frames[index],half=simulation.size/2;
+        flight.style.transform=`translate(${sample.x-half}px,${sample.y-half}px) scale(${1+sample.height/650})`;
+        cube.style.transform=sample.rotation;
+        shadow.style.opacity=.32/(1+sample.height/70);
+        shadow.style.filter=`blur(${2+sample.height/12}px)`;
+        shadow.style.transform=`translate(${sample.x-half+4}px,${sample.y-half+5}px) scale(${1+sample.height/400})`;
+        if(elapsed>=duration&&!resultShown){
+          number.style.left=sample.x+'px';number.style.top=Math.max(48,sample.y-44)+'px';
+          number.textContent=track.value;stage.dataset.value=track.value;
+          view.overlay.querySelector(`[data-seat="${track.p}"] .setup-roll-result`).textContent=track.value;
+        }
+      }
+      if(elapsed>=duration&&!resultShown){resultShown=true;view.overlay.dataset.stage='result';}
+      if(elapsed>=duration+1000&&!clearing){
+        clearing=true;view.overlay.dataset.stage='clearing';stages.forEach(({stage})=>stage.classList.add('is-clearing'));
+      }
+      if(elapsed>=duration+1350) finish(true);
+      else frame=requestAnimationFrame(paint);
+    };
+    frame=requestAnimationFrame(paint);
+    // 탭이 숨겨지면 requestAnimationFrame이 멈춰 완료 신호가 안 나가고 온라인 상대가 무한 대기한다 —
+    // 연출 길이 + 여유가 지나면 그림과 무관하게 결과를 적고 완료 처리한다
+    var finished=false;
+    var hard=setTimeout(()=>{
+      for(const {track} of stages){ const el=view.overlay.querySelector(`[data-seat="${track.p}"] .setup-roll-result`); if(el) el.textContent=track.value; }
+      finish(true);
+    }, Math.max(0, startsAt-setupNow(view))+duration+1350+2500);
+  });
 }
 
-// 화면 비율에 맞춰 보드 위를 가로지르며, 각 화면에서는 자기 진영 기준으로 움직인다.
-async function animateSetupDie(view,p,value,round,startsAt){
-  const stage=document.createElement('div');stage.className='setup-dice-stage';stage.setAttribute('aria-label',pname(p)+' 주사위');
-  stage.innerHTML='<div class="setup-dice-world"><div class="setup-dice-shadow"></div><div class="setup-dice-flight"><div class="setup-dice-camera"><div class="setup-die"></div></div></div></div><output class="setup-dice-number" aria-live="polite"></output>';
-  const cube=stage.querySelector('.setup-die');
-  const pips={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
-  for(let face=1;face<=6;face++){
-    const el=document.createElement('div');el.className='setup-die-face face-'+face;
-    for(let i=0;i<9;i++){const pip=document.createElement('i');if(pips[face].includes(i))pip.className='pip';el.appendChild(pip);}
-    cube.appendChild(el);
+async function finishSetupDice(view,animation){
+  const completed=await animation;
+  if(!completed || view.events.signal.aborted || view.game!==G) throw new Error('Setup dice cancelled');
+  if(NET.online){
+    view.status.textContent='상대의 주사위 연출이 끝나기를 기다리는 중';
+    // Register in seat order, and acknowledge only AFTER both local dice have finished.
+    const ready=await Promise.all([0,1].map(seat=>setupChoice(seat,async()=>true)));
+    if(view.events.signal.aborted || view.game!==G) throw new Error('Setup dice cancelled');
+    if(ready.some(value=>value!==true)) throw new Error('Invalid setup dice completion');
   }
-  view.overlay.appendChild(stage);view.overlay.dataset.stage='rolling';
-  const flight=stage.querySelector('.setup-dice-flight'),shadow=stage.querySelector('.setup-dice-shadow');
-  const landing={1:[0,0],2:[-90,0],3:[0,-90],4:[0,90],5:[90,0],6:[180,0]}[value];
-  const duration=3400, route=setupDiceRoute(view,p,value,round,startsAt);
-  const samples=Array.from({length:Math.round(duration*120/1000)+1},(_,i)=>route.sample(i/120));
-  const movement=flight.animate(samples.map(s=>({transform:`translate(${s.x-34}px,${s.y-34}px) scale(${1+s.height/650})`})),{duration,fill:'both'});
-  const rotation=cube.animate(samples.map(s=>({transform:`rotateZ(${s.heading}deg) rotateY(${s.angle}deg) rotateX(${s.tilt}deg) rotateX(${landing[0]}deg) rotateY(${landing[1]}deg)`})),{duration,fill:'both'});
-  const shade=shadow.animate(samples.map(s=>({
-    opacity:.32/(1+s.height/70),filter:`blur(${2+s.height/12}px)`,
-    transform:`translate(${s.x-34+4}px,${s.y-34+5}px) rotate(${s.heading}deg) scale(${1+s.height/400})`,
-  })),{duration,fill:'both'});
-  const animations=[movement,rotation,shade];animations.forEach(a=>a.pause());view.animations.push(...animations);
-  let frame=0;
-  const paint=()=>{
-    const elapsed=Math.max(0,setupNow(view)-startsAt);
-    animations.forEach(a=>a.currentTime=Math.min(duration,elapsed));
-    stage.style.visibility=setupNow(view)<startsAt?'hidden':'visible';
-    if(elapsed<duration) frame=requestAnimationFrame(paint);
-  };
-  paint();await setupDelay(Math.max(0,startsAt+duration-setupNow(view)));cancelAnimationFrame(frame);
-  animations.forEach(a=>a.currentTime=duration);stage.style.visibility='visible';
-  const number=stage.querySelector('output'), end=samples[samples.length-1];
-  number.style.left=end.x+'px'; number.style.top=Math.max(48,end.y-44)+'px';
-  number.textContent=value;
-  view.overlay.querySelector(`[data-seat="${p}"] .setup-roll-result`).textContent=value;
-  view.overlay.dataset.stage='result';stage.dataset.value=value;
-  await setupDelay(Math.max(0,startsAt+duration+1000-setupNow(view)));
-  view.overlay.dataset.stage='clearing';stage.classList.add('is-clearing');
-  await setupDelay(350);stage.remove();animations.forEach(a=>a.cancel());
-  view.animations=view.animations.filter(a=>!animations.includes(a));view.overlay.dataset.stage='finished-roll';
 }
 
 UI.pickSetupOrder = async function(p,rolls){

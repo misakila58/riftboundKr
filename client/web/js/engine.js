@@ -94,6 +94,7 @@ function newGame(cfg){
   // 선후공은 decideFirstPlayer(주사위)가 mulliganPhase 앞에서 확정하고 로그를 남긴다
   // 시작 손패 4장
   G.reviewSetup=!!cfg.reviewSetup;
+  G.quickStart=!!cfg.quickStart;
   // Bo3 2·3게임: 주사위 대신 이전 게임의 패자가 선후공을 고른다 (대회 규정 · RiftJudge #1836 #2691)
   G.orderChooser=(cfg.orderChooser===0||cfg.orderChooser===1)?cfg.orderChooser:null;
   if(!G.reviewSetup) G.players.forEach(p=>{ for(let i=0;i<4;i++) drawCard(p.idx, true); });
@@ -360,6 +361,8 @@ async function flushCombatTriggers(sd){
         }
         for(const t of ordered.reverse()){
           const ab=t.ab, cost=ab.cost||{};
+          const finishPreparation=UI.beginChainSoundPreparation?.(p);
+          try{
           if(ab.optional && !(await UI.confirmP(p,`「${t.srcName}」 공격/방어 효과를 사용할까요?`,card(t.n)))) continue;
           if(!canPay(p,cost.energy||0,cost.pips||[])) continue;
           const source={kind:t.unit?'unit':'trigger',u:t.unit,n:t.n,bfIdx:t.bfIdx};
@@ -372,10 +375,11 @@ async function flushCombatTriggers(sd){
           const displayAffected=snapshotEffectApplications(ab.ops,{p,unit:t.unit,it:t.it,bfIdx:t.bfIdx});
           const item=stampChainItem({...t,kind:'ability',triggered:true,pre,
             displayTargets:snapshotCastTargets(pre),displayAffected});
-          sd.chain.push(item);
+          appendChainItem(sd.chain,item);
           UI.log(`🔗 ${pname(p)} 격발 「${t.srcName}」 체인에 적재 (#${sd.chain.length})`,'p'+p);
           logCastTargets(p,t.srcName,describeCastTargets(pre));
           UI.fx.chainAdd(card(t.n),p,sd.chain.length);
+          }finally{ finishPreparation?.(); }
         }
       }
     }
@@ -435,7 +439,7 @@ async function discardFromHand(p, idx, opts){
 // ---------- 득점 ----------
 function addPoints(p, n, method, bfIdx){
   const P=G.players[p];
-  const previousPoints=P.points;   // 실제 증가분만 연출 (정복 대신 드로우·상한 도달 때 "+n점"이 뜨던 것 — 기여자 수정)
+  const previousPoints=P.points;
   const V=G.victory;
   if(method==='conquer'||method==='hold'){
     // 최종 점수 제한 (공식 RUP4: 정복에만 적용 — 점거/효과 점수는 무제한)
@@ -724,6 +728,14 @@ function powerPips(c){
 // 각자 주사위(1~6)를 굴려 높은 쪽이 선공/후공을 고른다. 동점이면 다시 굴린다.
 // 시드 난수(rng)라 온라인 양쪽 결과가 같고, 승자의 선택은 UI.pickOption(routedPick)으로 동기화된다.
 async function decideFirstPlayer(){
+  if(G.quickStart && !NET.online){
+    const first=Math.floor(rng()*2);
+    G.turn=first; G.actingPlayer=first;
+    UI.log(`빠른 시작 — 선공: ${pname(first)}, 후공: ${pname(opp(first))}`, 'sys');
+    if(typeof UI.turnOrderDecided==='function') UI.turnOrderDecided();
+    UI.render();
+    return;
+  }
   let d0, d1, tries=0, instant=false;
   const animated=G.reviewSetup && typeof UI.rollSetupDice==='function';
   if(G.orderChooser===0||G.orderChooser===1){
@@ -743,7 +755,7 @@ async function decideFirstPlayer(){
   do{
     d0=1+Math.floor(rng()*6); d1=1+Math.floor(rng()*6); tries++;
     if(animated && typeof UI.rollSetupDiceBoth==='function'){
-      await UI.rollSetupDiceBoth(d0,d1,tries);          // 두 주사위 동시·자동 (입력 없음)
+      await UI.rollSetupDiceBoth(d0,d1,tries);          // 무작위 순서로 연달아 자동 굴림 (입력 없음)
     } else if(animated){
       const roll0=await UI.rollSetupDice(0,d0,tries); instant=instant||!!roll0?.instant;
       const roll1=await UI.rollSetupDice(1,d1,tries); instant=instant||!!roll1?.instant;
@@ -758,6 +770,7 @@ async function decideFirstPlayer(){
     [{label:'⚔️ 선공', v:'first'}, {label:'🛡️ 후공 (첫 전개 룬 +1)', v:'second'}]);
   const first = (v==='second') ? opp(w) : w;
   G.turn=first; G.actingPlayer=first;
+  if(typeof UI.playMatchmakingProfileDropSound==='function') UI.playMatchmakingProfileDropSound();
   UI.log(`${instant?'즉시 무작위 결정':pname(w)+': '+(v==='second'?'후공':'선공')+' 선택'} → 선공: ${pname(first)} — 후공은 첫 전개 단계에 룬을 1개 더 전개합니다`, 'sys');
   if(instant) UI.toast(`즉시 결정 — 선공: ${pname(first)}, 후공: ${pname(opp(first))}`);
   if(typeof UI.turnOrderDecided==='function') UI.turnOrderDecided();
@@ -817,6 +830,13 @@ function applyMulligan(p, idxs){
 async function startTurn(){
   const p = G.turn, P = G.players[p];
   G.turnCount++;
+  if(UI.presentTurnStart && !(typeof SIM!=='undefined' && SIM.active)){
+    const game=G;
+    G.phase='turn-intro'; UI.render();
+    UI.turnIntroDone=UI.presentTurnStart(p);
+    await UI.turnIntroDone;
+    if(G!==game || G.winner!==null) return;
+  }
   // '이번 턴에 플레이한 카드 수'는 턴이 바뀌면 양쪽 모두 0으로 돌아간다.
   // 예전엔 턴 주인만 초기화해서, 상대 턴(결전 등)에 낸 카드가 내 지난 턴 수치에 이어 세어졌다.
   // → 「다리우스 - 삼두정」의 '한 턴에 두 번째 카드' 조건이나 [군단] 판정이 어긋났다.
@@ -906,6 +926,7 @@ async function endTurn(){
   const p=G.turn;
   G.phase='ending';
   G._endingTurn={p};
+  UI.fx.turnEndAccepted?.(p);
   UI.render();
   // 턴 종료 트리거 (소나, 눈부신 오로라 등). 종료 격발이 남아 있는 동안은 체인이 있는 닫힌 상태라 결전이 열리지 않는다
   // (룰 342.1.b 결전은 중립 열린 상태에서 · 클린업 9단계) — 오로라 두 장이면 둘 다 해결한 뒤에야 죽음꽃 포식자의 결전이 열린다 (RiftJudge #9290).
@@ -1230,18 +1251,19 @@ function deflectPips(p, u){
 function canPayDeflect(p, u, base){
   const pips=deflectPips(p, u);
   if(!pips.length) return true;
-  return base ? canPay(p, base.energy||0, [...(base.pips||[]), ...pips], base.spellOK) : canPay(p, 0, pips);
+  return base ? (base.deferDeflect ? canPayWithFunding : canPay)(p, base.energy||0, [...(base.pips||[]), ...pips], base.spellOK) : canPay(p, 0, pips);
 }
 async function payDeflect(p, u, base){
   const pips=deflectPips(p, u);
   if(!pips.length) return true;
   const defl=pips.length;
   if(!canPayDeflect(p, u, base)){ UI.toast(`[굴절 ${defl}] 힘이 부족해 선택할 수 없습니다`,'warn'); return false; }
-  const yes=await UI.confirmP(p,`[굴절 ${defl}] 힘 ${defl} 추가 지불이 필요합니다. 지불할까요?`, unitCard(u),{decision:{title:'굴절 비용',cost:`아무 영역 힘 ${defl}`,result:`「${unitName(u)}」을(를) 대상으로 선택`,accept:'지불하고 선택',decline:'지불 안 함'}});
+  const yes=await UI.confirmP(p,`[굴절 ${defl}] 힘 ${defl} 추가 지불이 필요합니다. 지불할까요?`, unitCard(u),{decision:{title:'굴절 비용',cost:`아무 영역 힘 ${defl}`,result:`「${unitName(u)}」을(를) 대상으로 선택`,note:'힘이 부족한 만큼 룬을 재활용합니다.'+(base?.deferDeflect?(base.spellOK?' 주문 확인 후 본 비용과 함께 지불합니다.':' 대상 선택 후 능력 비용과 함께 지불합니다.')+' 자원 능력 사용 확인을 켜 두면 지불 전에 사용 가능한 자원 능력을 먼저 선택할 수 있습니다.':''),accept:base?.deferDeflect?'비용 포함해 선택':'지불하고 선택',decline:'지불 안 함'}});
   if(!yes) return false;
   // 플레이 시점(base 있음)의 굴절은 주문 자체의 추가 비용(353.2.b.1)이라 주문 전용 힘(카이사 전설 247)으로 낼 수 있다.
   // 해결 시점 선택(반사 격발·능력)의 굴절은 주문 비용이 아니라 전용 힘을 못 쓴다 (RiftJudge #4616 · #7545).
-  payCost(p,0,pips,undefined, !!(base && base.spellOK));
+  if(base?.deferDeflect) base.pips.push(...pips);
+  else payCost(p,0,pips,undefined, !!(base && base.spellOK));
   return true;
 }
 
@@ -1338,6 +1360,18 @@ function canPlayCardAt(p, n, loc){
 }
 
 async function playCardFromHand(p, handIdx, opts={}){
+  if(!opts.stageSpell || typeof UI.beginSpellStage!=='function' || typeof SPELL_STAGE_CANCEL==='undefined') return playCardFromHandCore(p,handIdx,opts);
+  const c=card(G.players[p]?.hand[handIdx]);
+  if(!c || c.type!=='Spell' || opts.champZone || opts.fromHidden || opts.byEffect
+    || opts.fromDeck || opts.fromTrash || UI.spellStage) return false;
+  const restriction=playRestriction(c,p,false);
+  if(restriction){ UI.toast(restriction,'warn'); return false; }
+  const draft=UI.beginSpellStage(p,handIdx,c.n);
+  try{ return await playCardFromHandCore(p,handIdx,opts,draft); }
+  catch(error){ if(error!==SPELL_STAGE_CANCEL) throw error; return false; }
+  finally{ UI.endSpellStage(draft); }
+}
+async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
   const P=G.players[p];
   if(opts.champZone && !P.champInZone){ UI.toast('챔피언이 챔피언 존에 없습니다','warn'); return false; }
   const n = opts.champZone ? P.champN : P.hand[handIdx];
@@ -1360,8 +1394,11 @@ async function playCardFromHand(p, handIdx, opts={}){
     UI.toast('이 카드는 그 위치에 플레이할 수 없습니다','warn'); return false;
   }
 
+  const finishPreparation=c.type==='Spell' && !draft && !byEffect && !G.manual ? UI.beginChainSoundPreparation?.(p) : null;
+  try{
   // ── 수동 모드: 규칙 자동 처리 없이 카드만 배치, 효과는 로그로 안내 ──
   if(G.manual){
+    if(draft) await UI.confirmSpellStage(draft,[]);
     let loc='base';
     if(c.type==='Unit'){
       // 공식 룰: 유닛은 기지 또는 자신이 통제 중인 전장에만 배치할 수 있다.
@@ -1381,7 +1418,7 @@ async function playCardFromHand(p, handIdx, opts={}){
     UI.log(`${pname(p)} 「${c.ko}」 플레이 (수동)`, 'p'+p);
     if(c.type==='Unit'){ placeUnit(makeUnit(n,p,{loc,ready:false}), loc); }
     else if(c.type==='Gear'){ P.gear.push({n,ex:false,attachedTo:null}); }
-    else { trashCard(p,n); } // 주문 등
+    else { trashCard(p,n); if(draft) UI.playSpellStageSound?.('confirm'); } // 주문 등
     const txt=(c.tko||c.text||'').trim();
     if(txt) UI.log(`↳ 효과(직접 처리): ${txt}`, 'sys');
     UI.render();
@@ -1484,18 +1521,32 @@ async function playCardFromHand(p, handIdx, opts={}){
   pips = discPips(pips, true);
   energy = Math.max(0, energy-discE);
   const spellOK = c.type==='Spell';   // 주문 전용 자원(럭스 314·카이사 전설 247)은 주문에만 쓸 수 있다
-  // 룰 357.1.a: 비용 지불 단계에서 [반응] 자원 능력(인장·카이사/다리우스 전설)으로 먼저 충당할지 묻는다 — 활성화 능력·숨김과 공용
-  if(!(await askResourceFunding(p, c.ko, energy, pips, spellOK, c.n, '카드 사용 취소'))) return false;
+  // 1.0.87 공용 충당 절차를 사용하되 준비 주문의 자원 변경은 확인 뒤로 미룬다.
+  const prepareFunding=()=>askResourceFunding(p, c.ko, energy, pips, spellOK, c.n, '카드 사용 취소');
+  if(!draft && !await prepareFunding()) return false;
 
   const legionOK = P.playedCards>=1;
   // ── 주문의 대상 지정: 비용을 내기 전(룰 352 선택 → 353 비용) ──
   // 응수 창·체인 적재보다 앞이라 해결 때 대상이 사라졌으면 그 지시만 불발(356.3.e). 굴절(735)은 여기서 본 비용과
   // 합산해 낼 수 있는 유닛만 고를 수 있고, 거부하면 다른 대상 — 남은 대상이 없으면 플레이 자체가 취소된다(352.8).
-  let pre=null;
+  let pre=null, stagedCounterTarget=null;
+  const targetCost={energy,pips:[...pips],spellOK,deferDeflect:!!draft};
   if(c.type==='Spell' && !(fx.counter||fx.steal)){
     const hiddenBf=(opts.fromHidden && !fx.hiddenFreeTarget) ? opts.bfIdx : null;
-    pre=await preTargetSpell(p, c, fx, {legionOK, bfIdx:opts.bfIdx, hiddenBf, cost:{energy, pips, spellOK}, byEffect});
+    pre=await preTargetSpell(p, c, fx, {legionOK, bfIdx:opts.bfIdx, hiddenBf, cost:targetCost, byEffect});
     if(pre===PRE_CANCEL){ UI.toast('대상을 고르지 않아 플레이를 취소합니다 (룰 352.8 · 굴절 735)','warn'); return false; }
+  }
+  if(draft){
+    if(fx.counter||fx.steal){
+      const targets=counterTargets(p,fx);
+      stagedCounterTarget=targets.length===1?targets[0]:await UI.pickOption(p,'대응할 주문 선택',
+        targets.map(x=>({v:x,label:card(x.n).ko,n:x.n})));
+      if(!stagedCounterTarget) return false;
+    }
+    pips=targetCost.pips;
+    await UI.confirmSpellStage(draft,stagedCounterTarget
+      ? [snapshotChainTarget(stagedCounterTarget,G.showdown.chain)] : snapshotCastTargets(pre));
+    if(!await prepareFunding()) return false;
   }
   // 추가 비용으로 유닛이 보드를 떠나도 선택 당시 이름·위치를 기록할 수 있게 미리 문구를 만든다.
   const chosenTargets=describeCastTargets(pre);
@@ -1616,15 +1667,16 @@ async function playCardFromHand(p, handIdx, opts={}){
         // 카운터도 주문이므로 '카운터의 카운터'가 가능하다 (kind:'counter'도 대상에 포함)
         // 대상이 없으면 playRestriction이 이미 거부했다 (룰 352 Targeting) — 여기서는 비어 있지 않다
         const targets=counterTargets(p, fx);   // 상대 주문이 앞(최신 순) — 봇의 기본 선택·미선택 폴백이 상대 주문을 잡는다
-        item.target = targets.length===1 ? targets[0]
-          : await UI.pickOption(p, '대응할 주문 선택', targets.map(x=>({v:x, label:`${card(x.n).ko}${x.p===p?' (내 주문)':''}`, n:x.n})));
+        item.target = stagedCounterTarget || (targets.length===1 ? targets[0]
+          : await UI.pickOption(p, '대응할 주문 선택', targets.map(x=>({v:x, label:`${card(x.n).ko}${x.p===p?' (내 주문)':''}`, n:x.n}))));
         if(!item.target) item.target=targets[0];
       }
       // 대상은 비용을 내기 전에 이미 골랐다 (룰 352.8.a) — 해결 때 대상이 사라졌으면 그 지시만 불발 (356.3.e)
       if(item.kind==='spell') item.pre = pre;
       item.displayTargets=item.kind==='counter' ? [snapshotChainTarget(item.target, sd.chain)] : displayTargets;
       item.displayAffected=item.kind==='spell' ? displayAffected : [];
-      sd.chain.push(stampChainItem(item));
+      finishPreparation?.();
+      appendChainItem(sd.chain,stampChainItem(item));
       if(sd.chain.length===1) sd.chainStarter=p;
       UI.fx.chainAdd(c, p, sd.chain.length);
       UI.log(`🔗 ${pname(p)} 「${c.ko}」 체인에 적재 (#${sd.chain.length}) — 양측 패스 시 마지막 것부터 해결`, 'p'+p);
@@ -1639,6 +1691,7 @@ async function playCardFromHand(p, handIdx, opts={}){
       return true;
     }
     // ── 중립 상태: 기존 즉시 해결 + 대응 창 ──
+    finishPreparation?.();
     let execAs=p, countered=false;
     // 대상은 응수 창이 열리기 전(비용 지불 전)에 골랐다 — 응수로 대상이 사라지면 그 지시만 불발 (356.3.e)
     const hiddenBf=(opts.fromHidden && !fx.hiddenFreeTarget) ? opts.bfIdx : null;
@@ -1690,6 +1743,7 @@ async function playCardFromHand(p, handIdx, opts={}){
   if(sdAtStart && G.showdown===sdAtStart)
     showdownActed(G.showdown.chain.at(-1)?.triggered ? G.showdown.chain.at(-1).p : p);
   return true;
+  }finally{ finishPreparation?.(); }
 }
 
 // ---------- 비용 수정 (상시효과/턴 플래그) ----------
@@ -1901,7 +1955,7 @@ async function reactionWindow(caster, c, context={}){
   const pending={kind:context.ability?'ability':(FX[c.n]?.counter||FX[c.n]?.steal)?'counter':'spell',
     p:caster, n:c.n, srcName:c.ko, displayTargets:context.displayTargets||[],
     displayAffected:context.displayAffected||[]};
-  chain.push(stampChainItem(pending));
+  appendChainItem(chain,stampChainItem(pending));
   UI.render();
   try { return await reactionWindowChoices(caster, c, context, pending); }
   finally {
@@ -1969,8 +2023,12 @@ async function reactionWindowChoices(caster, c, context, pending){
       });
     });
     if(!opts.length && context.ability) return result;   // 격발·능력 창에 낼 것이 없으면 자동 패스(유지·통찰 등 프롬프트 폭주 방지) — 주문 창은 정보 노출용으로 유지
+    const reactionGame=G;
     const sel=await UI.pickReaction(o, `${pname(caster)}이(가) 「${c.ko}」 ${context.ability?'발동':'플레이'} — [반응]으로 응수할까요?`, opts);
-    if(sel===null||sel===undefined) return result;
+    if(sel===null||sel===undefined){
+      if(G===reactionGame && G.winner===null) UI.fx.pass?.(o);
+      return result;
+    }
     // [반응] 능력 발동 (즉시 해결)
     if(typeof sel==='object' && sel.ab){
       // 원 주문이 아직 체인에 있는 닫힌 상태 — 능력 해결 뒤의 클린업이 통제를 풀거나 결전을 열지 않도록 표시 (190.6 · 341)
@@ -2104,7 +2162,7 @@ function spellHasTargets(n, p, bfIdx, fromHidden){
   const saved=[_ctxBf,_hiddenBf,_ctxUnit,_curKind];
   _ctxBf=bfIdx??null; _hiddenBf=(bfIdx!==undefined && bfIdx!==null && !fx.hiddenFreeTarget) ? bfIdx : null; _ctxUnit=null; _curKind='spell';
   try{
-    const cost = fromHidden ? {energy:0,pips:[],spellOK:true} : {energy:applyCostMods(p, c, c.e||0), pips:powerPips(c), spellOK:true};
+    const cost = fromHidden ? {energy:0,pips:[],spellOK:true} : {energy:applyCostMods(p, c, c.e||0), pips:powerPips(c), spellOK:true,deferDeflect:true};
     const legionOK=G.players[p].playedCards>=1, prev=[];
     for(const po of fx.playOps){
       if(po.legion && !legionOK) continue;
@@ -2355,6 +2413,8 @@ async function openCombat(sd, attacker){
 //  · 양측 연속 패스 + 체인 없음 → 결전 종료(전투 진행)
 async function showdownPass(){
   const sd=G.showdown; if(!sd) return;
+  const p=G.actingPlayer;
+  UI.fx.pass?.(p);
   sd.passes++;
   if(sd.passes<2){
     G.actingPlayer=opp(G.actingPlayer);
@@ -2828,6 +2888,8 @@ async function fireTriggeredAbility(t, ctx){
   const p=ctx.p, u=ctx.unit||null;
   const srcName = u ? unitName(u) : (card(ctx.n)?.ko || '격발');
   const srcC = u ? unitCard(u) : card(ctx.n);
+  const finishPreparation=UI.beginChainSoundPreparation?.(p);
+  try{
   const wrap = ctx.bfSrc ? (fn)=>withBattlefieldSource(ctx.bfSrc, fn) : (fn)=>fn();   // 전장 카드 격발은 출처 패널을 띄운다
   const saved=[_ctxBf,_hiddenBf,_ctxUnit,_curKind,_preTarget];
   _ctxBf=ctx.bfIdx??null; _hiddenBf=ctx.hiddenBf??null; _ctxUnit=u; _curKind=ctx.kind||'effect'; _preTarget=undefined;
@@ -2841,13 +2903,14 @@ async function fireTriggeredAbility(t, ctx){
     UI.log(`「${srcName}」 격발 — 적법한 대상이 없어 효과 없음`, 'sys'); return;
   }
   const chosen=describeCastTargets(pre), displayTargets=snapshotCastTargets(pre);
+  finishPreparation?.();
   const displayAffected=snapshotEffectApplications(t.ops, {p, unit:u, bfIdx:ctx.bfIdx??null, hiddenBf:ctx.hiddenBf??null});
   const trigCtx={legionOK:ctx.legionOK, paidAdd:ctx.paidAdd, addCount:ctx.addCount, dead:ctx.dead, buffed:ctx.buffed, isToken:ctx.isToken, tokenName:ctx.tokenName, excess:ctx.excess, buffAtTrigger:ctx.buffAtTrigger, dest:ctx.dest, reason:ctx.reason, count:ctx.count, ev:ctx.ev};
   if(G.state==='showdown' && G.showdown && !G.showdown.ending){
     const sd=G.showdown;
     const item=stampChainItem({kind:'ability', triggered:true, p, n:srcC?.n, ab:{ops:t.ops}, unit:u, gear:ctx.gear, it:ctx.it, srcName, pre,
       bfIdx:ctx.bfIdx??null, hiddenBf:ctx.hiddenBf??null, bfSrc:ctx.bfSrc||null, deathTrigger:!!ctx.deathTrigger, trigCtx, displayTargets, displayAffected});
-    sd.chain.push(item);
+    appendChainItem(sd.chain,item);
     if(sd.chain.length===1) sd.chainStarter=p;
     sd.passes=0;
     UI.fx.chainAdd(srcC, p, sd.chain.length);
@@ -2867,6 +2930,7 @@ async function fireTriggeredAbility(t, ctx){
   else if(moved) UI.log(`「${srcName}」 격발원이 ${u.loc==='base'?'기지':'「'+card(G.bfs[u.loc].n).ko+'」'}(으)로 옮겨져 '이곳'은 현재 위치 (#2410)`, 'sys');
   const ectx = gone ? {...ctx, pre, bfIdx:null, sourceGone:true} : moved ? {...ctx, pre, bfIdx:(u.loc==='base'?null:u.loc)} : {...ctx, pre};
   await wrap(()=>execOps(t.ops, ectx));
+  }finally{ finishPreparation?.(); }
 }
 // ── 격발 대기열 ──
 // 모든 격발 능력(등장·이동·사망·정복·유지·개시·종료·이벤트 리스너·[통찰]·버림)은 격발 시점에 여기 쌓이고, 진행 중인 행동/효과가 끝난
@@ -3022,7 +3086,7 @@ function abilityHasTargets(p, source, ab){
   if(ab.target) return unitsBySpec(ab.target, p).length>0;
   if(typeof ab.preTarget==='function') return true;   // 카드 스크립트가 직접 판단
   const cost=ab.cost||{}; const pips=[...(cost.pips||[])]; for(let i=0;i<(cost.power||0);i++) pips.push('Any');
-  const base={energy:cost.energy||0, pips};
+  const base={energy:cost.energy||0, pips, deferDeflect:true};
   const saved=[_ctxBf,_hiddenBf,_ctxUnit,_curKind];
   _ctxBf=(source.u&&source.u.loc!=='base')?source.u.loc:null; _hiddenBf=null; _ctxUnit=source.u||null; _curKind='ability';
   try{
@@ -3062,6 +3126,8 @@ async function activateAbility(p, source, ab){
   if(cost.recycleTrash && P.trash.length<cost.recycleTrash){ UI.toast('폐기장가 부족합니다','warn'); return; }
   if(cost.discard && P.hand.length<cost.discard){ UI.toast('손패가 부족합니다','warn'); return; }
   if(cost.spendBuff && source.kind==='unit' && source.u.buff<=0){ UI.toast('버프가 없습니다','warn'); return; }   // 358/359.2.d: 지불 전에 검사
+  const finishPreparation=!G.manual && !isResourceAbility(ab) ? UI.beginChainSoundPreparation?.(p) : null;
+  try{
   // 대상 지정은 비용 지불 전(403.1.b "Make all choices required for this ability, such as targets" → 지불) — 적법 대상이 없으면
   // 발동 자체가 불가(404 "If legal options are not available for an Activated Ability, it is not legal to activate it", RiftJudge #3642).
   // 비용 지불 중 등장한 유닛(버린 죠스)은 후보가 아니다(#2485). 고른 대상은 ctx.pre(Map op→uid)로 op에 전달되어 해결 때
@@ -3073,8 +3139,9 @@ async function activateAbility(p, source, ab){
     if(!cands.length){ UI.toast('적법한 대상이 없어 발동할 수 없습니다 (룰 404)','warn'); return; }
     const tu=await UI.pickUnitFrom(p, cands, ab.target._prompt||'대상 선택'); if(!tu) return;
     pre=new Map([[ab.ops[0], tu.uid]]);
+    UI.previewCastTargets?.(p,snapshotCastTargets(pre));
   } else if(typeof ab.preTarget!=='function'){
-    pre=await preTargetAbility(p, source, ab, {energy:cost.energy||0, pips});
+    pre=await preTargetAbility(p, source, ab, {energy:cost.energy||0, pips, deferDeflect:true});
     if(pre===PRE_CANCEL){ UI.toast('적법한 대상이 없어 발동할 수 없습니다 (룰 404)','warn'); return; }
   }
   // 「미래의 용광로」는 아직 보드에 있어 자기 자신을 재활용 대상으로 고를 수 없고(RiftJudge #11013), 「미끼 바늘」은 처치할 유닛을
@@ -3084,6 +3151,7 @@ async function activateAbility(p, source, ab){
   if(typeof ab.preTarget==='function'){
     preAb=await ab.preTarget(p, source);
     if(preAb===null){ UI.toast('대상이 없어 발동할 수 없습니다 (룰 404)','warn'); return; }
+    UI.previewCastTargets?.(p,snapshotCastTargets(pre,preAb));
   }
   // 비표준 비용의 선택(처치할 아군 유닛/도구 — 말자하 113)도 지불 전에 받는다 — 취소하면 아무 비용도 내지 않은 상태로 끝난다 (359.2.d)
   let killSel=null;
@@ -3137,6 +3205,7 @@ async function activateAbility(p, source, ab){
     if(gi>=0) await killGear(p, gi);
   }
 
+  finishPreparation?.();
   const srcName = source.kind==='legend'?card(P.legendN).ko : source.kind==='unit'?unitName(source.u) : card(source.g.n).ko;
   // ── 결전 중: 능력도 체인에 적재 (비용은 이미 지불됨 — 규칙 338.1.a.4; 결전 종료 처리 중 sd.ending이면 즉시 해결) ──
   if(G.state==='showdown' && G.showdown && !G.showdown.ending){
@@ -3155,7 +3224,7 @@ async function activateAbility(p, source, ab){
       return;
     }
     const sourceN=source.kind==='legend'?P.legendN:source.kind==='unit'?source.u.n:source.g.n;
-    sd.chain.push(stampChainItem({kind:'ability', p, n:sourceN, ab, unit:source.u, gear:source.g, srcName, pre, preAb,
+    appendChainItem(sd.chain,stampChainItem({kind:'ability', p, n:sourceN, ab, unit:source.u, gear:source.g, srcName, pre, preAb,
       displayTargets,displayAffected}));
     if(sd.chain.length===1) sd.chainStarter=p;
     UI.fx.chainAdd(source.kind==='legend'?card(P.legendN):source.u?unitCard(source.u):card(source.g.n), p, sd.chain.length);
@@ -3179,6 +3248,7 @@ async function activateAbility(p, source, ab){
   await execOps(ab.ops, {p, unit:source.u, gear:source.g, kind:'ability', preAb, pre, bfIdx:(source.u&&source.u.loc!=='base')?source.u.loc:null});
   await cleanup(p);
   UI.render();
+  }finally{ finishPreparation?.(); }
 }
 
 // ---------- 효과 op 실행기 ----------
@@ -3351,6 +3421,10 @@ function snapshotChainTarget(target, chain){
   return {kind:'chain', itemId:target.displayId, index:chain.indexOf(target), n:target.n, p:target.p,
     label:`${pname(target.p)}의 「${card(target.n).ko}」`};
 }
+function appendChainItem(chain,item){
+  chain.push(item);
+  UI.playSpellStageSound?.('confirm');
+}
 function stampChainItem(item){
   item.displayId=G.chainSequence=(G.chainSequence||0)+1;
   return item;
@@ -3405,8 +3479,10 @@ async function preTargetOps(p, ops, o){
       while(remain>0){
         const u=await pickPreTarget(p,{...op.spec,optional:true,_exclude:used},`분할 피해: 대상 선택 (남은 피해 ${remain})`,o.cost);
         if(!u) break;
+        const part={uid:u.uid,n:0}; split.push(part);
+        pre.set(op,{split}); UI.previewCastTargets?.(p,snapshotCastTargets(pre));
         const n=await UI.pickNumber(p,`「${unitName(u)}」에게 줄 피해 (1~${remain})`,1,remain);
-        split.push({uid:u.uid,n});used.push(u);remain-=n;
+        part.n=n;used.push(u);remain-=n;
       }
       pre.set(op,{split});
       continue;
@@ -3427,7 +3503,9 @@ async function preTargetOps(p, ops, o){
       if(spec.battlefield){                              // 전장 대상 (352.10.d "at a battlefield"는 전장을 대상으로)
         const sel=await UI.pickOption(p, spec._prompt||`「${o.label}」 대상 전장`, G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})),'battlefield');
         if(sel===null && !o.byEffect) return PRE_CANCEL;
-        vals.push({bf: sel===null ? 0 : sel}); prev.push(null); continue;
+        vals.push({bf: sel===null ? 0 : sel}); prev.push(null);
+        pre.set(op,[...vals]); UI.previewCastTargets?.(p,snapshotCastTargets(pre));
+        continue;
       }
       let what=''; try{ what=describeOps([op]); }catch(e){}
       const u=await pickPreTarget(p, spec, spec._prompt||`「${o.label}」 대상 선택${what?' — '+what:''}`, o.cost,
@@ -3435,6 +3513,7 @@ async function preTargetOps(p, ops, o){
       // 손패·숨김에서는 대상 없는 지시가 하나라도 있으면 낼 수 없다(352.8) — 효과로 내는 플레이는 그 지시만 비운다
       if(!u && !spec.optional && !o.byEffect) return PRE_CANCEL;
       vals.push(u?u.uid:null); prev.push(u||null);
+      pre.set(op,[...vals]); UI.previewCastTargets?.(p,snapshotCastTargets(pre));
     }
     pre.set(op, vals.length===1 ? vals[0] : vals);
   }
@@ -3521,6 +3600,8 @@ async function execOps(ops, ctx){
 async function execOpsInner(ops, ctx){
   if(G.winner!==null) return;
   const p=ctx.p;
+  const finishTargetSelection=UI.beginEffectTargetSelection?.(p);
+  try{
   _ctxBf = ctx.bfIdx??null;
   _hiddenBf = ctx.hiddenBf??null;
   _ctxUnit = ctx.unit??null;
@@ -3976,6 +4057,7 @@ async function execOpsInner(ops, ctx){
     UI.render();
   }
   _ctxBf=null; _hiddenBf=null; _preTarget=undefined;   // 소비되지 않은 사전 대상이 다음 선택에 새지 않게
+  }finally{ finishTargetSelection?.(); }
 }
 
 // op 목록을 한글 요약으로

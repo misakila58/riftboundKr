@@ -8,13 +8,15 @@ UI.fx = { on:false, unit(){}, cast(){}, chainAdd(){}, turnEnd(){}, turnStart(){}
 const PLAY_OPTIONS = {
   confirmEndTurn:true,
   confirmResourceAbilities:true,
+  spellStage:true,       // 주문 준비 단계: 주문을 중앙에 올려 대상을 고른 뒤 [확인]으로 시전 (끄면 예전처럼 바로 시전)
+  turnIntro:true,        // 턴 시작 연출: 띠·소리와 함께 1초 남짓 멈춤 (끄면 바로 진행)
   set(key, enabled){
     this[key]=!!enabled;
     try{ localStorage.setItem('rb_play_'+key, enabled?'on':'off'); }
     catch(e){ UI.toast('설정을 저장하지 못했습니다. 이번 실행에만 적용됩니다.','warn'); }
   },
 };
-for(const key of ['confirmEndTurn','confirmResourceAbilities']){
+for(const key of ['confirmEndTurn','confirmResourceAbilities','spellStage','turnIntro']){
   try{ PLAY_OPTIONS[key]=localStorage.getItem('rb_play_'+key)!=='off'; }catch(e){}
 }
 
@@ -235,7 +237,10 @@ UI.updateChainView = function(){
     const c=chainCard(it);
     const title=document.createElement('h4'); title.textContent=(it.kind==='ability'?'능력 · ':'')+(c?.ko||it.srcName||'카드');
     entry.append(order,owner,title);
-    if(c) entry.appendChild(chainPreview(c,it.p,`source-${i}`));
+    if(c){
+      const source=chainPreview(c,it.p,`source-${i}`); source.dataset.targetChainId=it.displayId;
+      entry.appendChild(source);
+    }
     if(it.kind==='ability' && it.ab?.label){
       const ability=document.createElement('p'); ability.className='chain-ability'; ability.textContent=it.ab.label; entry.appendChild(ability);
     }
@@ -262,6 +267,7 @@ UI.updateChainView = function(){
     (focus||document.getElementById('btn-chain-close')).focus({preventScroll:true});
   }
   list.scrollLeft=scrollLeft; list.scrollTop=scrollTop;
+  UI.renderSelectedTargets?.();
 };
 // 보기 창에서 Tab/단축키가 뒤의 대상 선택이나 리플레이 조작으로 새지 않게 한다.
 document.addEventListener('keydown',e=>{
@@ -412,6 +418,59 @@ let _turnGlowPick=null;
 // 진행 중인 라우팅 선택 전부. 온라인 멀리건처럼 두 좌석의 선택이 동시에 시작해 어느 순서로든 끝나므로
 // '이전 값 복원' 방식은 낡은 선택을 되살려 isPicking()이 영원히 참이 됐다 → 턴 종료·패스 버튼이 잠김 (제보 2026-09-20).
 const _pendingRoutedPicks=new Set();
+const _chainSoundPreparations=new Set();
+UI.beginChainSoundPreparation=function(p){
+  const preparation={game:G,p,targets:[]};
+  _chainSoundPreparations.add(preparation);
+  UI.playSpellStageSound?.('place');
+  return ()=>{ _chainSoundPreparations.delete(preparation); UI.renderSelectedTargets(); };
+};
+// 선택 중인 대상만 표시한다. 체인에 적재된 displayTargets는 여기서 읽지 않는다.
+const _effectTargetSelections=new Set();
+UI.beginEffectTargetSelection=function(p){
+  const selection={game:G,p,targets:[]};
+  _effectTargetSelections.add(selection);
+  return ()=>{ _effectTargetSelections.delete(selection); UI.renderSelectedTargets(); };
+};
+UI.recordEffectTarget=function(p,target){
+  // 효과가 다른 주문/능력을 플레이시키는 동안에는 그 준비 단계가 대상을 집계한다.
+  if((UI.spellStage?.game===G && UI.spellStage.p===p)
+    || [..._chainSoundPreparations].some(x=>x.game===G && x.p===p)) return;
+  const selection=[..._effectTargetSelections].reverse().find(x=>x.game===G && x.p===p);
+  if(selection && target){ selection.targets.push(target); UI.renderSelectedTargets(); }
+};
+UI.previewCastTargets=function(p,targets){
+  const draft=UI.spellStage;
+  const preparation=draft?.game===G && draft.p===p && !draft.committed ? draft
+    : [..._chainSoundPreparations].reverse().find(x=>x.game===G && x.p===p);
+  if(preparation){ preparation.targets=targets; UI.renderSelectedTargets(); }
+};
+UI.renderSelectedTargets=function(){
+  document.querySelectorAll('.chosen-target').forEach(el=>el.classList.remove('chosen-target'));
+  document.querySelectorAll('.chosen-target-count').forEach(el=>el.remove());
+  if(!G || G.winner!==null) return;
+  const selections=[..._chainSoundPreparations,..._effectTargetSelections];
+  const draft=UI.spellStage;
+  if(draft && !draft.committed && !draft.cancelRequested && !draft.submitted) selections.push(draft);
+  const counts=new Map();
+  for(const selection of selections){
+    if(selection.game!==G || !localControlsPlayer(selection.p)) continue;
+    for(const target of selection.targets||[]){
+      const selector=target.kind==='unit'?`#board [data-uid="${target.uid}"]`
+        :target.kind==='battlefield'?`#bf-${target.bf}`
+        :target.kind==='chain' && target.itemId!==undefined?`[data-target-chain-id="${target.itemId}"]`:null;
+      if(!selector) continue;
+      for(const el of document.querySelectorAll(selector)) counts.set(el,(counts.get(el)||0)+1);
+    }
+  }
+  for(const [el,count] of counts){
+    el.classList.add('chosen-target');
+    const badge=document.createElement('span'); badge.className='chosen-target-count';
+    badge.textContent=count>1?`대상 ×${count}`:'대상';
+    badge.setAttribute('aria-label',`대상으로 ${count}회 선택됨`);
+    el.appendChild(badge);
+  }
+};
 async function routedPick(p, interactiveFn, serialize, deserialize){
   const pick={game:G,p};
   _pendingRoutedPicks.add(pick);
@@ -419,8 +478,15 @@ async function routedPick(p, interactiveFn, serialize, deserialize){
   updateTurnGlow();
   updateButtons();
   try{
-    if(!NET.online) return await interactiveFn();
-    return await NET.choice(p, interactiveFn, serialize, deserialize);
+    const draft=UI.spellStage;
+    if(draft && draft.game===G && draft.p===p && !draft.committed){
+      return await UI.routeSpellStagePick(draft,interactiveFn,serialize,deserialize);
+    }
+    const preparation=[..._chainSoundPreparations].some(x=>x.game===G && x.p===p);
+    const result=!NET.online ? await interactiveFn() : await NET.choice(p, interactiveFn, serialize, deserialize);
+    if(preparation && pick.game===G && G.winner===null && result!==null && result!==undefined && localControlsPlayer(p))
+      UI.playSpellStageSound?.('target');
+    return result;
   } finally {
     _pendingRoutedPicks.delete(pick);
     _turnGlowPick=[..._pendingRoutedPicks].filter(x=>x.game===G).pop()||null;
@@ -438,10 +504,12 @@ UI.pickUnitFrom = async function(p, candidates, promptText, optional){
   if(!candidates.length) return Promise.resolve(null);
   lockUnitSelection(p);
   try{
-    return await routedPick(p,
+    const selected=await routedPick(p,
       ()=>_pickUnitLocal(p,candidates,promptText,optional),
       v=>v?{uid:v.uid}:null,
       d=>d?(candidates.find(u=>u.uid===d.uid)||everyUnit().find(u=>u.uid===d.uid)||null):null);
+    if(selected) UI.recordEffectTarget(p,{kind:'unit',uid:selected.uid});
+    return selected;
   }finally{
     UI.unitSelectionPending=false; UI.render(); UI.promptForState();
   }
@@ -481,6 +549,7 @@ function _pickUnitLocal(p, candidates, promptText, optional, otherOptions=[]){
 };
 let _pickableUids = null;
 UI.isPicking = ()=>!!_resolver || UI.unitSelectionPending || UI.placementPending
+  || !!UI.spellStage || !!UI.spellStageSubmitting
   || !!(_turnGlowPick && _turnGlowPick.game===G);
 function localControlsPlayer(p){
   if(NET.online) return p===NET.seat;
@@ -497,6 +566,7 @@ UI.canShowdownPass = ()=>{
 };
 // 선택창을 닫고 보드를 보여 주는 동안 다른 메뉴가 선택 안내를 덮지 않게 한다.
 document.addEventListener('click',e=>{
+  if(UI.spellStage && e.target.closest('#spell-stage,#btn-endturn')) return;
   if(!UI.unitSelectionPending || e.target.closest('#prompt-area,#reaction-chain,#aurora-reveal,#card-zoom,#chain-overlay,#ctx-menu,.bf-scroll')) return;
   if(_suppressClick) return; // 롱프레스 정보 보기 뒤에 따라오는 클릭은 아래 전용 리스너가 막는다.
   if(e.target.closest('#btn-chain') || (canPassReaction() && e.target.closest('#btn-endturn'))) return;
@@ -814,7 +884,7 @@ function _pickOptionLocal(p, title, options, cancelLabel){
     const payment=options.find(o=>o.resourcePayment)?.resourcePayment;
     const optionalTrash=options.some(o=>o.optionalTrash);
     const h=document.createElement('h3');
-    cardifyInto(h, payment ? '자원 사용 선택' : `👉 ${p===null?'':pname(p)+': '}${title}`);
+    cardifyInto(h, payment ? '자원 능력 사용 확인' : `👉 ${p===null?'':pname(p)+': '}${title}`);
     box.appendChild(h);
     appendBattlefieldSource(box);
     const content=document.createElement('div'); content.className=payment?'resource-layout':'option-content';
@@ -830,6 +900,8 @@ function _pickOptionLocal(p, title, options, cancelLabel){
     const showOwners=unitSides.size>1 || unitOwners.size>1 || units.some(u=>u && (u.owner??u.ctrl)!==u.ctrl);
     options.forEach((o,i)=>{
       const b=document.createElement('button'); b.className='primary'; b.type='button';
+      if((o.v==='first' || o.v==='second') && options.some(x=>x.v==='first') && options.some(x=>x.v==='second'))
+        b.dataset.setupOrder=o.v;
       const c=optionCard(o);
       if(c){
         b.classList.add('card-option');
@@ -927,7 +999,10 @@ function renderReactionChain(){
     const heading=document.createElement('strong');
     heading.textContent=`${ri===0?'먼저 해결':'대기'} #${i+1}: ${c?.ko||it.srcName||'능력'}${it.countered?' (무효화됨)':''}`;
     const cards=document.createElement('div'); cards.className='reaction-chain-cards';
-    if(c) cards.appendChild(chainPreview(c,it.p,`reaction-source-${i}`));
+    if(c){
+      const source=chainPreview(c,it.p,`reaction-source-${i}`); source.dataset.targetChainId=it.displayId;
+      cards.appendChild(source);
+    }
     const arrow=document.createElement('span'); arrow.className='reaction-arrow'; arrow.textContent='→'; cards.appendChild(arrow);
     const targets=it.displayTargets || (it.target ? [snapshotChainTarget(it.target,chain)] : snapshotCastTargets(it.pre,it.preAb));
     const affected=it.displayAffected||[];
@@ -944,6 +1019,7 @@ function renderReactionChain(){
   });
   panel.appendChild(list);
   document.getElementById('parea-'+opp(view.p)).appendChild(panel);
+  UI.renderSelectedTargets?.();
 }
 UI.pickReaction = async function(p, title, options){
   lockUnitSelection(p);
@@ -1253,10 +1329,12 @@ function _pickMulliganLocal(p){
       el.setAttribute('aria-label',card(n).ko+' 교체 선택');
       const badge=document.createElement('span');badge.className='mulligan-selected';badge.textContent='✓ 교체';el.appendChild(badge);
       const toggle=()=>{
-        if(sel.has(i)) sel.delete(i);
+        const wasSelected=sel.has(i);
+        if(wasSelected) sel.delete(i);
         else if(sel.size<2) sel.add(i);
         else {UI.toast('최대 2장까지 선택할 수 있습니다','warn');return;}
         update();
+        if(typeof UI.playMulliganSelectionSound==='function') UI.playMulliganSelectionSound(!wasSelected);
       };
       el.onclick=toggle;el.onkeydown=e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();toggle();}};
       // 멀리건에서는 카드 위에 마우스를 올려도 정보 패널을 띄우지 않는다.
@@ -1472,25 +1550,26 @@ function attachMouseMoveDrag(el,u){
   });
 }
 function canDragHand(p,idx,n,champZone=false){
-  return G && G.winner===null && !_resolver && !UI.unitSelectionPending && !pendingCombatMove()
+  return G && G.winner===null && !UI.isPicking() && !pendingCombatMove()
     && (champZone ? G.players[p].champInZone && G.players[p].champN===n : G.players[p].hand[idx]===n)
     && !(typeof REPLAY!=='undefined' && REPLAY.viewing)
     && !(typeof botIs==='function' && botIs(p)) && (!NET.online || NET.seat===p)
     && (G.state!=='showdown' || G.actingPlayer===p) && !playRestriction(card(n),p,false);
 }
 function handDropAllowed(el,hand){
+  if(card(hand.n).type==='Spell') return el?.id==='center-info';
   return el && (el._dropDest!=='base' || el.id==='base-'+hand.p)
     && canPlayCardAt(hand.p,hand.n,el._dropDest);
 }
 function dropHandCard(hand,el){
   if(!canDragHand(hand.p,hand.idx,hand.n,hand.champZone)) return;
   if(!handDropAllowed(el,hand)){ UI.toast('이 카드는 그 위치에 플레이할 수 없습니다','warn'); return; }
-  const opts={playLoc:el._dropDest};
+  const opts=card(hand.n).type==='Spell'&&PLAY_OPTIONS.spellStage?{stageSpell:true}:{playLoc:el._dropDest};
   if(hand.champZone) opts.champZone=true;
   NET.dispatch({k:'play',p:hand.p,handIdx:hand.idx,opts},()=>playCardFromHand(hand.p,hand.idx,opts));
 }
 function attachHandDrag(el,p,idx,n,champZone=false){
-  if(!['Unit','Gear'].includes(card(n).type) || !canDragHand(p,idx,n,champZone)) return;
+  if(!['Unit','Gear','Spell'].includes(card(n).type) || !canDragHand(p,idx,n,champZone)) return;
   const hand={p,idx,n,champZone};
   el.draggable=true;
   el.classList.add('hand-draggable');
@@ -1498,6 +1577,7 @@ function attachHandDrag(el,p,idx,n,champZone=false){
     if(!canDragHand(p,idx,n,champZone)){ e.preventDefault(); return; }
     clearTimeout(_lpTimer); hideMenu(); _dragHand=hand;
     e.dataTransfer.setData('text/plain','hand:'+idx); e.dataTransfer.effectAllowed='move';
+    if(card(n).type==='Spell') document.getElementById('center-info').classList.add('drop-hint');
   };
   el.ondragend=()=>{ _dragHand=null; clearDropHints(); };
   attachTouchDrag(el,()=>canDragHand(p,idx,n,champZone),zone=>handDropAllowed(zone,hand),zone=>dropHandCard(hand,zone));
@@ -1518,7 +1598,7 @@ function attachTouchDrag(el,canStart,allowed,drop){
     const point=[...e.changedTouches].find(t=>t.identifier===touch.id);
     if(!point) return;
     const active=touch.active;
-    const zone=document.elementFromPoint(point.clientX,point.clientY)?.closest('.base-zone,.battlefield');
+    const zone=document.elementFromPoint(point.clientX,point.clientY)?.closest('.base-zone,.battlefield,#center-info');
     clear();
     if(active){
       e.preventDefault();
@@ -1547,7 +1627,7 @@ function attachTouchDrag(el,canStart,allowed,drop){
     const pos=fixedLayoutSpace(point.clientX-touch.dx,point.clientY-touch.dy);
     ghost.style.left=pos.x+'px'; ghost.style.top=pos.y+'px';
     el.classList.add('hand-dragging'); clearDropHints();
-    const zone=document.elementFromPoint(point.clientX,point.clientY)?.closest('.base-zone,.battlefield');
+    const zone=document.elementFromPoint(point.clientX,point.clientY)?.closest('.base-zone,.battlefield,#center-info');
     if(allowed(zone)) zone.classList.add('drop-hint');
   },{passive:false});
   el.addEventListener('touchend',finish,{passive:false});
@@ -1817,6 +1897,7 @@ UI.showZoom = function(c, owner){
   if(!c) return;
   hideMenu(); // 열려 있던 컨텍스트 메뉴는 닫는다
   let ov = document.getElementById('card-zoom');
+  const wasOpen = ov?.style.display === 'flex';
   if(!ov){
     ov = document.createElement('div');
     ov.id = 'card-zoom';
@@ -1867,6 +1948,7 @@ UI.showZoom = function(c, owner){
   ov.querySelector('.cz-close').addEventListener('click', UI.hideZoom);
   ov.querySelector('.cz-box').addEventListener('click', e=>e.stopPropagation()); // CSP가 인라인 onclick 차단 → 리스너로 연결
   ov.style.display = 'flex';
+  if(!wasOpen) UI.playCardPreviewSound?.('open');
 };
 // 편집기에서 확대해 보는 동안 이 카드의 일러스트를 바꾼다.
 // onPick(인덱스)을 주면 그 카드에 대해 선택 UI가 나타난다.
@@ -1893,7 +1975,9 @@ UI.renderZoomArts = function(c){
 
 UI.hideZoom = function(){
   const ov = document.getElementById('card-zoom');
-  if(ov) ov.style.display = 'none';
+  if(!ov || ov.style.display !== 'flex') return;
+  ov.style.display = 'none';
+  UI.playCardPreviewSound?.('close');
 };
 
 // 카드 요소에 롱프레스/Alt+클릭 확대를 연결
@@ -1971,6 +2055,7 @@ function pendingCombatMove(){
 }
 function canArrangeMove(p){
   return G && G.winner===null && G.state==='neutral' && G.phase==='action'
+    && !UI.spellStage && !UI.spellStageSubmitting
     && G.turn===p && G.actingPlayer===p && !_resolver && !_pickableUids && !UI.placementPending && !UI.unitSelectionPending && !replayLock()
     && !(typeof botIs==='function' && botIs(p)) && (!NET.online || NET.seat===p)
     && !pendingCombatMove()?.action;
@@ -1994,6 +2079,11 @@ function moveDisplayLoc(u){
   const move=pendingCombatMove();
   return move?.uids.has(u.uid) ? move.dest : u.loc;
 }
+function combatMoveWillFight(p,dest){
+  if(G.manual || dest==='base') return false;
+  const bf=G.bfs[dest];
+  return !!bf && (bf.controller!==p || bf.units.some(u=>u.ctrl!==p));
+}
 function prepareCombatMove(p,units,dest){
   if(!canArrangeMove(p) || !units.length) return;
   const move=pendingCombatMove();
@@ -2003,7 +2093,9 @@ function prepareCombatMove(p,units,dest){
     if(why){ UI.toast(`${unitName(u)}: ${why}`,'warn'); return; }
   }
   if(!move) _combatMove={game:G,p,dest,uids:new Set(),action:null};
+  const added=units.filter(u=>!_combatMove.uids.has(u.uid));
   units.forEach(u=>_combatMove.uids.add(u.uid));
+  if(added.length && combatMoveWillFight(p,dest)) UI.playUnitCombatMovementSound?.('combat',added.length);
   _moveArmed=false; _moveSel.clear(); hideMenu();
   UI.render(); UI.promptForState();
 }
@@ -2012,6 +2104,7 @@ function toggleCombatMover(u){
   if(!move || !canArrangeMove(u.ctrl)) return;
   if(!move.uids.has(u.uid)){ prepareCombatMove(move.p,[u],move.dest); return; }
   move.uids.delete(u.uid);
+  if(combatMoveWillFight(move.p,move.dest)) UI.playUnitCombatMovementSound?.('bench',1);
   if(!move.uids.size) _combatMove=null;
   UI.render(); UI.promptForState();
 }
@@ -2032,6 +2125,7 @@ function confirmCombatMove(){
     _combatMove=null; UI.render(); UI.promptForState();
     UI.toast('이동할 유닛의 상태가 바뀌었습니다. 다시 선택하세요','warn'); return;
   }
+  if(combatMoveWillFight(move.p,move.dest)) UI.playAttackTokenConsumeSound?.();
   move.action={k:'move',p:move.p,uids:units.map(u=>u.uid),dest:move.dest};
   UI.render(); UI.promptForState();
   NET.dispatch(move.action, async()=>{
@@ -2042,6 +2136,7 @@ function confirmCombatMove(){
 function cancelCombatMove(){
   const move=pendingCombatMove();
   if(!move || move.action) return false;
+  if(move.uids.size && combatMoveWillFight(move.p,move.dest)) UI.playUnitCombatMovementSound?.('bench',move.uids.size);
   _combatMove=null; _moveArmed=false; _moveSel.clear(); hideMenu();
   UI.render(); UI.promptForState();
   return true;
@@ -2214,6 +2309,7 @@ function showHiddenCardMenu(h,bfIdx,hiddenIndex,e){
 // 다만 BOT 대전의 봇 좌석은 예외 — 봇이 스스로 두는 자리를 사람이 대신 조작하면
 // 규칙 밖의 수가 되고, 봇의 비공개 정보([숨겨짐] 카드, 비용으로 버리는 손패)까지 드러난다.
 function canInitiate(p){
+  if(UI.spellStage || UI.spellStageSubmitting){ UI.toast('준비 중인 주문을 확인하거나 손패로 되돌려 주세요','warn'); return false; }
   if(pendingCombatMove()){ UI.toast('교전 이동을 먼저 확인하세요','warn'); return false; }
   if(typeof botIs==='function' && botIs(p)){ UI.toast('봇의 카드는 조작할 수 없습니다','warn'); return false; }
   if(!NET.online) return true;
@@ -2226,6 +2322,7 @@ function onHandClick(p, idx, e){
   if(pendingCombatMove()) return;
   if(G.winner!==null) return;
   if(e.altKey) return;              // Alt+클릭은 카드 확대 전용
+  if(UI.spellStage || UI.spellStageSubmitting) return;
   e.stopPropagation();              // 메뉴를 연 클릭이 document 닫기 리스너로 버블링되는 것 방지
   if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
   if(NET.online && p!==NET.seat) return; // 상대 손패는 비공개
@@ -2240,8 +2337,9 @@ function onHandClick(p, idx, e){
   play.textContent=`▶ 플레이 (비용 ${c.e??0}${c.p?'+힘'+c.p:''})`;
   play.onclick=()=>{
     hideMenu();
-    NET.dispatch({k:'play',p,handIdx:idx,opts:{}},
-      ()=>playCardFromHand(p,idx));   // 결전 중 우선권 전환은 playCardFromHand 안에서 처리
+    const opts=c.type==='Spell'&&PLAY_OPTIONS.spellStage?{stageSpell:true}:{};
+    NET.dispatch({k:'play',p,handIdx:idx,opts},
+      ()=>playCardFromHand(p,idx,opts));   // 클릭과 드래그 모두 주문 선택 후 확인/취소
   };
   menu.appendChild(play);
   if(fx.kw.hidden){
@@ -2459,8 +2557,7 @@ UI.render = function(){
   document.getElementById('phase-info').textContent=
     `${phaseKo} 단계` + (pendingMove?' / 교전 이동 대기':G.state==='showdown'?' · ⚔️결전 중':'');
   announcePhase();
-  document.getElementById('score-info').innerHTML=
-    `<span style="color:#9fc8ff">${esc(pname(0))} ${G.players[0].points}점</span> : <span style="color:#ffc89f">${esc(pname(1))} ${G.players[1].points}점</span> (선취 ${G.victory}점)`;
+  UI.updateScoreInfo();
 
   // 풀
   const P=G.players[G.actingPlayer];
@@ -2627,6 +2724,7 @@ UI.render = function(){
     const faceUp = handFaceUp(p);          // 공개 규칙은 handFaceUp 한 곳에만 있다
     const peeked = faceUp && botHandHidable(p);
     Pl.hand.forEach((n,i)=>{
+      if(UI.spellStage?.game===G && UI.spellStage.p===p && UI.spellStage.handIdx===i) return;
       let el;
       const revealed=_boardCardPick?.targets.some(t=>t?.kind==='hand' && t.p===p && t.index===i && t.reveal);
       if(!faceUp && !revealed){ el = document.createElement('div'); el.className='card-mini card-back'; }
@@ -2725,10 +2823,20 @@ UI.render = function(){
   updateButtons();
   highlightBoardCards();
   renderReactionChain();
+  UI.renderSpellStage?.();
+  UI.renderSelectedTargets();
+  attachDropZone(document.getElementById('center-info'),'spell');
   UI.fx.check();          // 행동 차례가 바뀌었으면 연출
 };
 
 // 리플레이 관전 중에는 모든 조작을 잠근다 (상태 변경은 NET.dispatch에서도 한 번 더 차단)
+UI.updateScoreInfo=function(){
+  if(!G) return;
+  const points=p=>UI.displayPoints?UI.displayPoints(p):G.players[p].points;
+  document.getElementById('score-info').innerHTML=
+    `<span style="color:#9fc8ff">${esc(pname(0))} ${points(0)}점</span> : <span style="color:#ffc89f">${esc(pname(1))} ${points(1)}점</span> (선취 ${G.victory}점)`;
+};
+
 function replayLock(){ return (typeof REPLAY!=='undefined' && REPLAY.viewing) || (typeof NET!=='undefined' && NET.online && NET.spectating); }
 
 function updateButtons(){
@@ -2750,7 +2858,10 @@ function updateButtons(){
   const btnEnd=document.getElementById('btn-endturn');
   const reactionPass=canPassReaction();
   const canEndTurn=UI.canEndTurn();
-  const endLabel=reactionPass?'패스':'턴 종료';
+  const draft=UI.spellStage;
+  const ownDraft=draft && draft.game===G && localControlsPlayer(draft.p);
+  const draftReady=!!(ownDraft && draft.ready && !draft.submitted);
+  const endLabel=ownDraft?'확인':reactionPass?'패스':'턴 종료';
   // 장식 SVG를 유지하고 버튼의 텍스트만 바꾼다.
   const labelNode=[...btnEnd.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);
   if(labelNode) labelNode.textContent=endLabel;
@@ -2758,6 +2869,12 @@ function updateButtons(){
   btnEnd.title=(reactionPass?'이 체인에 반응하지 않고 패스합니다':'턴 종료')+((reactionPass||canEndTurn)?' (Space)':'');
   btnEnd.classList.toggle('primary',reactionPass || canEndTurn);
   btnEnd.disabled=!reactionPass && !canEndTurn;
+  if(draft){
+    btnEnd.style.display='';
+    btnEnd.disabled=!draftReady;
+    btnEnd.classList.toggle('primary',draftReady);
+    btnEnd.title=ownDraft?(draftReady?'선택한 주문을 시전합니다 (Space)':'대상과 추가 비용을 먼저 선택하세요'):'상대가 주문을 준비하고 있습니다';
+  }
   const btnPass=document.getElementById('btn-pass');
   const canShowdownPass=UI.canShowdownPass();
   btnPass.classList.toggle('primary',canShowdownPass);
@@ -2791,6 +2908,11 @@ function runGameShortcut(e){
     if(pending) handled=cancelCombatMove();
     else if(canArrangeMove(G.turn)){ document.getElementById('btn-move').click(); handled=true; }
   }else{
+    if(UI.spellStage){
+      const button=document.getElementById('btn-endturn');
+      if(!button.disabled) button.click();
+      e.preventDefault(); return;
+    }
     const pending=pendingCombatMove();
     if(pending && !pending.action && canArrangeMove(pending.p)){ confirmCombatMove(); handled=true; }
     else if(_moveArmed) return;
@@ -2980,6 +3102,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('btn-chain-close').onclick=UI.hideChain;
   document.getElementById('chain-overlay').onclick=e=>{ if(e.target.id==='chain-overlay') UI.hideChain(); };
   document.getElementById('btn-endturn').onclick=()=>{
+    if(UI.spellStage){ UI.submitSpellStage?.(); return; }
     if(_reactionPick){
       if(canPassReaction()) _boardCardPick.finish(_reactionPick.passIndex);
       return;
@@ -3048,6 +3171,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
       빈 체인에서 양측이 패스하면 전투가 벌어집니다.<br>
     · <b>전투</b>: 양측 위력 합계만큼 상대 유닛에 피해 배분(치명 우선·[탱커] 우선). 방어측이 살아남으면 공격측은 기지 귀환.<br>
     · <b>손패 카드 클릭</b> → 플레이/숨기기. 손패의 <b>유닛·도구는 드래그</b>하여 배치 가능한 위치에 플레이할 수 있습니다 (도구는 자기 기지). 등장 효과는 배치 후 이어서 처리합니다.<br>
+    <b>손패 주문</b>: 클릭 후 플레이하거나 전장 사이로 드래그하면 중앙에서 시전을 준비합니다. 선택을 마치고 <b>[확인]</b>을 눌러야 시전됩니다. 확인 전에는 <b>[손패로 되돌리기]</b> 또는 손패로 드래그하여 취소할 수 있으며, 상대에게는 준비 중인 카드 뒷면이 보입니다.<br>
     · <b>유닛 클릭/우클릭</b> → 능력 발동.<br>
     · <b>카드 플레이·능력 메뉴</b>는 바깥 터치, <b>[✖ 닫기]</b>, <b>Esc</b>로 닫습니다. 효과·대상 선택 창은 창 안의 버튼으로 선택을 완료하세요.<br>
     · <b>카드 확대(효과 크게 보기)</b>: 카드를 <b>우클릭</b>, <b>꾹 누르기</b> 또는 <b>Alt+클릭</b> (닫기: 바깥 클릭/Esc). 유닛은 우클릭이 능력 메뉴라 꾹 누르기/Alt+클릭.<br>
