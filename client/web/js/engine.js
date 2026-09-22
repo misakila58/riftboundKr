@@ -556,6 +556,49 @@ function payUsesRunes(p, energy, pips, spellOK){
   return need > 0;                     // 남으면 준비 룬을 탈진시켜야 한다
 }
 
+// 룰 357.1.a: 비용을 내기 전에 [반응] 태그 자원 능력(인장·카이사/다리우스 전설)으로 먼저 충당할지 묻는다.
+// 카드 플레이·활성화 능력(미끼 바늘 등)·숨김 비용이 공용으로 쓴다 — 예전엔 카드 플레이에만 있어서, 미끼 바늘의 힘 1을
+// 인장을 꺾어 낼 수 있는데도 룬이 재활용됐다 (제보 2026-09-22). 반환: true=지불 가능, false=취소(자원 부족 포함).
+//   · 룬을 건드려야 하는 지불이고 아낄 수 있는 능력이 있으면 "먼저 쓸까요?"를 묻고(거절 가능),
+//   · 그래도 모자라면 "충당할까요?"를 묻는다(여기서 취소하면 행동 자체가 취소).
+async function askResourceFunding(p, label, energy, pips, spellOK, n, stopLabel){
+  const P=G.players[p];
+  const fundList=()=>{
+    if(!(typeof polAbList==='function' && typeof polAbLegal==='function' && typeof polAbIsResource==='function')) return [];
+    try{
+      return polAbList(p).filter(cd=>cd.ab && cd.ab.reaction && polAbIsResource(cd) && polAbLegal(p,cd)
+        && resourceAbilityHelpsPay(p,cd.ab,energy,pips,spellOK));
+    }catch(e){ return []; }
+  };
+  const fundOptions=(funds,stop)=>[
+    ...funds.map((cd,i)=>({v:i, label:`⚡ ${cd.name} — ${cd.ab.label}`, resourceOps:cd.ab.ops, resourceCost:[cd.ab.cost?.exhaustSelf?'이 카드 탈진':'',cd.ab.cost?.killFriendlyOrGear?'아군 유닛 또는 도구 1개 처치':''].filter(Boolean).join(', '),
+      card:cd.src.kind==='legend' ? card(P.legendN) : cd.src.kind==='unit' ? unitCard(cd.src.u) : card(cd.src.g.n)})),
+    {v:stop?'stop':'no', label:stop?(stopLabel||'취소'):'인장/능력 없이 지불', skipResourcePrompt:true,
+      resourcePayment:{n, energy, pips}}
+  ];
+  // 모자랄 때만 물어보면, 룬을 재활용해 낼 수 있는 한 카이사 전설을 쓸 기회가 영영 없다.
+  // 룬 재활용·탈진은 실제로 치르는 비용이므로, 그걸 아낄 수 있는 능력이 있으면 먼저 물어본다.
+  for(let guard=0; guard<4 && canPay(p, energy, pips, spellOK) && payUsesRunes(p, energy, pips, spellOK); guard++){
+    const funds=fundList();
+    if(!funds.length) break;
+    const sel=await UI.pickOption(p, `「${label}」 룬을 쓰기 전에 [반응] 자원 능력을 먼저 쓸까요? (룰 357.1.a)`,
+      fundOptions(funds,false));
+    if(sel===null || sel==='no') break;
+    await activateAbility(p, funds[sel].src, funds[sel].ab);
+  }
+  // 그래도 모자라면 충당할지 묻는다 (여기서 취소하면 행동 자체가 취소된다)
+  for(let guard=0; guard<8 && !canPay(p, energy, pips, spellOK); guard++){
+    const funds=fundList();
+    if(!funds.length){ UI.toast('자원이 부족합니다','warn'); return false; }
+    const sel=await UI.pickOption(p, `「${label}」 자원이 부족합니다 — [반응] 자원 능력으로 충당할까요? (룰 357.1.a)`,
+      fundOptions(funds,true));
+    if(sel===null || sel==='stop'){ UI.toast('자원이 부족합니다','warn'); return false; }
+    await activateAbility(p, funds[sel].src, funds[sel].ab);
+  }
+  if(!canPay(p, energy, pips, spellOK)){ UI.toast('자원이 부족합니다','warn'); return false; }
+  return true;
+}
+
 // 이미 풀로 충당되는 비용을 제외하고, 이 능력이 남은 비용에 쓸 자원을 만드는지 확인한다.
 // 카드의 인쇄 영역이 아니라 할인/추가 비용까지 반영한 핍을 검사한다.
 function resourceAbilityHelpsPay(p, ab, energy, pips, spellOK){
@@ -1389,41 +1432,8 @@ async function playCardFromHand(p, handIdx, opts={}){
   pips = discPips(pips, true);
   energy = Math.max(0, energy-discE);
   const spellOK = c.type==='Spell';   // 주문 전용 자원(럭스 314·카이사 전설 247)은 주문에만 쓸 수 있다
-  // 룰 357.1.a: 비용 지불 단계에서 [반응] 태그의 자원 추가 능력을 발동해 비용을 충당할 수 있다
-  // (카이사·다리우스 전설, 인장 등)
-  const fundList=()=>{
-    if(!(typeof polAbList==='function' && typeof polAbLegal==='function' && typeof polAbIsResource==='function')) return [];
-    try{
-      return polAbList(p).filter(cd=>cd.ab && cd.ab.reaction && polAbIsResource(cd) && polAbLegal(p,cd)
-        && resourceAbilityHelpsPay(p,cd.ab,energy,pips,spellOK));
-    }catch(e){ return []; }
-  };
-  const fundOptions=(funds,stop)=>[
-    ...funds.map((cd,i)=>({v:i, label:`⚡ ${cd.name} — ${cd.ab.label}`, resourceOps:cd.ab.ops, resourceCost:[cd.ab.cost?.exhaustSelf?'이 카드 탈진':'',cd.ab.cost?.killFriendlyOrGear?'아군 유닛 또는 도구 1개 처치':''].filter(Boolean).join(', '),
-      card:cd.src.kind==='legend' ? card(P.legendN) : cd.src.kind==='unit' ? unitCard(cd.src.u) : card(cd.src.g.n)})),
-    {v:stop?'stop':'no', label:stop?'카드 사용 취소':'인장/능력 없이 지불', skipResourcePrompt:true,
-      resourcePayment:{n:c.n,energy,pips}}
-  ];
-  // 모자랄 때만 물어보면, 룬을 재활용해 낼 수 있는 한 카이사 전설을 쓸 기회가 영영 없다.
-  // 룬 재활용·탈진은 실제로 치르는 비용이므로, 그걸 아낄 수 있는 능력이 있으면 먼저 물어본다.
-  for(let guard=0; guard<4 && canPay(p, energy, pips, spellOK) && payUsesRunes(p, energy, pips, spellOK); guard++){
-    const funds=fundList();
-    if(!funds.length) break;
-    const sel=await UI.pickOption(p, `「${c.ko}」 룬을 쓰기 전에 [반응] 자원 능력을 먼저 쓸까요? (룰 357.1.a)`,
-      fundOptions(funds,false));
-    if(sel===null || sel==='no') break;
-    await activateAbility(p, funds[sel].src, funds[sel].ab);
-  }
-  // 그래도 모자라면 충당할지 묻는다 (여기서 취소하면 플레이 자체가 취소된다)
-  for(let guard=0; guard<8 && !canPay(p, energy, pips, spellOK); guard++){
-    const funds=fundList();
-    if(!funds.length){ UI.toast('자원이 부족합니다','warn'); return false; }
-    const sel=await UI.pickOption(p, `「${c.ko}」 자원이 부족합니다 — [반응] 자원 능력으로 충당할까요? (룰 357.1.a)`,
-      fundOptions(funds,true));
-    if(sel===null || sel==='stop'){ UI.toast('자원이 부족합니다','warn'); return false; }
-    await activateAbility(p, funds[sel].src, funds[sel].ab);
-  }
-  if(!canPay(p, energy, pips, spellOK)){ UI.toast('자원이 부족합니다','warn'); return false; }
+  // 룰 357.1.a: 비용 지불 단계에서 [반응] 자원 능력(인장·카이사/다리우스 전설)으로 먼저 충당할지 묻는다 — 활성화 능력·숨김과 공용
+  if(!(await askResourceFunding(p, c.ko, energy, pips, spellOK, c.n, '카드 사용 취소'))) return false;
 
   const legionOK = P.playedCards>=1;
   // ── 주문의 대상 지정: 비용을 내기 전(룰 352 선택 → 353 비용) ──
@@ -2014,6 +2024,8 @@ async function hideCard(p, handIdx){
   if(!payment) return false;
   // 목적지와 지불 방식을 모두 고른 뒤 한 번만 소비한다. 취소는 카드와 자원을 보존한다.
   if(!myBfs.some(x=>x.i===sel) || !canPay(p,payment.energy,payment.pips)) return false;
+  // 룬을 건드리는 지불이면 인장 등 [반응] 자원 능력을 먼저 쓸지 묻는다 (357.1.a) — 취소하면 숨기지 않는다
+  if(!(await askResourceFunding(p, `${c.ko} 숨김`, payment.energy, payment.pips, false, n, '숨김 취소'))) return false;
   payCost(p,payment.energy,payment.pips);
   if(fromChamp) P.champInZone=false; else P.hand.splice(handIdx,1);
   G.bfs[sel].hiddenCards.push({n, by:p, turn:G.turnCount});
@@ -2907,7 +2919,9 @@ async function activateAbility(p, source, ab){
     bfIdx:(source.u&&source.u.loc!=='base')?source.u.loc:null};
   const displayAffected=snapshotEffectApplications(ab.ops,abilityContext);
 
-  // 지불
+  // 지불 — 자원 능력 자체(인장 등, 에너지·힘 비용 없음)는 룬을 안 건드려 묻지 않으므로 재귀하지 않는다
+  if(((cost.energy||0) || pips.length) && !(await askResourceFunding(p, (source.kind==='legend'?card(P.legendN).ko : source.kind==='unit'?unitName(source.u) : card(source.g.n).ko), cost.energy||0, pips, false,
+      source.kind==='legend'?P.legendN:source.kind==='unit'?source.u.n:source.g.n, '능력 사용 취소'))) return;
   if(cost.exhaustSelf){
     if(source.kind==='unit') source.u.ex=true;
     else if(source.kind==='legend') P.legendEx=true;
