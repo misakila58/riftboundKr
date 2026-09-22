@@ -435,6 +435,7 @@ async function discardFromHand(p, idx, opts){
 // ---------- 득점 ----------
 function addPoints(p, n, method, bfIdx){
   const P=G.players[p];
+  const previousPoints=P.points;   // 실제 증가분만 연출 (정복 대신 드로우·상한 도달 때 "+n점"이 뜨던 것 — 기여자 수정)
   const V=G.victory;
   if(method==='conquer'||method==='hold'){
     // 최종 점수 제한 (공식 RUP4: 정복에만 적용 — 점거/효과 점수는 무제한)
@@ -454,7 +455,7 @@ function addPoints(p, n, method, bfIdx){
   } else {
     P.points = Math.min(V, P.points+n);
   }
-  UI.fx.score(p, n);
+  if(P.points>previousPoints) UI.fx.score(p, P.points-previousPoints, previousPoints);
   UI.log(`🏆 ${pname(p)} ${method==='conquer'?'정복':method==='hold'?'유지':'효과'} 득점! (${P.points}점)`, 'score');
   checkWin();
 }

@@ -2,7 +2,7 @@
 // bot-sim.js가 예측 중 UI 전체를 조용한 구현으로 갈아 끼웠다가 되돌린다 → const 금지
 let UI = {};
 // 연출은 fx.js가 채운다. 로드 전이나 로드 실패에도 게임이 멈추지 않도록 빈 구현을 먼저 둔다.
-UI.fx = { on:false, unit(){}, cast(){}, chainAdd(){}, turnEnd(){}, priority(){}, score(){}, check(){}, setOn(){} };
+UI.fx = { on:false, unit(){}, cast(){}, chainAdd(){}, turnEnd(){}, turnStart(){}, priority(){}, score(){}, check(){}, setOn(){}, pass(){}, turnEndAccepted(){} };
 
 // 플레이 편의 설정은 이 기기에 저장한다. 게임 상태나 상대 플레이어의 설정에는 포함하지 않는다.
 const PLAY_OPTIONS = {

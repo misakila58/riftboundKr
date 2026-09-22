@@ -6,6 +6,8 @@
 UI.fx = {
   on: (localStorage.getItem('rb_fx') !== 'off'),
   setOn(v){ UI.fx.on = !!v; localStorage.setItem('rb_fx', v ? 'on' : 'off'); document.body.classList.toggle('fx-disabled', !UI.fx.on); updateTurnGlow(); },
+  pass(){},
+  turnEndAccepted(){},
 };
 document.body.classList.toggle('fx-disabled', !UI.fx.on);
 
@@ -98,15 +100,16 @@ UI.fx.turnEnd = function(p){
 
 // ── 턴 시작: 대형 띠 — 누구의 턴이 시작됐는지가 게임에서 가장 중요한 신호다 ──
 // (예전엔 '턴 종료' 띠 1초가 전부라 턴이 넘어간 걸 놓치기 쉬웠다)
-UI.fx.turnStart = function(p){
+UI.fx.turnStart = function(p, duration=2400){
   if(!UI.fx.on) return;
   const box = document.createElement('div');
   box.className = 'fx-band fx-turnstart fx-band-p' + (p === 1 ? 1 : 0);
+  box.style.animationDuration=duration+'ms';
   const t = document.createElement('span');
-  t.textContent = `▶ ${pname(p)}의 턴`;
+  t.textContent = `▶ ${Math.ceil(G.turnCount/2)}번째 턴 — ${pname(p)}`;
   box.appendChild(t);
-  fxAdd(box, 2400);
-  fxAreaPulse(p, 2400);
+  fxAdd(box, duration);
+  fxAreaPulse(p, duration);
 };
 
 // ── 행동 차례 전환(패스/우선권 이동): 배지 + 해당 진영 테두리 펄스 ──
@@ -133,6 +136,7 @@ let _fxActing = null, _fxTurn = null;
 UI.fx.check = function(){
   if(!G || G.winner !== null){ _fxActing = null; _fxTurn = null; return; }
   const key = G.turnCount + ':' + G.actingPlayer;
+  if(G.phase==='turn-intro'){ _fxActing=key; _fxTurn=G.turnCount; return; }
   if(_fxActing === null){ _fxActing = key; _fxTurn = G.turnCount; return; }   // 첫 렌더는 조용히
   if(key === _fxActing) return;
   const sameTurn = (G.turnCount === _fxTurn);
