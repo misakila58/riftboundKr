@@ -569,6 +569,25 @@ function listResourceFunding(p, energy, pips, spellOK){
       && resourceAbilityHelpsPay(p,cd.ab,energy,pips,spellOK));
   }catch(e){ return []; }
 }
+// 지금 쓸 수 있는 [반응] 자원 능력을 전부 쓴다고 가정하면 이 비용을 낼 수 있는가 — "도움이 된다"가 아니라 "낼 수 있다"를 본다.
+// ([가속] 제안처럼, 결국 못 낼 비용을 물어봤다가 되돌리는 일이 없게)
+function canPayWithFunding(p, energy, pips, spellOK){
+  if(canPay(p, energy, pips, spellOK)) return true;
+  const P=G.players[p];
+  const funds=listResourceFunding(p, energy, pips, spellOK);
+  if(!funds.length) return false;
+  const saved={ energy:P.energy, energySpell:P.energySpell, powerSpell:P.powerSpell, power:{...P.power} };
+  try{
+    for(const cd of funds) for(const op of (cd.ab.ops||[])){
+      if(!(op.n>0)) continue;
+      if(op.op==='addEnergy') P.energy+=op.n;
+      else if(op.op==='addSpellEnergy') P.energySpell=(P.energySpell||0)+op.n;
+      else if(op.op==='addSpellPower') P.powerSpell=(P.powerSpell||0)+op.n;
+      else if(op.op==='addPower') P.power[op.dom||'Any']=(P.power[op.dom||'Any']||0)+op.n;
+    }
+    return canPay(p, energy, pips, spellOK);
+  } finally { P.energy=saved.energy; P.energySpell=saved.energySpell; P.powerSpell=saved.powerSpell; P.power=saved.power; }
+}
 async function askResourceFunding(p, label, energy, pips, spellOK, n, stopLabel){
   const P=G.players[p];
   const fundList=()=>listResourceFunding(p, energy, pips, spellOK);
@@ -1427,7 +1446,8 @@ async function playCardFromHand(p, handIdx, opts={}){
     const accPips = [ (c.dom&&c.dom.length===1)?c.dom[0]:'Any' ];
     const accE=Math.max(0,energy+1-discE), accP=discPips([...pips, ...accPips]);
     // 풀·룬으로는 모자라도 인장·전설의 [반응] 자원 능력으로 낼 수 있으면 [가속]을 제안한다 (요청 2026-09-22 — 예전엔 룬만 보고 제안을 생략)
-    const accCanPay=canPay(p, accE, accP), accCanFund=!accCanPay && listResourceFunding(p, accE, accP, false).length>0;
+    // 인장을 다 써도 못 내는 비용(예: 에너지는 되지만 힘 룬이 없음)이면 제안하지 않는다
+    const accCanPay=canPay(p, accE, accP), accCanFund=!accCanPay && canPayWithFunding(p, accE, accP, false);
     if(accCanPay || accCanFund){
       accel = await UI.confirmP(p, `[가속] 추가 비용(에너지 1+힘 1)을 지불하고 준비 상태로 등장시킬까요?`, c,
         {decision:{title:'가속',cost:`에너지 1, ${DOMAIN_KO[accPips[0]]||'아무 영역'} 힘 1 추가`,result:'준비 상태로 등장',accept:'가속하여 등장',decline:'가속 없이 등장'},cost:{energy:Math.max(0,energy+1-discE),pips:discPips([...pips,...accPips]),spellOK:false}});
