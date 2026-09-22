@@ -129,7 +129,7 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('⑫ 블리츠: 기지 플레이 → 등장 격발·응수 창 없음', REACTS.length===rw0 && !!find(0,67), 'reacts='+(REACTS.length-rw0));
 
   // ══ ⑬ 차원문 구출(102) — 효과로 플레이된 렉스의 등장 격발은 효과가 끝난 뒤 체인·응수 창(#3110 · #383) ══
-  fresh(); G.bfs[0].controller=1; const rex=unit(92,0,'base'); const tgt=unit(219,1,0); PICK=(u,p)=>p===0?(u===rex||u===tgt):true;
+  fresh(); G.bfs[0].controller=1; const rex=unit(92,0,'base'); const tgt=unit(210,1,0); G.players[1].hand=[169]; PICK=(u,p)=>p===0?(u===rex||u===tgt):true;   // B에게 돌풍(응수 후보)이 있어야 창이 열린다
   await play(102);
   ok('⑬ 차원문 구출: 렉스 등장 격발에 응수 창 열림', REACTS.some(t=>/격랑의 렉스 격발/.test(t)), REACTS.join('|'));
   ok('⑬ 차원문 구출: 격발 해결(피해 6)', tgt.dmg===6 || !onBoard(tgt), 'dmg='+tgt.dmg);

@@ -421,9 +421,9 @@ function parseMiscClause(s, c, fx, legion){
   if((m=s.match(/^Other friendly units( here)? have \[(\w[\w-]*)( \d+)?\]$/))){
     // 수치 키워드 값(m[3], 없으면 1)은 effKw에서 다른 출처와 합산된다 (룰 Assault/Shield Value summed)
     st().push({kind:'kwAura',kws:[m[2].toLowerCase().replace('-','')],val:m[3]?+m[3]:1,
-      filter:{side:'friendly',other:true,...(m[1]?{where:'here',srcAtBf:true}:{})}}); return true; }
+      filter:{side:'friendly',other:true,...(m[1]?{where:'here'}:{})}}); return true; }
   if((m=s.match(/^Other friendly units have \+(\d+) :rb_might: here$/))){
-    st().push({kind:'mightAura',n:+m[1],filter:{side:'friendly',other:true,where:'here',srcAtBf:true}}); return true; }
+    st().push({kind:'mightAura',n:+m[1],filter:{side:'friendly',other:true,where:'here'}}); return true; }
   if((m=s.match(/^While I'm buffed, I have an additional \+(\d+) :rb_might:$/))){
     st().push({kind:'selfMight',fn:u=>u.buff>0?+m[1]:0}); return true; }
   if((m=s.match(/^While I'm buffed, I have \[(\w+)\]$/))){

@@ -110,7 +110,9 @@ const onBoard=u=>everyUnit().includes(u);
   await playCardFromHand(0,-1,{fromHidden:true,bfIdx:0,directN:303});
   ok('② 결전: 적재 시점엔 수도승 +0', might(monk3)===4 && G.showdown.chain.length===1, 'm='+might(monk3));
   await showdownPass(); await showdownPass();
-  ok('② 결전: 해결 시점에 수도승 +2', might(monk3)===6, 'm='+might(monk3));
+  ok('② 결전: 주문 해결 직후엔 수도승 격발이 체인에(+0)', might(monk3)===4 && G.showdown.chain.length===1, 'm='+might(monk3)+' chain='+G.showdown.chain.length);
+  await showdownPass(); await showdownPass();
+  ok('② 결전: 격발 해결 시점에 수도승 +2', might(monk3)===6, 'm='+might(monk3));
 
   // ── ③ 볼리베어: 등장 격발 전 판정 ──
   fresh(249); CONFIRM=()=>true;

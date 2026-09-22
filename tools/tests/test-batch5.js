@@ -70,7 +70,7 @@ const A=()=>G.players[0], B=()=>G.players[1];
   ok('죠스: 폐기장에 남지 않음', !A().trash.includes(6), JSON.stringify(A().trash));
   fresh(); G.bfs[0].controller=0; unit(210,0,0); unit(210,1,0); openSd(1,true); A().hand=[6];
   CONFIRM=t=>/죠스/.test(t); OPT=(t,o)=>{ if(/배치할 위치/.test(t)) return 0; return o[0].v; };
-  await discardFromHand(0,0);
+  await discardFromHand(0,0); await showdownPass(); await showdownPass();   // 결전 중엔 버림 격발이 체인에 → 양측 패스로 해결
   ok('죠스: 방어 중인 결전 전장에 바로 등장(#3111)', find(0,6) && find(0,6).loc===0, 'loc='+(find(0,6)&&find(0,6).loc));
   fresh(); TF().noPlay[0]=true; A().hand=[6]; CONFIRM=()=>true;
   await discardFromHand(0,0);

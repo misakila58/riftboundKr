@@ -1999,6 +1999,17 @@ function polAbList(p){
   push({kind:'legend'}, card(P.legendN).ko, FX[P.legendN]);
   P.gear.forEach(g => push({kind:'gear', g}, card(g.n).ko, FX[g.n]));
   everyUnit().filter(u => u.ctrl === p).forEach(u => push({kind:'unit', u}, unitName(u), unitFx(u)));
+  // 하이머딩거(111) '아군 전설·유닛·도구의 모든 탈진 능력을 가진다' — 복사 능력은 하이머딩거 자신의 능력(자원 충당 357.1.a·응수 창·봇 공용,
+  // RiftJudge #2679 · #4686). 원 카드의 위치 제한(onlyAtBf)은 복사하지 않는다(#8631) — engine activateAbility가 ab.copied로 건너뛴다.
+  everyUnit().filter(u => u.ctrl === p && unitFx(u).copyAllExhaust).forEach(h => {
+    const add = (fx, name) => ((fx && fx.activated) || []).forEach((ab, i) => {
+      if(!ab.cost || !ab.cost.exhaustSelf) return;
+      out.push({ src:{kind:'unit', u:h}, ab:{...ab, copied:true}, name:unitName(h)+'(복사: '+name+')', key:unitName(h)+'#copy:'+name+'#'+i });
+    });
+    add(FX[P.legendN], card(P.legendN).ko);
+    P.gear.forEach(g => add(FX[g.n], card(g.n).ko));
+    everyUnit().filter(x => x.ctrl === p && x !== h && !x.isToken).forEach(x => add(unitFx(x), unitName(x)));
+  });
   return out;
 }
 

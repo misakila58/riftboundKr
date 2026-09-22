@@ -211,6 +211,13 @@ NET._execAction = async function(a){
       if(a.src.kind==='legend') src={kind:'legend'};
       else if(a.src.kind==='unit'){ const u=everyUnit().find(u=>u.uid===a.src.uid); if(!u) return; src={kind:'unit',u}; }
       else if(a.src.kind==='gear'){ const g=G.players[a.p].gear[a.src.gearIdx]; if(!g) return; src={kind:'gear',g}; }
+      if(a.copy && src && src.u){   // 하이머딩거(111) 복사 능력(ui.js copy 경로) — 원 카드 이름·라벨로 찾아 복사 표시로 발동 (예전엔 abIdx가 없어 상대 화면에서 무시됐다)
+        const P=G.players[a.p]; let found=null;
+        const scan=(f,name)=>{ if(found||!f||name!==a.copy.srcName) return; found=(f.activated||[]).find(x=>x.label===a.copy.label)||null; };
+        scan(FX[P.legendN], card(P.legendN).ko); P.gear.forEach(g=>scan(FX[g.n], card(g.n).ko)); everyUnit().filter(x=>x.ctrl===a.p&&x!==src.u&&!x.isToken).forEach(x=>scan(unitFx(x), unitName(x)));
+        if(found) await activateAbility(a.p, src, {...found, copied:true});
+        break;
+      }
       const fx = a.src.kind==='legend' ? FX[G.players[a.p].legendN] : (src.u?unitFx(src.u):FX[src.g.n]);
       const ab = (fx.activated||[])[a.abIdx];
       if(ab) await activateAbility(a.p, src, ab);

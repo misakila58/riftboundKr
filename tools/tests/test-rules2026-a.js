@@ -102,7 +102,7 @@ releaseEmptyBattlefields=function(){ const e={rw:G._rwFor??null, chain:G.showdow
   await resolve();
   ok('통제 유지: 칼날 세례로 보초 사망 — 체인에 항목이 남아 통제·숨김 카드 유지', !onBoard(sentry) && G.bfs[1].units.length===0 && G.bfs[1].controller===0 && G.bfs[1].hiddenCards.length===1, 'ctrl='+G.bfs[1].controller+' hidden='+G.bfs[1].hiddenCards.length+' chain='+G.showdown.chain.length);
   ok('통제 유지: 닫힌 상태 클린업(chain=1)이 실제로 돌았고 통제를 풀지 않았다', REL.some(x=>x.chain===1 && x.ctrl===0 && x.after===0), JSON.stringify(REL));
-  await resolve();
+  await resolve(); await resolve();   // 보초 종소리(체인) 해결 → 영광의 부름 해결 → 열린 클린업
   ok('통제 상실: 체인이 빈 열린 클린업에서 무주공산 + 숨김 카드 폐기', G.bfs[1].controller===null && G.bfs[1].hiddenCards.length===0 && G.players[0].trash.includes(311), 'ctrl='+G.bfs[1].controller);
   // ── 중립 응수 창: A의 주문에 B가 「칼날 세례」로 응수해 A의 1번 전장이 비어도 원 주문이 해결될 때까지 유지 ──
   fresh(); G.bfs[1].controller=0; const s2=unit(96,0,1); const tgt=unit(219,0,0); G.bfs[0].controller=0;
@@ -115,7 +115,7 @@ releaseEmptyBattlefields=function(){ const e={rw:G._rwFor??null, chain:G.showdow
   // ── 공격자 코그모(190, 1위력)가 죽고 방어자 포로(210)만 남지만, 종소리 4피해가 승패 판정 전에 포로를 죽인다 → 유닛 없음: 통제 없음·정복 없음 ──
   fresh(); openSd(0); G.bfs[0].controller=null; G.bfs[0].contestedBy=0;
   const kog=unit(190,0,0), poro=unit(210,1,0);
-  await resolve();
+  await resolve(); await resolve(); await resolve();   // 전투 → 종소리 체인 해결 → 결과 판정(재진입)
   ok('순서: 코그모·포로 모두 사망', !onBoard(kog) && !onBoard(poro));
   ok('순서: 종소리가 승패 판정 전 → 방어자 잔존 없음 — B 통제 확립·정복 없음(예전엔 B 득점 뒤 사망)', G.bfs[0].controller===null && G.players[1].points===0 && !G.bfs[0].scored[1], 'ctrl='+G.bfs[0].controller+' pts='+G.players[1].points);
   ok('순서: 전투 종료 후 중립', G.state==='neutral' && !G.showdown);

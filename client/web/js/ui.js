@@ -2112,7 +2112,7 @@ function showUnitMenu(u, e){
         attachCardHover(item,srcCard);
         item.onclick=()=>{ hideMenu();
           NET.dispatch({k:'ability',p:u.ctrl,src:{kind:'unit',uid:u.uid},copy:{srcName,label:ab.label}},
-            ()=>activateAbility(u.ctrl,{kind:'unit',u},ab)); };
+            ()=>activateAbility(u.ctrl,{kind:'unit',u},{...ab, copied:true})); };   // 복사 능력은 원 카드의 위치 제한을 따르지 않는다(#8631)
         menu.appendChild(item);
       });
     };

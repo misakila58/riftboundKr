@@ -192,8 +192,9 @@ async function simTry(p, act, policy, movementProbe, ownActions=true){
   try {
     SIM.perspective=settleProbe||!ownActions?null:p;
     SIM.stats.runs++;
-    await act();
-    await simSettle();          // 결전을 끝까지 진행한 뒤 평가 (안 하면 공격이 공짜로 보인다)
+    const savedDepth=_execDepth; _execDepth=0;   // 샌드박스 안에서는 격발 대기열이 제때 비워지도록 실행 깊이를 0에서 시작
+    try{ await act(); await simSettle(); }          // 결전을 끝까지 진행한 뒤 평가 (안 하면 공격이 공짜로 보인다)
+    finally{ _execDepth=savedDepth; }
     return evalState(G, p) + simReturnedHandValue(p);
   } catch(e){
     if(e instanceof SimBudget) SIM.stats.aborted++; else SIM.stats.errors++;

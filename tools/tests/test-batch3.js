@@ -67,7 +67,7 @@ const tempSum=u=>u.tempM.reduce((s,t)=>s+t.v,0);
   // ── 전투 사망 [죽음의 종소리]는 치유 뒤에 해결 — 코그모(190) 종소리 4가 살아남은 공격자를 죽인다(#7226·#10750) ──
   fresh(); openSd();
   const poro=unit(210,0,0), kog=unit(190,1,0);
-  await resolve();
+  await resolve(); await resolve(); await resolve();   // 전투 → 종소리 체인 해결 → 결과 판정(재진입)
   ok('종소리: 코그모 사망', !onBoard(kog));
   ok('종소리: 치유 뒤 종소리 4피해로 포로 사망(예전엔 치유에 지워짐)', !onBoard(poro), 'poro dmg='+poro.dmg+' onBoard='+onBoard(poro));
 

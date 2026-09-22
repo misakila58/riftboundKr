@@ -177,10 +177,10 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
 
   // ══ ⑨ 초강력 초토화 로켓(252) ══
   fresh(); G.players[0].trash=[252,252,252]; G.players[0].hand=[210,219,175]; CONFIRM=t=>/회수/.test(t);
-  await fireEvent('onConquerYou',{p:0,bfIdx:0});
+  await fireEvent('onConquerYou',{p:0,bfIdx:0}); await flushPendingTriggers();   // 리스너 격발은 대기열 → 체인
   ok('로켓: 폐기장 3장 → 정복 1회에 3회 격발, 3장 모두 회수', CONFIRMS.filter(t=>/회수/.test(t)).length===3 && G.players[0].hand.filter(n=>n===252).length===3, 'hand='+JSON.stringify(G.players[0].hand)+' trash='+JSON.stringify(G.players[0].trash));
   fresh(); G.players[0].trash=[252,252,252]; G.players[0].hand=[210]; CONFIRM=t=>/회수/.test(t);
-  await fireEvent('onConquerYou',{p:0,bfIdx:0});
+  await fireEvent('onConquerYou',{p:0,bfIdx:0}); await flushPendingTriggers();   // 리스너 격발은 대기열 → 체인
   ok('로켓: 방금 회수한 로켓을 다음 격발의 버림 비용으로', CONFIRMS.filter(t=>/회수/.test(t)).length===3 && G.players[0].hand.length===1 && G.players[0].hand[0]===252, 'hand='+JSON.stringify(G.players[0].hand)+' trash='+JSON.stringify(G.players[0].trash));
 
   // ══ ⑩ 여우불(256) ══
@@ -229,10 +229,10 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('수도원: 버프 없던 세트가 정복 — 정복으로 얻은 버프로는 드로우 불가(#8738)', G.bfs[0].controller===0 && sett.buff===1 && G.players[0].hand.length===h0 && !CONFIRMS.some(t=>/버프를 소모/.test(t)), 'buff='+sett.buff+' hand+'+(G.players[0].hand.length-h0)+' '+JSON.stringify(CONFIRMS));
   fresh([282,297]); G.bfs[0].controller=1; sett=unit(164,0,0,{buff:1}); vic=unit(210,1,0); openSd(0); CONFIRM=t=>/버프를 소모/.test(t); h0=G.players[0].hand.length;
   await resolve();
-  ok('수도원: 순서 선택 프롬프트(전장 격발이 첫 선택지)', OPTLIST.some(x=>/정복 격발 해결 순서/.test(x.t) && /전장/.test(x.o[0].label)), JSON.stringify(OPTLIST.filter(x=>/정복 격발/.test(x.t)).map(x=>x.o.map(o=>o.label))));
+  ok('수도원: 순서 선택 프롬프트(전장 격발이 첫 선택지)', OPTLIST.some(x=>/격발 순서/.test(x.t) && /수도원/.test(x.o[0].label)), JSON.stringify(OPTLIST.filter(x=>/격발 순서/.test(x.t)).map(x=>x.o.map(o=>o.label))));
   ok('수도원: 기존 버프 소모 → 드로우 → 세트 격발로 새 버프(#10196)', sett.buff===1 && G.players[0].hand.length===h0+1, 'buff='+sett.buff+' hand+'+(G.players[0].hand.length-h0));
   fresh([282,297]); G.bfs[0].controller=1; sett=unit(164,0,0,{buff:1}); vic=unit(210,1,0); openSd(0); CONFIRM=t=>/버프를 소모/.test(t); h0=G.players[0].hand.length;
-  OPT=(t,o)=>{ if(/정복 격발 해결 순서/.test(t)){ const s=o.find(x=>/유닛/.test(x.label)); return s?s.v:o[0].v; } return o[0].v; };
+  OPT=(t,o)=>{ if(/격발 순서/.test(t)){ const s=o.find(x=>/세트/.test(x.label)); return s?s.v:o[0].v; } return o[0].v; };
   await resolve();
   ok('수도원: 세트를 먼저 해결하면 버프 중복 불가 → 수도원이 소모해 버프 0·드로우 1', sett.buff===0 && G.players[0].hand.length===h0+1, 'buff='+sett.buff+' hand+'+(G.players[0].hand.length-h0));
 
@@ -254,9 +254,9 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
 
   // ══ ⑱ 타곤의 정상(289) ══
   fresh([289,297]); G._endingTurn={p:0};
-  await fireBfTrigger(0,'onConquerHere',{p:0,bfIdx:0});
+  await fireBfTrigger(0,'onConquerHere',{p:0,bfIdx:0}); await flushPendingTriggers();
   ok('타곤의 정상: 종료 단계 진입 후 정복은 룬 준비 없음(#7424)', (TF().readyRunesAtEnd[0]||0)===0, 'n='+TF().readyRunesAtEnd[0]);
-  G._endingTurn=null; await fireBfTrigger(0,'onConquerHere',{p:0,bfIdx:0});
+  G._endingTurn=null; await fireBfTrigger(0,'onConquerHere',{p:0,bfIdx:0}); await flushPendingTriggers();   // 전장 격발은 대기열 → 체인
   ok('타곤의 정상: 평소 정복은 2 (회귀)', (TF().readyRunesAtEnd[0]||0)===2, 'n='+TF().readyRunesAtEnd[0]);
 
   // ══ ⑲ 꿈꾸는 나무(292) — 전장별 ══
