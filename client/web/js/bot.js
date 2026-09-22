@@ -12,7 +12,7 @@ const BOT = { active:false, seat:1, level:'skilled', busy:false, ctx:{ tried:new
 const BOT_ACTION_REVIEW_MS = 650;
 
 // 난이도 5단계 — 판단의 '깊이'와 '정보'로 구분한다.
-//   think : 0 = 즉흥(휴리스틱만) · 1 = 한 수 앞을 실제로 두어 보고 고름 · 2 = 턴 전체를 계획(빔 서치)
+//   think : 0 = 즉흥(휴리스틱만) · 1 = 턴 플랜 탐색(폴리시 polPlanTurn) · 2 = 구식 깊은 탐색(simBest 2수) — 셀프플레이 60판 50:50으로 이득 없음(2026-09-22), 미사용
 //   peek  : 상대 손패·덱을 실제로 열람하는가 (마지막 티어만 — 이름에 명시해 투명하게)
 //   budget: 한 수를 고르는 데 쓰는 시간 상한(ms)
 const BOT_LEVELS = [
@@ -22,9 +22,9 @@ const BOT_LEVELS = [
     desc:'대상·비용·손패를 따져 둡니다. 큰 실수는 하지 않습니다' },
   { id:'expert',  name:'😎 고수',   think:1, peek:false, budget:2000,
     desc:'턴 전략을 두어 보고 비교합니다. 전투 계산과 승점 레이스를 읽습니다' },
-  { id:'master',  name:'😈 초고수', think:2, peek:false, budget:5000,
+  { id:'master',  name:'😈 초고수', think:1, peek:false, budget:5000,
     desc:'턴 전체와 내 결전 주문을 검토합니다. 상대 비공개 응수는 예측하지 않습니다 (수당 최대 5초)' },
-  { id:'oracle',  name:'👹 초고수 (내 패를 고려함)', think:2, peek:true, budget:5000,
+  { id:'oracle',  name:'👹 초고수 (내 패를 고려함)', think:1, peek:true, budget:5000,
     desc:'초고수와 같되 당신의 손패와 덱을 봅니다 — 가장 강하지만 공정하지 않습니다' },
 ];
 function botLevelDef(){ return BOT_LEVELS.find(l=>l.id===BOT.level) || BOT_LEVELS[1]; }

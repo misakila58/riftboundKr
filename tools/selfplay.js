@@ -158,6 +158,7 @@ const LEVELS = {
   novice:{think:0,budget:0,peek:false}, skilled:{think:0,budget:0,peek:false},
   expert:{think:1,budget:2000,peek:false}, master:{think:1,budget:5000,peek:false},
   oracle:{think:1,budget:5000,peek:true},
+  skilledT:{think:0,budget:0,peek:false}, master2:{think:2,budget:1500,peek:false}, masterS:{think:1,budget:1500,peek:false}, masterD:{think:1,budget:1500,peek:false}, master1:{think:1,budget:1500,peek:false},   // 실험용: 턴 계획(think 2) vs 1수 탐색(think 1), 같은 예산
   easy:{think:0,budget:0,peek:false}, normal:{think:0,budget:0,peek:false}, hard:{think:0,budget:0,peek:false},
 };
 function mkPolicy(level, ab, wover){

@@ -349,7 +349,8 @@ function rpModeKey(){
 }
 // 이름을 바꾼 사본을 만든다. 1글자 이름('나')은 문장 속 글자와 구분할 수 없어 그대로 둔다(식별 정보가 아니다).
 function rpAnonymize(rec){
-  const alias = rec.meta.players.map((p,i)=> (rec.meta.bot && i===rec.meta.bot.seat) ? p.name : `플레이어 ${i+1}`);
+  // 1글자 이름('나')은 로그·상태에서 바꿀 수 없으니 meta도 그대로 둬 이름이 어긋나지 않게 한다 (분석 도구가 좌석을 이름으로 맞춘다)
+  const alias = rec.meta.players.map((p,i)=> ((rec.meta.bot && i===rec.meta.bot.seat) || !p.name || p.name.length<2) ? p.name : `플레이어 ${i+1}`);
   const subs = rec.meta.players.map((p,i)=>[p.name, alias[i]]).filter(([a,b])=>a && a!==b && a.length>=2);
   const swapText = s => { for(const [a,b] of subs) s = s.split(a).join(b); return s; };
   const swapJson = s => { for(const [a,b] of subs) s = s.split(JSON.stringify(a)).join(JSON.stringify(b)); return s; };

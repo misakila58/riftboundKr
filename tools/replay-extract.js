@@ -35,8 +35,13 @@ function rpLoad(file) {
 // 로그 줄 → 행동. 이름은 meta.players의 name과 대조한다 (봇전에서 사람은 '나' 또는 '플레이어 1').
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function rpActions(d) {
-  const names = d.meta.players.map(p => p.name);
-  const who = s => { const i = names.indexOf(s); return i >= 0 ? i : (names.findIndex(n => s.startsWith(n)) ); };
+  // 좌석별 이름 후보: meta의 이름 + 첫 스냅샷의 이름. 서버로 보낸 리플레이는 meta 이름만 '플레이어 N'으로 바뀌고
+  // 로그·상태의 1글자 이름('나')은 그대로라 둘이 다를 수 있다 — 어느 쪽이든 같은 좌석으로 본다.
+  const s0 = (d.states && d.states[0] && d.states[0].players) || [];
+  const perSeat = d.meta.players.map((p, i) => [...new Set([p.name, s0[i] && s0[i].name].filter(Boolean))]);
+  const names = perSeat.flat();
+  const seatOf = n => perSeat.findIndex(list => list.includes(n));
+  const who = s => { let i = seatOf(s); if (i >= 0) return i; const n = names.find(n => s.startsWith(n)); return n ? seatOf(n) : -1; };
   const NM = '(' + names.map(esc).sort((a, b) => b.length - a.length).join('|') + ')';
   const R = {
     turn:    new RegExp('^━━ ' + NM + '의 턴 (\\d+) ━━'),

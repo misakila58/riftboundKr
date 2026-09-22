@@ -43,9 +43,14 @@ const POLICY = {
 //   rep   : 레퍼토리 — 0 카드만 / 1 활성화 능력·[숨겨짐] / 2 결전 중 자원 능력으로 트릭 자금 조달
 const POL_TIERS = {
   novice:  { smart:0, move:0, think:0, reserve:0, peek:0, moves:1, rep:0 },
-  skilled: { smart:1, move:0, think:0, reserve:0, peek:0, moves:1, rep:1 },
+  // skilled trick:1 — 예전엔 탐색 티어(move)만 결전 트릭을 냈다. 사람은 중수 봇 상대로도 판당 1.0장을 체인에 올리는데 봇은 0.08장(리플레이 2026-09-22).
+  // 정밀 결전 판단(sdx)은 정적 계산이라 비용이 없고, 셀프플레이 300판 52%(중립)로 회귀 없음 → 룰·사람 플레이에 맞춰 켠다.
+  skilled: { smart:1, move:0, think:0, reserve:0, peek:0, moves:1, rep:1, trick:1 },  skilledT:{ smart:1, move:0, think:0, reserve:0, peek:0, moves:1, rep:1, trick:1 },   // skilledT 실험용: 중수 + 결전 트릭
   expert:  { smart:1, move:1, think:1, reserve:0, peek:0, moves:1, rep:1 },
+  // master: 예전엔 self:1(플랜 평가 때 상대 턴을 두지 않는 국면형 판단)이었다 — 상대 손패 결정화+상대 턴 롤아웃 쪽이 셀프플레이 80판 58:22(p<0.0001)로
+  // 압도했고, 사람전 리플레이에서도 초고수의 유닛 교환비(0.76)가 고수(0.97)보다 나빴다 (2026-09-22). 이제 고수와 같은 방식에 예산·표본만 크다.
   master:  { smart:1, move:1, think:1, reserve:0, peek:0, moves:3, rep:2 },
+  masterD: { smart:1, move:1, think:1, reserve:0, peek:0, moves:3, rep:2 },           // 실험용: master와 같되 상대 손패 결정화+상대 턴 롤아웃
   oracle:  { smart:1, move:1, think:1, reserve:0, peek:1, moves:3, rep:2 },
   // 구 식별자 호환
   easy:    { smart:0, move:0, think:0, reserve:0, peek:0, moves:1, rep:0 },
@@ -2245,7 +2250,7 @@ POLICY.showdownAction = async function(p){
     const bounce=await polReturnShowdownAction(p);
     if(bounce) return bounce;
   }
-  if(!polHard()) return null;
+  if(!polHard() && !polTier().trick) return null;   // trick: 탐색 없는 티어도 정밀 결전 판단(sdx, 정적 계산)으로 트릭을 낸다
   if(!POLICY.ab.showdown){ if(POLICY._sdSeen === sd) return null; POLICY._sdSeen = sd; }
   const us = unitsAt(sd.bfIdx);
   const role = u => u.ctrl === sd.attacker ? 'attacker' : 'defender';
@@ -2314,7 +2319,7 @@ POLICY.showdownAction = async function(p){
         if(better) best={i, n, gain:r.gain, cls:r.cls};
       });
       // 클래스가 오르거나(정복 성사·정복 저지) 교환이 위력 2 이상 좋아질 때만 태운다
-      if(best && (best.cls>base.cls || best.gain>=2)){
+      if(best && (best.cls>base.cls || best.gain>=BOT_W.sdGain)){
         polSay('showdown', card(best.n).ko, '정밀 트릭', {myM, opM, gain:+best.gain.toFixed(1)});
         return { kind:'play', idx:best.i, n:best.n };
       }
@@ -2323,7 +2328,7 @@ POLICY.showdownAction = async function(p){
     want = P.hand.filter(n => {
       if(!usable(n) || polCanPlay(p, card(n))) return false;
       const r=polSdTrickGain(p, sd, snap0, base, n);
-      return !!r && (r.cls>base.cls || r.gain>=2);
+      return !!r && (r.cls>base.cls || r.gain>=BOT_W.sdGain);
     });
   } else {
     const idx = P.hand.findIndex(n => usable(n) && polCanPlay(p, card(n)));
@@ -2674,7 +2679,7 @@ async function polPlanTurn(p, ctx){
   for(const i of atkBfs.slice(0,2)) plans.push({ label:'총공격 #'+i, plan:{focusBf:i, allin:true} });
   // 일반 초고수는 상대 손패를 고려하지 않는 현재 국면형 판단을 쓴다.
   // 나머지 비열람 탐색 티어는 상대 손패 결정화 표본을 여러 개 평균해 추측 노이즈를 줄인다.
-  const selfOnly = POLICY.level==='master';
+  const selfOnly = !!polTier().self;
   const budget = Math.min(POLICY.budget || 400, 5000);
   const D = (selfOnly || polTier().peek) ? 1 : 3;
   const deadline = Date.now() + budget;
