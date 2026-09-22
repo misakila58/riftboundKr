@@ -1,0 +1,1917 @@
+[
+ {
+  "n": 115,
+  "ko": "유망한 미래",
+  "name": "Promising Future",
+  "ruling_ids": [
+   12308,
+   11870,
+   1827,
+   6255,
+   7098,
+   7956,
+   3918
+  ],
+  "source": "ruling",
+  "expected": "효과 해결 중에 플레이된 카드는 '대기(pending)' 항목이라 유망한 미래가 완전히 해결된 뒤에야 적재 순서대로 파이널라이즈된다(351.3/359.3 · #6255 · #7098). 유닛은 파이널라이즈 즉시 보드에 들어가지만 '내가 플레이될 때' 격발은 그 뒤 체인의 대기 항목으로 올라 상대가 응수할 수 있고(#12308), 따라서 다음 플레이어의 브린히르(26)가 먼저 플레이돼도 이미 대기 중인 상대의 눈부신 오로라(160)는 정상적으로 플레이된다(#11870). 양측이 주문을 골랐으면 다음 플레이어 주문이 먼저 적재되고 시전자(활성 플레이어) 주문이 LIFO로 먼저 해결된다(#1827). 본 녹턴(194)도 같은 원리로 효과가 끝난 뒤 파이널라이즈(#7956 · #3918 · #9759).",
+  "sim_behavior": "promisingFuture(cardscripts.js:527-531)가 playCardByEffect를 플레이어 순서대로 await하며 카드 하나를 통째로 해결한다: byEffect 유닛의 onPlay는 viaChain:false라 즉시 execOps(engine.js:1577) → 브린히르가 먼저 나오면 noPlay[opp]=true가 즉시 걸리고(cardscripts.js:26), 뒤이은 상대 오로라는 byEffect 경로의 noPlay 검사(engine.js:1334)에 걸려 추방 상태로 남는다(engine.js:1839-1843). 헤드리스 실행: B가 유망한 미래, A 브린히르·B 오로라 → B gear=[] · B banish=[160]. 주문도 counterWindow 없이 즉시 resolveSpellEffects(engine.js:1630-1636)라 다음 플레이어의 주문이 먼저 완전 해결(실행: A 혼미 해결 → B 규율 해결). 녹턴은 5장을 본 직후 choose 단계 전에 nocturneOffer로 곧바로 플레이(cardscripts.js:516, engine.js:1849-1860).",
+  "evidence": [
+   "client/web/js/cardscripts.js:512-532",
+   "client/web/js/engine.js:1331-1336",
+   "client/web/js/engine.js:1577",
+   "client/web/js/engine.js:1630-1636",
+   "client/web/js/engine.js:1835-1845",
+   "client/web/js/cardscripts.js:26",
+   "client/web/js/engine.js:1849-1860"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "high",
+  "suggested_fix": "promisingFuture(및 nocturneOffer)를 2단계로: ① 각 카드를 '대기 모드'로 플레이해 유닛·도구는 배치만 하고 onPlay 격발·주문 해결은 목록에 보관(noPlay 검사도 이 단계에선 격발 전이라 걸리지 않게), ② 모든 플레이가 끝난 뒤 보관한 주문을 역순(LIFO)으로 resolveSpellEffects 하고 onPlay 격발은 fireTriggeredAbility(viaChain)로 올려 응수 창을 연다.",
+  "_g": "rj/10"
+ },
+ {
+  "n": 213,
+  "ko": "숨겨진 칼날",
+  "name": "Hidden Blade",
+  "ruling_ids": [
+   7155,
+   3762,
+   1545,
+   948,
+   6368,
+   465,
+   6014,
+   7496,
+   8230,
+   5440,
+   3084,
+   3645,
+   7353,
+   5667,
+   3820,
+   4317,
+   5015,
+   2164,
+   11613
+  ],
+  "source": "ruling",
+  "expected": "체인에 오른 [공격 시]/[방어 시] 격발은 출처 유닛이 응수(숨김 칼날 처치·투쟁 혹은 도피 이동 등)로 보드/그 전장을 떠나면 '여기(here)'·'내 위력(my Might)' 참조가 null이 되어 그 지시가 불발된다 — CR 359.3.f.2 예시(야스오 + 투쟁 혹은 도피), #7155('my Might'도 null, LKI 없음), #6014/#7496(볼리베어 5 분할 피해 불발), #5440/#3084(워윅 '이곳의 피해 입은 적 처치' 불발), #7353/#5667/#3820(애니비아), #4317(레오나 기절). 위치 무관 지시(드로우·자기 버프)만 정상 해결(#2164·#11613).",
+  "sim_behavior": "격발 체인 항목이 격발 시점의 전장 번호(bfIdx)와 위력(sourceMight)을 그대로 들고 해결되며 출처 유닛의 존재·위치를 재확인하지 않는다: resolveChainItem은 it.bfIdx를 ctx.bfIdx로 넘기고(engine.js:2355-2357) queueCombatTrigger가 sourceMight를 스냅샷(engine.js:314-317), removeUnit이 lastKnownMight를 남기며(engine.js:257-259), dmgEqMyMight는 출처가 보드에 없으면 lastKnownMight??sourceMight로 피해를 준다(cardscripts.js:248-250). 실행 확인(스크래치 g3-verify2.js): 야스오(76)가 공격 → 격발 적재 → 상대가 숨김 「숨겨진 칼날」로 야스오 처치 → 격발 해결 시 방어 유닛에 피해 6, 사망. 같은 경로의 볼리베어(41 dealSplit where:'here', cardscripts.js:36)·워윅(159 killAll where:'here', cardscripts.js:119-120)·애니비아(148 damageAll where:'here', 파서)·레오나-결의(238 stun where:'here', 파서)도 출처가 죽거나 기지로 옮겨진 뒤 그대로 효과를 낸다.",
+  "evidence": [
+   "client/web/js/engine.js:2352-2357",
+   "client/web/js/engine.js:314-317",
+   "client/web/js/engine.js:257-259",
+   "client/web/js/cardscripts.js:248-250",
+   "client/web/js/cardscripts.js:36",
+   "client/web/js/cardscripts.js:67",
+   "client/web/js/cardscripts.js:119-120"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "high",
+  "suggested_fix": "triggered 체인 항목을 해결할 때 출처 유닛이 보드에 있고 it.unit.loc===it.bfIdx인지 확인해, 아니면 where:'here'·self 참조 지시를 불발시킨다(ctx.bfIdx를 null로 두고 unitsBySpec의 'here'가 결전 전장으로 폴백하지 않게); dmgEqMyMight의 lastKnownMight/sourceMight 폴백을 제거해 출처가 없으면 피해 0(무효)으로 처리한다(LKI 없음).",
+  "_g": "rj/3"
+ },
+ {
+  "n": 311,
+  "ko": "점멸",
+  "name": "Flash",
+  "ruling_ids": [
+   5100,
+   7597,
+   12099
+  ],
+  "source": "ruling",
+  "expected": "격발 능력의 'here'/'my' 같은 참조자(referent)는 실행 시점에 출처 유닛의 현재 상태로 확인한다(2026-07-16판 359.3.f 'Referents' — 예시: 야스오 - 회한에 잠긴(76)의 [공격 시] 격발에 대응해 상대가 투쟁 혹은 도피(168)로 야스오를 기지로 보내면 'here'가 더 이상 전투 전장이 아니라 mistarget → 피해 없음). #5100: 블리츠크랭크(67) 등장 격발 중 점멸로 기지로 돌아가면 'move to here'의 here=기지라 이동 불가. #7597: 방어 격발 중 돌풍/후퇴로 손패에 간 티모 - 전략가(121)는 피해를 주지 않음. #12099: 격발원이 전장을 떠나면 '이곳의 적 유닛 기절'(레오나 - 결연한 자 238 동일 문구)은 불발. 359.3.e.12: 보드를 떠난 유닛의 Might는 null.",
+  "sim_behavior": "격발 체인 항목이 격발 시점 전장을 bfIdx로 들고(engine.js:314-317, 2799-2800) 해결 때 그대로 _ctxBf로 쓴다(engine.js:2355-2357 `bfIdx:it.triggered?it.bfIdx`, 3386). unitsBySpec의 where:'here'는 _ctxBf만 보고(3106) moveUnit의 'here'도 _ctxBf(3602)라 출처가 기지·손패로 떠나도 원래 전장을 기준으로 실행된다. dmgEqMyMight는 출처가 기지에 있어도 targetMight(ctx.unit), 보드에 없으면 lastKnownMight를 쓰고(cardscripts.js:249), teemoDefend는 출처 존재를 확인하지 않는다(cardscripts.js:557-565). 헤드리스 실행: 야스오 공격 격발 중 점멸로 야스오→기지 후 격발 해결 → 선봉대 하사 피해 6·사망; 티모 방어 격발 중 후퇴로 티모→손패 후 해결 → 공격 유닛 피해 2.",
+  "evidence": [
+   "client/web/js/engine.js:2355-2357",
+   "client/web/js/engine.js:2799-2800",
+   "client/web/js/engine.js:3106",
+   "client/web/js/engine.js:3602",
+   "client/web/js/cardscripts.js:249",
+   "client/web/js/cardscripts.js:557-565",
+   "tools/data/rules-2026-07-16.txt:2905-2939"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "high",
+  "suggested_fix": "triggered 항목 해결 시 'here'를 격발원 유닛의 현재 위치로 재평가(격발원이 보드에 없거나 기지면 here=null → where:'here'·to:'here' 지시 생략)하고, dmgEqMyMight/teemoDefend는 ctx.unit이 보드(해당 전장)에 없으면 피해를 주지 않게 한다(마지막 상태 정보는 'When I die' 격발에만 — Vendetta 변경사항).",
+  "_g": "rj/10"
+ },
+ {
+  "n": 8,
+  "ko": "신난다!",
+  "name": "Get Excited!",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "\"Discard 1. Deal its Energy cost as damage\" — '그 카드(its)'는 이 주문의 해결로 버린 카드. 해결 시점에 손패가 비어 버릴 카드가 없으면(마지막 손패로 낸 경우 등) 버린 카드가 없으므로 피해도 없다(룰 100 불가능한 지시는 생략). 이전 감사(2차 #8)는 대상 지정 시점만 다뤘다.",
+  "sim_behavior": "discard op는 손패가 비면 아무것도 하지 않고(engine.js:3645), dmgLastDiscardCost는 G._lastDiscard(discardFromHand가 버릴 때마다 덮어쓰기만 하고 어디서도 초기화하지 않음, engine.js:424)를 읽어 d.p===ctx.p면 그 카드의 에너지 비용만큼 피해(cardscripts.js:266~268). 같은 게임에서 이전에(지난 턴이라도) 버린 카드가 있으면 손패 0장으로 낸 신난다!가 그 카드 비용만큼 피해를 준다. 사전 지정 대상이 있으므로 spellHasTargets도 막지 않는다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:266",
+   "client/web/js/engine.js:424",
+   "client/web/js/engine.js:3643"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "medium",
+  "suggested_fix": "dmgLastDiscardCost 직전에 이번 해결에서 버린 카드를 식별한다 — 예: playOps 실행 전 G._lastDiscard=null로 초기화하거나, discard op가 버린 카드 목록을 ctx/h에 남기고 dmgLastDiscardCost는 그것만 쓴다(비었으면 return).",
+  "_g": "cards/1"
+ },
+ {
+  "n": 14,
+  "ko": "하늘 가르기",
+  "name": "Sky Splitter",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"reduced by the highest Might among units you control\" — 위력은 현재 값이며 [맹공]은 \"While I am an attacker, I have +X\", 공격자 지정은 전투 중 유지된다(신룰북 Assault 절, L6615~6620 · 477 위력 계산). [행동] 주문이라 전투 결전 중에도 낼 수 있으므로, 공격자로 지정된 [맹공 2] 징크스(4⚔)는 6⚔로 세어 8-6=2가 되어야 한다. 방어자의 [보호막]도 마찬가지.",
+  "sim_behavior": "applyCostMods의 selfCost.highestMight가 allUnits(p).map(u=>might(u))로 전투 역할 없이 계산(engine.js:1678) — might()는 combatRole이 있어야 assault/shield를 더하므로(engine.js:190~191) 결전 중 공격자 징크스는 4로 세어 비용 4. 같은 파일의 targetMight(engine.js:3091)는 역할을 반영하는데 여기서만 쓰지 않는다.",
+  "evidence": [
+   "client/web/js/engine.js:1678",
+   "client/web/js/engine.js:190",
+   "client/web/js/engine.js:3091",
+   "tools/data/rules-2026-07-16.txt:6615"
+  ],
+  "mismatch": "confirmed",
+  "category": "cost",
+  "impact": "medium",
+  "suggested_fix": "applyCostMods에서 might(u) 대신 targetMight(u)를 쓴다(기절 유닛도 forKill 기준 실제 위력이라 원문과 맞음).",
+  "_g": "cards/1"
+ },
+ {
+  "n": 21,
+  "ko": "태양 원반",
+  "name": "Sun Disc",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "[군단] — 신룰북 812.1.c \"If you have played ANOTHER card this turn\" · 813.1 \"a card different than the one with the Legion ability has been Finalized by you on the same turn\". 활성화 능력의 [군단]도 같은 조항이므로 태양 원반 자신의 플레이는 조건을 채우지 못한다 — 이 턴 첫 카드로 원반을 내고 바로 탈진해도 '다음 유닛 준비 등장' 효과 없음. (2026-09-09 #21 '보류 — 룰북 갱신 후 재검토' 항목: 2026-07-16판이 '다른 카드'로 확정)",
+  "sim_behavior": "activateAbility가 ab.legion을 P.playedCards>=1로만 판정(engine.js:2941). playCardFromHand는 도구 자신을 P.playedCards++로 세므로(engine.js:1540) 원반을 첫 카드로 낸 직후 탈진해도 [군단] 통과 → nextUnitReady 세팅. 등장 격발(onPlay)만 ctx.legionOK(자기 제외)로 판정하고 활성화 능력·fireEvent·fireDesignationTriggers의 legion은 자기 포함.",
+  "evidence": [
+   "client/web/js/engine.js:2941",
+   "client/web/js/engine.js:1540",
+   "client/web/js/cardscripts.js:20",
+   "tools/data/rules-2026-07-16.txt:6819",
+   "tools/data/rules-2026-07-16.txt:6824"
+  ],
+  "mismatch": "confirmed",
+  "category": "keyword",
+  "impact": "medium",
+  "suggested_fix": "군단 판정을 '자기 자신을 제외한 파이널라이즈 수'로 통일: 플레이 시 P.playedCardIds(또는 카운트 시점의 uid 기록)를 두고 activateAbility/fireEvent/fireDesignationTriggers의 legion 검사에서 발동원 카드 자신의 플레이 1회를 빼거나, 유닛·도구 플레이 시 fx에 _playedTurn을 찍어 P.playedCards-(자기가 이 턴 플레이됐으면 1)>=1로 판정.",
+  "_g": "cards/1"
+ },
+ {
+  "n": 22,
+  "ko": "열 광선",
+  "name": "Thermo Beam",
+  "ruling_ids": [
+   11941,
+   12068,
+   11942
+  ],
+  "source": "ruling",
+  "expected": "「유망한 미래」(115) 해결 중에 플레이된 카드는 대기(Pending) 항목으로 체인에 오르고 유망한 미래가 끝난 뒤 순서대로 파이널라이즈된다(룰 354.3·359.2·359.3). 주문은 파이널라이즈 뒤 체인에 '머물고', 유닛·도구는 즉시 보드에 들어가므로, 다음 플레이어가 열 광선을 내고 시전자가 눈부신 오로라를 내면 오로라가 먼저 보드에 들어간 뒤 열 광선이 해결되어 오로라까지 폐기된다(#11941·#12068). 손패에서 냈을 때와 같은 '주문은 체인에 머문다'(#11942).",
+  "sim_behavior": "promisingFuture가 [상대, 나] 순으로 playCardByEffect를 부르고(cardscripts.js:527-530), byEffect 주문은 중립 상태에서 응수 창 없이 resolveSpellEffects로 '즉시' 해결된다(engine.js:1630-1636). 따라서 상대가 고른 열 광선은 시전자의 오로라가 플레이되기 전에 해결되어 오로라가 살아남는다. 유망한 미래는 [행동]이 아니라 결전 중 체인 적재 경로(engine.js:1596~)를 타지 않으므로 항상 이 순서다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:527",
+   "client/web/js/cardscripts.js:530",
+   "client/web/js/engine.js:1630",
+   "client/web/js/engine.js:1636"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "medium",
+  "suggested_fix": "promisingFuture(및 효과로 주문을 내는 다른 경로)에서 byEffect 주문은 즉시 해결하지 말고 대기 목록에 쌓아 두었다가, 양측의 유닛·도구 플레이가 끝난 뒤(효과 해결 완료 후) 적재 순서대로 resolveSpellEffects를 돌린다.",
+  "_g": "rj/9"
+ },
+ {
+  "n": 43,
+  "ko": "매혹",
+  "name": "Charm",
+  "ruling_ids": [
+   2499
+  ],
+  "source": "ruling",
+  "expected": "볼리베어 - 위압(158) \"When an opponent moves to a battlefield other than mine, draw 1\"은 '상대가 이동을 수행'할 때만 격발한다. 내가 매혹(또는 블리츠크랭크 등 효과 이동)으로 상대 유닛을 옮긴 경우는 상대가 이동한 것이 아니므로 내 볼리베어는 드로우하지 않는다 (RiftJudge #2499 \"If you move an opponent's unit (e.g., with Charm), this does not trigger the ability - the opponent must be the one performing the move action\").",
+  "sim_behavior": "effectMove가 onMoveToBf 이벤트를 {p:u.ctrl}(옮겨진 유닛의 통제자)로 발화한다. A가 B의 유닛을 매혹으로 다른 전장에 옮기면 fireEvent 안에서 A 기준 rel='opp'가 되어 SCRIPTS[158](who:'opp')이 통과 → A의 볼리베어가 드로우한다. 표준 이동(moveUnits)은 {p}=이동을 수행한 플레이어로 발화하므로 효과 이동만 주체가 뒤집혀 있다.",
+  "evidence": [
+   "client/web/js/engine.js:1038",
+   "client/web/js/engine.js:2190",
+   "client/web/js/engine.js:2816-2853",
+   "client/web/js/cardscripts.js:118"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "medium",
+  "suggested_fix": "effectMove(p,u,dest)의 onMoveToBf 발화를 {p:p(효과 통제자), mover:u.ctrl, bfIdx:dest}로 바꾸고, 볼리베어 cond는 ctx.p가 상대인지(자기 유닛을 상대가 옮긴 경우 포함 여부는 판정 #2499의 '상대가 이동을 수행' 기준)로 판정한다.",
+  "_g": "rj/7"
+ },
+ {
+  "n": 76,
+  "ko": "야스오 - 회한에 잠긴",
+  "name": "Yasuo - Remorseful",
+  "ruling_ids": [
+   4917,
+   4443
+  ],
+  "source": "ruling",
+  "expected": "'here'·'my Might' 같은 참조는 해결 시점에 격발원의 현재 상태로 다시 읽는다. 격발원이 다른 위치로 옮겨지면 'here'는 새 위치라 원래 전장의 대상은 불발(#4917; 신룰북 359.3.f 예시 — 야스오가 기지로 되돌아가면 공격 격발 mistarget), 격발원이 죽었으면 위력이 null이라 피해 없음(#4917, 359.3.e.14.b \"null Might\"). 레오나 - 결의(238) '이곳의 적 기절'도 레오나가 사라지면 효과 없음(#4443).",
+  "sim_behavior": "체인 항목의 bfIdx가 격발 당시 전장으로 고정되고(resolveChainItem: bfIdx:it.triggered?it.bfIdx) unitsBySpec의 'here'가 _ctxBf만 보므로, 야스오/레오나가 응수로 다른 전장·기지로 옮겨져도 원 전장의 대상은 그대로 유효하다. 죽은 야스오는 removeUnit이 남긴 lastKnownMight로 피해를 준다(dmgEqMyMight).",
+  "evidence": [
+   "client/web/js/engine.js:259",
+   "client/web/js/cardscripts.js:249",
+   "client/web/js/engine.js:2350",
+   "client/web/js/engine.js:3106",
+   "client/web/js/engine.js:3240",
+   "client/web/js/cardscripts.js:67"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "medium",
+  "suggested_fix": "격발 항목 해결 시 'here'를 격발원 유닛의 현재 loc(보드에 없으면 null → 대상 지시 불발)으로 다시 계산하고, dmgEqMyMight에서 격발원이 보드에 없으면 lastKnownMight 대신 0(null) 처리한다. 전장(Battlefield)이 출처인 격발은 지금처럼 bfIdx 고정 유지.",
+  "_g": "rj/6"
+ },
+ {
+  "n": 84,
+  "ko": "열성적인 견습생",
+  "name": "Eager Apprentice",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "견습생이 전장에 있으면 내가 플레이하는 주문(응수 창의 [반응] 주문 포함)의 에너지 비용이 1 줄어든다(최소 1). 비용 2인 「연막」(93)은 1로, 「후퇴」(104)·「혼미」(95)는 최소 1 그대로. 응수 가능 여부는 실제 지불 비용으로 판단해야 한다.",
+  "sim_behavior": "중립 응수 창(reactionWindowChoices)이 손패 [반응] 카드를 나열할 때 cost=cc.e||0(인쇄 비용)으로 canPay를 검사하고 라벨에도 그 값을 쓴다 — applyCostMods(spellDiscount·nextSpellDisc·selfCost)를 거치지 않는다. 에너지 1만 남은 플레이어가 견습생을 전장에 두고도 「연막」으로 상대 주문에 응수할 수 없다(실제 플레이 경로 playCardFromHand는 할인을 정상 적용하므로 목록 게이트만 틀림). 「격노한 화염룡」(31)의 '다음 주문 -5' 등 다른 주문 할인도 같은 문제.",
+  "evidence": [
+   "client/web/js/engine.js:1900-1902",
+   "client/web/js/engine.js:1671-1690",
+   "client/web/js/cardscripts.js:74"
+  ],
+  "mismatch": "confirmed",
+  "category": "cost",
+  "impact": "medium",
+  "suggested_fix": "reactionWindowChoices에서 cost=applyCostMods(o, cc, cc.e||0)로 계산해 canPay와 라벨에 쓴다(playRestriction/spellHasTargets가 이미 applyCostMods를 쓰는 것과 통일).",
+  "_g": "cards/3"
+ },
+ {
+  "n": 102,
+  "ko": "차원문 구출",
+  "name": "Portal Rescue",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"Banish a friendly unit\"은 공개 영역의 게임 오브젝트를 고르는 지시라 대상(target)이다(355.10 — 비용·격발 조건·대체 효과의 일부가 아님; 'Kill a unit at a battlefield' 예시). 대상은 체인 파이널라이즈(플레이) 시점에 고르고(355.14), 적법한 대상이 없으면 플레이할 수 없다. 응수 뒤 대상이 사라지면 그 지시(추방·재플레이)만 불발(356.3.e).",
+  "sim_behavior": "portalRescue가 해결 시점에 UI.pickUnitFrom으로 아군 유닛을 고른다. PRE_TARGET_EXTRA에 portalRescue 항목이 없어 preTargetSpell/spellHasTargets가 대상을 요구하지 않는다 → 아군 유닛이 하나도 없어도 플레이 가능(에너지 3·힘 1만 소모), 상대는 대상을 모른 채 응수해야 하며, 응수로 원래 유닛이 죽으면 해결 때 다른 유닛으로 바꿔 고를 수 있다. 추방 후 정식 플레이 경로(playCardByEffect) 자체는 이전 감사대로 정상.",
+  "evidence": [
+   "client/web/js/cardscripts.js:725-735",
+   "client/web/js/cardscripts.js:1154-1173",
+   "client/web/js/engine.js:2073-2093",
+   "client/web/js/engine.js:3160-3162"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "medium",
+  "suggested_fix": "PRE_TARGET_EXTRA.portalRescue=[{side:'friendly',count:1,_prompt:'차원문으로 재소환할 아군 유닛'}]를 추가하고 portalRescue가 pickBySpec(같은 spec)으로 takePreTarget을 소비하게 한다(후퇴 104와 같은 구조).",
+  "_g": "cards/3"
+ },
+ {
+  "n": 110,
+  "ko": "에코 - 회귀자",
+  "name": "Ekko - Recurrent",
+  "ruling_ids": [
+   9947,
+   11145
+  ],
+  "source": "rulebook",
+  "expected": "룰 383.3.d~e: \"Recycle me to ready your runes\"의 'recycle me'는 격발 능력의 기본 비용이며 383.4.a.1 '비용을 내야 체인에 파이널라이즈된다'. 따라서 에코가 폐기장에 없어 재활용할 수 없으면 룬을 준비하지 못한다 — 특히 카서스 - 불멸자(236, 풀 안) '[죽음의 종소리] 추가 1회'의 두 번째 격발은 에코가 이미 덱 밑에 있어 비용을 낼 수 없으므로 룬 준비가 한 번뿐이다(#9947·#11145의 '격발은 하되 룬 준비 실패' 원칙과 동일).",
+  "sim_behavior": "echoDK는 P.trash.lastIndexOf(에코)가 -1이어도 조건 없이 P.runes.forEach(r=>r.ex=false)로 룬을 모두 준비한다. killUnit이 dkTwice면 runTriggerList(onDeath)를 두 번 돌리므로 카서스와 함께면 1회차에 재활용된 뒤 2회차에서 재활용 없이 룬을 또 준비한다. 또 비용 없는 강제 격발인데 UI.confirmP로 '할까요?'를 물어 거부할 수 있다(원문에 'you may' 없음 — 383.3.b).",
+  "evidence": [
+   "client/web/js/cardscripts.js:467-471",
+   "client/web/js/engine.js:2735-2740",
+   "tools/data/rules-2026-07-16.txt:3386-3400"
+  ],
+  "mismatch": "confirmed",
+  "category": "cost",
+  "impact": "medium",
+  "suggested_fix": "echoDK: idx<0이면 '비용(재활용)을 낼 수 없어 효과 없음'으로 return; 확인 프롬프트는 제거(강제)하거나 비용 지불 여부만 묻는다.",
+  "_g": "cards/3"
+ },
+ {
+  "n": 112,
+  "ko": "카이사 - 진화자",
+  "name": "Kai'Sa - Evolutionary",
+  "ruling_ids": [
+   11602
+  ],
+  "source": "card-text",
+  "expected": "원문 \"play a spell from your trash ... without paying its Energy cost. Then recycle it. (You must still pay its Power cost.)\" — 에너지만 면제, 힘(Power) 비용은 지불해야 하며(룰 353 3단계: ignore는 명시된 비용만), 힘을 낼 수 없는 주문은 후보가 아니다. 에너지 비용 비교는 인쇄 비용(131.4 · #11602).",
+  "sim_behavior": "kaisaTrashSpell이 playFromTrash({type:'Spell',ltPoints,optional,thenRecycle})를 payPower 없이 호출 → 주문 경로가 playCardFromHand(..., ignorePower:!op.payPower) = ignorePower:true로 플레이해 힘 비용을 전혀 내지 않는다. 후보 목록도 canPay 힘 검사(op.payPower 조건) 없이 만들어지고 선택지 라벨은 '비용 없이 플레이'. 인쇄 에너지 비교(ltPoints)와 재활용 처리는 맞다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:399",
+   "client/web/js/cardscripts.js:356-362",
+   "client/web/js/cardscripts.js:386",
+   "client/web/js/engine.js:1433-1434"
+  ],
+  "mismatch": "confirmed",
+  "category": "cost",
+  "impact": "medium",
+  "suggested_fix": "kaisaTrashSpell에 payPower:true를 넘겨 후보를 canPay(힘)으로 거르고 ignorePower:false로 플레이하게 한다(영혼포식자 196·괴롭히는 밤 198과 같은 방식).",
+  "_g": "cards/3"
+ },
+ {
+  "n": 112,
+  "ko": "카이사 - 진화자",
+  "name": "Kai'Sa - Evolutionary",
+  "ruling_ids": [
+   11602
+  ],
+  "source": "ruling",
+  "expected": "카이사 정복 격발로 폐기장의 주문(하늘 가르기 등)을 낼 때 에너지 비용만 무시하고 힘(Power) 비용은 반드시 지불한다 — 카드 원문 \"(You must still pay its Power cost.)\", #11602 \"you ignore the 5 Energy cost but still pay the 1 Power cost\". 후보 판정은 인쇄 에너지 비용 기준(131.4)이며 이 부분은 일치.",
+  "sim_behavior": "kaisaTrashSpell이 playFromTrash({type:'Spell',ltPoints,optional,thenRecycle})를 payPower 없이 호출 → playCardFromHand(..., ignoreEnergy:true, ignorePower:!op.payPower=true)로 힘 비용까지 면제되고, 힘을 낼 수 없는 주문도 후보에서 걸러지지 않는다(payPower 필터는 op.payPower일 때만). 영혼포식자(196)는 payPower:true라 정상. (#14 하늘 가르기 판정 파일에서 발견)",
+  "evidence": [
+   "client/web/js/cardscripts.js:399",
+   "client/web/js/cardscripts.js:361",
+   "client/web/js/cardscripts.js:385",
+   "client/web/js/cardscripts.js:86"
+  ],
+  "mismatch": "confirmed",
+  "category": "cost",
+  "impact": "medium",
+  "suggested_fix": "kaisaTrashSpell의 playFromTrash 옵션에 payPower:true를 추가해 후보 필터(canPay 힘)와 ignorePower:false가 함께 적용되게 한다.",
+  "_g": "rj/6"
+ },
+ {
+  "n": 121,
+  "ko": "티모 - 전략가",
+  "name": "Teemo - Strategist",
+  "ruling_ids": [
+   4427,
+   3559,
+   3204,
+   4119,
+   8015,
+   4461,
+   3720
+  ],
+  "source": "ruling",
+  "expected": "격발원이 체인 위 능력 해결 전에 보드를 떠나면(돌풍으로 손패, 투쟁 혹은 도피로 기지 등) 'here'·'my' 같은 참조는 해결 시점에 다시 검사되어 null이 된다(신판 359.3.f.2 참조자 규정 — 룰북 예시가 바로 '야스오 - 회한에 잠긴'을 Fight or Flight로 기지에 되돌린 경우: 공격 격발이 mistarget). 티모(121)는 5장 공개·재활용은 하되 '이곳의 적'에게 피해 없음(#4427·#3559·#3204·#4119·#8015·#4461), 아리 - 탐구자(119)의 '이곳의 적 -2'도 불발(#3720), 야스오(76) '이곳의 적에게 내 위력만큼'도 불발.",
+  "sim_behavior": "격발 체인 항목은 it.bfIdx를 그대로 들고 해결한다(resolveChainItem: `bfIdx: it.triggered ? it.bfIdx : ...`). unitsBySpec의 where:'here'는 _ctxBf(=그 bfIdx)로만 판정하고 격발원의 현재 위치는 보지 않으며, removeUnit은 u.loc도 지우지 않는다. 따라서 티모가 돌풍으로 손패에 간 뒤에도 teemoDefend가 사전 지정한 적 유닛에 [숨겨짐] 장수만큼 피해를 주고, 아리(119)의 might -2, 야스오(76)의 dmgEqMyMight(lastKnownMight로 일부러 출처 이탈 후에도 해결)도 그대로 적용된다. 등장 격발의 'here'(예: 정상 수호자 223 buffOthersHere가 me.loc를 봄)도 같은 원인으로 이탈 후 실행된다.",
+  "evidence": [
+   "client/web/js/engine.js:2355-2357",
+   "client/web/js/engine.js:3106",
+   "client/web/js/engine.js:257-262",
+   "client/web/js/engine.js:2812",
+   "client/web/js/cardscripts.js:557-565",
+   "client/web/js/cardscripts.js:93",
+   "client/web/js/cardscripts.js:67",
+   "client/web/js/cardscripts.js:248-250",
+   "client/web/js/cardscripts.js:290-291",
+   "tools/data/rules-2026-07-16.txt:2921-2942"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "medium",
+  "suggested_fix": "체인 항목 해결 시 격발원 유닛이 보드에 없거나(everyUnit 미포함) it.bfIdx와 다른 위치면 'here' 참조(_ctxBf)를 null로 두어 where:'here' 지시(및 buffOthersHere 등 me.loc 참조)를 불발시킨다. 위력 참조('my Might')는 지금처럼 lastKnownMight로 유지(Kennen류 'a unit' 판정과 일치).",
+  "_g": "rj/2"
+ },
+ {
+  "n": 160,
+  "ko": "눈부신 오로라",
+  "name": "Dazzling Aurora",
+  "ruling_ids": [
+   3110,
+   383
+  ],
+  "source": "ruling",
+  "expected": "오로라·유망한 미래 등 효과가 플레이한 유닛의 'When you play me' 격발은 그 효과의 해결이 끝난 뒤 체인에 올라 상대가 응수할 수 있다(#3110 '오로라가 낸 유닛의 등장 격발에는 반응할 수 있다', #383 유닛 등장 뒤 격발이 체인에 올라 해결된 뒤 다음 오로라 격발). 유망한 미래로 양측이 유닛을 냈으면 두 등장 격발이 유망한 미래가 끝난 뒤 함께 체인에 올라 LIFO로 해결된다(#12310 — 풀 밖 카드 예시이나 원리는 풀 안 조합에도 적용: 유망한 미래로 낸 천 개 꼬리의 감시자의 -3은 상대가 뒤이어 낸 유닛에도 적용돼야 함).",
+  "sim_behavior": "playCardFromHand가 등장 격발에 viaChain:!byEffect를 넘겨(engine.js:1577) 효과로 낸 유닛의 onPlay는 runTriggerList에서 fireTriggeredAbility(체인·응수 창)를 거치지 않고 execOps로 즉시 실행된다(engine.js:2774-2775). 오로라가 낸 유닛의 등장 격발에 [반응]/숨김 카드로 응수할 수 없고, 유망한 미래에서는 다음 플레이어 유닛의 격발이 시전자 카드가 플레이되기도 전에 해결된다(cardscripts.js:527-530).",
+  "evidence": [
+   "client/web/js/engine.js:1577",
+   "client/web/js/engine.js:2774",
+   "client/web/js/cardscripts.js:527"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "medium",
+  "suggested_fix": "byEffect 플레이의 onPlay 격발을 즉시 실행하지 말고 대기 목록(G._pendingTriggers 등)에 넣어 두었다가, 부르는 효과(오로라 dawnAurora·promisingFuture·portalRescue·blindRage)의 execOps가 끝난 뒤 fireTriggeredAbility로 순서대로(뒤에 쌓인 것부터) 체인/응수 창을 거쳐 해결한다.",
+  "_g": "rj/9"
+ },
+ {
+  "n": 185,
+  "ko": "떠돌이 상인",
+  "name": "Traveling Merchant",
+  "ruling_ids": [
+   6903,
+   7183,
+   3507,
+   3043,
+   1997,
+   1782,
+   2215,
+   15,
+   2063,
+   2037,
+   757,
+   496,
+   7936,
+   6404,
+   1946,
+   3708,
+   3842,
+   8137,
+   4481,
+   6396,
+   5430
+  ],
+  "source": "ruling",
+  "expected": "이동 격발(상인 185·미스 포츈 선장 162)·개시 격발(징크스 전설 251)·정복 격발·'주문 플레이 시' 격발(레이븐블룸 학생 103)·종료 격발(애니 전설 317)·볼리베어 전설 훅은 체인에 올라 닫힌 상태를 만들고 상대가 [반응](돌풍)으로 응수할 수 있다. 응수로 격발원을 치워도 격발은 해결되며(#1997·#7183), 상인의 격발이 연 체인 안에서는 아직 공격자 지정 전이라 베인을 돌풍할 수 있다(#2215·#15). 징크스 격발에 응수해 손패를 2장으로 만들면 드로우 없음(#6404·#3708), 유지 득점 전에 응수 창이 있다(#3842).",
+  "sim_behavior": "onPlay만 fireTriggeredAbility로 체인/응수 창을 탄다(runTriggerList의 ctx.viaChain). moveUnits/effectMove의 onMoveSelf, fireEvent 경유 리스너(onBeginning·onConquerYou·onYouPlaySpell·onEndTurn·onUnitDeath)와 legendHook은 응수 창 없이 즉시 execOps된다 — 상인 이동 직후 바로 버림/드로우 후 결전 개시, 징크스는 개시 단계에 즉시 판정·드로우, 정복·주문 플레이 격발에도 돌풍을 낼 창이 없다.",
+  "evidence": [
+   "client/web/js/engine.js:2186-2189",
+   "client/web/js/engine.js:1037",
+   "client/web/js/engine.js:2759-2773",
+   "client/web/js/engine.js:2816-2853",
+   "client/web/js/engine.js:859",
+   "client/web/js/engine.js:907",
+   "client/web/js/engine.js:2878-2890"
+  ],
+  "mismatch": "confirmed",
+  "category": "known-compromise",
+  "impact": "medium",
+  "suggested_fix": "안내의 절충 ①. 확장 시 runTriggerList에 viaChain을 넘기는 호출부를 늘리고(onMoveSelf → fireTriggeredAbility, fireEvent 리스너도 같은 경로), 이동 격발이 체인에 있는 동안 startShowdown/openCombat이 열리지 않게 cleanup의 chainClosed 가드를 재사용.",
+  "_g": "rj/2"
+ },
+ {
+  "n": 190,
+  "ko": "코그모 - 부식",
+  "name": "Kog'Maw - Caustic",
+  "ruling_ids": [
+   7905
+  ],
+  "source": "ruling",
+  "expected": "기지는 전장이 아니므로 기지에서 죽은 코그모의 [죽음의 종소리] '내 전장의 모든 유닛에 4'는 아무 유닛에도 적용되지 않는다(#7905).",
+  "sim_behavior": "killUnit의 종소리 ctx는 기지 사망 시 bfIdx:null이고(engine.js:2737) unitsBySpec은 where:'here'에 _ctxBf가 null이면 결전 중엔 결전 전장으로, 결전이 없으면 필터 없이 전체 유닛으로 폴백한다(engine.js:3106-3107). 실행 확인(g3-verify.js T2): 중립 상태에서 기지의 코그모를 처치하자 양쪽 전장의 유닛 모두에 피해 4.",
+  "evidence": [
+   "client/web/js/engine.js:2737",
+   "client/web/js/engine.js:3106-3107",
+   "client/web/js/engine.js:3404-3421"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "medium",
+  "suggested_fix": "unitsBySpec에서 where:'here'인데 _ctxBf가 null이면(출처가 기지) 후보를 빈 배열로 돌린다 — 결전 전장 폴백은 명시적으로 결전 격발(ctx.bfIdx 있음)에만 쓰도록 제한.",
+  "_g": "rj/3"
+ },
+ {
+  "n": 198,
+  "ko": "괴롭히는 밤",
+  "name": "The Harrowing",
+  "ruling_ids": [
+   12518
+  ],
+  "source": "ruling",
+  "expected": "괴롭히는 밤(주문)이 해결 중 폐기장에서 유닛을 플레이하면 그 주문 자체가 '이번 턴 플레이한 카드'로 먼저 센다(FAQ #9614·#12518, 419.4.a). 밤이 첫 카드면 다리우스(27)는 두 번째 카드 → +2⚔·준비. 이미 다른 카드를 냈다면 밤이 두 번째, 다리우스는 세 번째 → 격발 없음.",
+  "sim_behavior": "EXTRA_OPS.harrowing → playFromTrash → playCardFromHand(fromTrash)에서 유닛의 P.playedSeq++가 먼저 일어나고(engine.js:1650), 주문의 playedSeq++는 resolveSpellEffects 끝의 fireSpellPlayEvents에서 나중에 일어난다(engine.js:1716-1718, 1822). 따라서 ① 밤이 첫 카드: 다리우스 플레이 이벤트 seq=1(격발 없음) → 이어 밤의 주문 플레이 이벤트가 seq=2로 나며 보드에 있는 다리우스의 onYouPlayCard(cond seq===2, cardscripts.js:27)가 걸려 결과만 우연히 일치. ② 이미 한 장 낸 뒤 밤: 다리우스 자신의 플레이 이벤트가 seq=2가 되어 세 번째 카드인데도 +2⚔·준비가 격발된다(판정과 반대). 증원(62)·미끼 바늘(242) 등 '해결 중 유닛 플레이' 경로도 같은 구조(이전 감사 #62 #6887에서 보류했던 항목 — 09-11 신룰북 감사에서 playedCards/playedSeq가 분리된 뒤에도 순번은 그대로).",
+  "evidence": [
+   "client/web/js/cardscripts.js:403",
+   "client/web/js/cardscripts.js:372",
+   "client/web/js/engine.js:1650",
+   "client/web/js/engine.js:1716",
+   "client/web/js/engine.js:1822",
+   "client/web/js/cardscripts.js:27"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "medium",
+  "suggested_fix": "주문 해결 중 효과로 플레이되는 카드(harrowing/lookTopPlayUnit/playFromTrash)는 '해결 중인 주문'을 앞에 둔 순번을 받아야 한다 — 예: resolvingSpell ctx가 있으면 유닛 플레이 시 seq를 P.playedSeq+2로 주고 주문의 fireSpellPlayEvents는 이미 반영된 것으로 처리(playedSeq를 두 번 올리되 주문 이벤트 seq는 유닛보다 앞 번호), 또는 주문 이벤트를 '유닛 플레이 전'에 예약해 두는 방식.",
+  "_g": "rj/4"
+ },
+ {
+  "n": 201,
+  "ko": "시간선 역전",
+  "name": "Invert Timelines",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"Each player discards their hand\"는 버림(422.2)이며 422.5에 따라 버려진 카드의 'When I am discarded' 격발(고철 더미 182 '드로우 1', 죠스 6 등)이 버림 뒤에 실행되어야 한다.",
+  "sim_behavior": "timelineReset이 P.hand.pop()→P.trash.push()로 카드를 직접 옮겨 discardFromHand를 거치지 않는다. 그래서 fx.onDiscardSelf(고철 더미의 draw 1, 죠스의 jawsReplay)가 전혀 실행되지 않고 G._lastDiscard도 갱신되지 않는다. onYouDiscard 이벤트(징크스 202)만 일괄 1회 발화한다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:476-484",
+   "client/web/js/engine.js:419-431",
+   "client/web/js/cardscripts.js:140"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "medium",
+  "suggested_fix": "timelineReset에서 손패를 하나씩 discardFromHand(pi, 0, {batch:true})로 버리고 마지막에 onYouDiscard를 1회 내도록 바꾼다.",
+  "_g": "cards/5"
+ },
+ {
+  "n": 213,
+  "ko": "숨겨진 칼날",
+  "name": "Hidden Blade",
+  "ruling_ids": [
+   1058,
+   5313,
+   4120,
+   6632,
+   2606,
+   5302,
+   685
+  ],
+  "source": "ruling",
+  "expected": "[일시적] 처치·개시 단계 격발(징크스 251)·이동 격발(떠돌이 상인 185)·[죽음의 종소리]는 체인에 올라 응수 창이 열린다 — 숨겨 둔 「숨겨진 칼날」로 일시적 스프라이트를 먼저 처치해 2드로우(#1058·#5313·#4120·#6632), 징크스 개시 격발에 [반응]으로 대응(#2606), 상인의 '이동 시' 격발에 돌풍으로 응수해 전투 전에 손패로(#685), 종소리 격발 후 그 통제자가 우선권(#5302).",
+  "sim_behavior": "onPlay 외 격발은 체인 없이 즉시 해결된다(알려진 절충 ①): [일시적] 처치·onBeginning은 startTurn에서 곧바로 실행(engine.js:843-859), onMoveSelf는 moveUnits에서 즉시(engine.js:2187-2189), 종소리는 killUnit의 afterDeath에서 즉시(engine.js:2735-2754)이며 runTriggerList는 ctx.viaChain(onPlay)일 때만 fireTriggeredAbility를 탄다(engine.js:2770-2772). 따라서 이 판정들의 응수 창·우선권 이동이 없다.",
+  "evidence": [
+   "client/web/js/engine.js:843-859",
+   "client/web/js/engine.js:2187-2189",
+   "client/web/js/engine.js:2735-2754",
+   "client/web/js/engine.js:2770-2772"
+  ],
+  "mismatch": "confirmed",
+  "category": "known-compromise",
+  "impact": "medium",
+  "suggested_fix": "runTriggerList의 viaChain 경로를 [일시적]/onBeginning/onMoveSelf/onDeath 격발로 확장(fireTriggeredAbility 재사용)해 응수 창과 우선권을 연다.",
+  "_g": "rj/3"
+ },
+ {
+  "n": 223,
+  "ko": "산봉우리 수호자",
+  "name": "Peak Guardian",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"When you play me, buff me. Then, if I am at a battlefield, buff all other friendly units there.\" — 등장 격발은 체인/응수 창을 거치므로(2026-09-22 변경) 상대가 응수(숨겨진 칼날 등)로 수호자를 처치하면 해결 시점에 '내가 전장에 있다'는 조건이 거짓이다(359.3.f 참조 정보는 지시 실행 시점에 확인 — 죽은 유닛은 어떤 위치에도 없다). 따라서 다른 아군 버프는 나오지 않아야 한다.",
+  "sim_behavior": "buffOthersHere가 ctx.unit(수호자)의 loc만 보고 사망 여부를 보지 않는다. killUnit→removeUnit은 u.loc을 지우지 않으므로 죽은 수호자의 loc이 전장 인덱스로 남아 그 전장의 다른 아군을 모두 버프한다(buffSelf도 죽은 객체에 buff++). 임시 테스트(scratchpad/cards-audit/t6-peak.js): P0가 전장0(포로 1기)에 수호자 플레이 → P1이 숨겨진 칼날로 수호자 처치 → 로그 '산봉우리 수호자 사망' 뒤 '산봉우리 수호자 버프', '대담한 포로 버프' — poro.buff=1.",
+  "evidence": [
+   "client/web/js/cardscripts.js:169",
+   "client/web/js/cardscripts.js:290",
+   "client/web/js/engine.js:257",
+   "client/web/js/engine.js:2626",
+   "client/web/js/engine.js:2781",
+   "client/web/js/engine.js:3474"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "medium",
+  "suggested_fix": "buffOthersHere(및 buffSelf)에서 격발원이 아직 보드에 있는지 검사(everyUnit().includes(me) 또는 !me._dead)하고, 없으면 '내가 전장에 있다면' 절을 건너뛴다. 근본적으로는 removeUnit이 u.loc을 null로 지우거나 '여기' 참조 헬퍼가 _dead를 보게 한다.",
+  "_g": "cards/6"
+ },
+ {
+  "n": 230,
+  "ko": "알부스 페로스",
+  "name": "Albus Ferros",
+  "ruling_ids": [
+   11781
+  ],
+  "source": "ruling",
+  "expected": "기지의 시트리아(139)가 있을 때 알부스를 플레이하면 시트리아의 '다른 유닛 플레이 시 나를 버프'와 알부스의 '플레이 시 버프 소모'가 동시에 체인에 올라 통제자가 순서를 정한다 — 시트리아를 먼저 해결해 그 버프를 알부스로 소모할 수 있다(#11781, FAQ 7766).",
+  "sim_behavior": "playCardFromHand는 유닛의 onPlay 격발을 먼저 runTriggerList→fireTriggeredAbility로 처리(중립이면 응수 창 뒤 즉시 execOps, engine.js:1577-1578·2771·2810-2812)한 뒤에야 onYouPlayUnit 리스너(시트리아 buffSelf, cardscripts.js:103)를 fireEvent로 낸다(engine.js:1654-1656). 그래서 albus op(cardscripts.js:609-616)가 실행되는 시점엔 시트리아 버프가 아직 없다. 실행 확인(g3-verify.js T3): 알부스 플레이 후 시트리아 버프 1 잔존, 룬 전개 0.",
+  "evidence": [
+   "client/web/js/engine.js:1577-1578",
+   "client/web/js/engine.js:1654-1656",
+   "client/web/js/engine.js:2810-2812",
+   "client/web/js/cardscripts.js:103",
+   "client/web/js/cardscripts.js:609-616"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "medium",
+  "suggested_fix": "유닛 플레이 시 같은 통제자의 onYouPlayUnit/onYouPlayCard 리스너 격발과 onPlay 격발을 한 배치로 모아(정복 격발의 jobs 방식처럼) 통제자가 해결 순서를 고르게 하거나, 최소한 리스너(시트리아)를 onPlay 해결보다 먼저 낸다.",
+  "_g": "rj/3"
+ },
+ {
+  "n": 244,
+  "ko": "신성한 심판",
+  "name": "Divine Judgment",
+  "ruling_ids": [
+   12053
+  ],
+  "source": "card-text",
+  "expected": "심판은 보드의 유닛·도구·룬과 손패만 다룬다(RiftJudge #12053). 장착된 도구도 보드의 도구이므로 '남길 도구 2개'의 후보이고, 고르지 않으면 재활용된다.",
+  "sim_behavior": "divineJudgment의 gearAll()이 P.gear(기지의 미장착 도구)만 훑는다. 장착 도구(u.gear)는 남길 후보에 나오지 않고, 유닛이 재활용될 때 removeUnit만 호출되어 detachGear 없이 u.gear 배열이 통째로 사라진다 — 재활용도 폐기도 되지 않고 게임에서 소실된다. 유닛을 남기면 장착 도구는 그대로 남아 '도구 2개' 제한을 넘는다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:781",
+   "client/web/js/cardscripts.js:816",
+   "client/web/js/engine.js:3850-3857",
+   "client/web/js/engine.js:3869-3872"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "medium",
+  "suggested_fix": "gearAll()에 유닛의 장착 도구(u.gear/u.gearCtrl)를 포함시키고, 남기지 않은 장착 도구는 유닛에서 분리해 소유자 덱 밑으로 재활용한다(유닛 재활용 시 detachGear 후 처리).",
+  "_g": "rj/7"
+ },
+ {
+  "n": 250,
+  "ko": "폭풍을 부르는 자",
+  "name": "Stormbringer",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"Choose a friendly unit in your base\"는 주문의 대상이라 플레이(체인 적재) 시점에 지정해야 하고, 기지에 아군 유닛이 없으면 플레이 자체가 불가하다 (355.9 \"valid choices must be made for all targets\" · 355.10 'choose' = 대상). 상대는 어느 유닛인지 보고 응수해야 한다.",
+  "sim_behavior": "stormbringer op는 PRE_TARGET_OPS·PRE_TARGET_EXTRA 어디에도 없어 preTargetSpecs가 []를 돌려준다 → spellHasTargets가 true, playRestriction null. 기지에 아군이 0기여도 플레이되어 비용(에너지 6)만 소모되고 아무 효과 없음(node 실행 확인: energy 20→14, 폐기장에 카드). 유닛·목적지 모두 해결 시점 chooseEffectMove에서 고른다(목적지는 절충 ④지만 유닛은 대상).",
+  "evidence": [
+   "client/web/js/cardscripts.js:333",
+   "client/web/js/cardscripts.js:1154",
+   "client/web/js/engine.js:3161",
+   "client/web/js/engine.js:2073",
+   "client/web/js/engine.js:1055"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "medium",
+  "suggested_fix": "PRE_TARGET_EXTRA.stormbringer=[{side:'friendly',where:'base',count:1,_prompt:...}] 추가 — chooseEffectMove가 takePreTarget으로 소비하므로 유닛은 적재 시점 고정, 목적지는 종전대로 해결 시(dragonRage와 같은 방식). 아군이 없으면 spellHasTargets가 거부한다.",
+  "_g": "cards/7"
+ },
+ {
+  "n": 250,
+  "ko": "폭풍을 부르는 자",
+  "name": "Stormbringer",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "주문이 주는 각 피해 인스턴스에는 「공허의 관문」(296)·「애니 - 불같은」(301)의 추가 피해(Bonus Damage, 713)가 붙는다 — 다른 주문 피해 경로(damage op·gunsBlazing·bfDamageEnemies 등)는 모두 dmgPlus/effDmgBonus를 거친다.",
+  "sim_behavior": "resolveEffectMove의 storm 분기가 dealDamage(e, might(u), 'spell')로 기본 위력만 준다 — dmgPlus 미사용. node 실행: 관문 전장에서 2⚔ 유닛으로 적에게 2 (기대 3).",
+  "evidence": [
+   "client/web/js/engine.js:1115",
+   "client/web/js/engine.js:3180-3188"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "medium",
+  "suggested_fix": "engine.js:1115를 dealDamage(e, dmgPlus(might(u), e, p), 'spell')로 바꾼다.",
+  "_g": "cards/7"
+ },
+ {
+  "n": 264,
+  "ko": "게릴라전",
+  "name": "Guerilla Warfare",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "폐기장의 [숨겨짐] 카드를 최대 2장 손패로 — 같은 이름의 카드 2장(예: 「막기」×2)도 둘 다 되돌릴 수 있어야 한다.",
+  "sim_behavior": "guerrilla가 후보를 [...new Set(...)]로 이름별 1개로 줄이고, 한 장을 고르면 hiddens에서 그 이름을 제거해 두 번째 루프에 후보가 없다. node 실행: 폐기장 [57,57] → 손패 [57], 폐기장에 57 1장 잔류.",
+  "evidence": [
+   "client/web/js/cardscripts.js:599-604"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "medium",
+  "suggested_fix": "후보를 인덱스 기반({v:idx,n})으로 두고 고른 인덱스만 제거하거나, Set을 쓰지 말고 남은 장수만큼 다시 후보를 만든다.",
+  "_g": "cards/7"
+ },
+ {
+  "n": 270,
+  "ko": "관중몰이",
+  "name": "Showstopper",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"Buff a friendly unit in your base\"의 아군 유닛은 대상 — 플레이 시점 지정, 기지에 아군이 없으면 플레이 불가 (355.9·355.10). 상대는 누가 버프·이동하는지 보고 응수한다.",
+  "sim_behavior": "buffAndMove op가 PRE_TARGET 목록에 없어 대상·목적지를 모두 해결 시 chooseEffectMove로 고른다. 기지에 아군 0기여도 플레이 가능(node 실행: energy 20→19, 효과 없이 폐기). 250과 같은 원인.",
+  "evidence": [
+   "client/web/js/cardscripts.js:311",
+   "client/web/js/cardscripts.js:1154",
+   "client/web/js/engine.js:3161",
+   "client/web/js/engine.js:2073"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "medium",
+  "suggested_fix": "PRE_TARGET_EXTRA.buffAndMove=[{side:'friendly',where:'base',count:1,_prompt:'버프하고 이동시킬 아군 유닛'}] 추가.",
+  "_g": "cards/7"
+ },
+ {
+  "n": 302,
+  "ko": "화염 폭풍",
+  "name": "Firestorm",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "'Deal 3 to all enemy units at a battlefield'는 전장을 대상으로 하는 주문이다(355.10.c·355.11.b 예시 \"Kill all units at a battlefield\" targets a battlefield). 대상은 플레이(파이널라이즈) 시점에 정해져 상대가 어느 전장인지 보고 응수한다(352.8.a). 엔진도 같은 취지로 전장 사전 지정을 지원한다(engine.js:3297 '352.10.d at a battlefield는 전장을 대상으로', 쌍권총 난사 gunsBlazing은 PRE_TARGET_EXTRA {battlefield:true}).",
+  "sim_behavior": "EXTRA_OPS.bfDamageEnemies가 해결 시점에 UI.pickOption으로 전장을 고른다(cardscripts.js:885). PRE_TARGET_EXTRA에 bfDamageEnemies 항목이 없어 preTargetSpecs가 빈 배열을 돌려주고(engine.js:3160-3161) 체인 적재 시 대상 표시·로그도 없다. 상대는 어느 전장이 맞을지 모른 채 응수해야 하고, 응수 뒤 시전자가 전장을 바꿔 고를 수 있다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:883-891",
+   "client/web/js/cardscripts.js:1154-1167",
+   "client/web/js/engine.js:3157-3161",
+   "client/web/js/engine.js:3297-3300",
+   "client/web/js/cardscripts.js:622-630"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "medium",
+  "suggested_fix": "PRE_TARGET_EXTRA.bfDamageEnemies=[{battlefield:true,_prompt:'피해를 줄 전장'}]를 추가하고 bfDamageEnemies가 gunsBlazing처럼 사전 지정된 {bf}를 우선 사용하게 한다.",
+  "_g": "cards/8"
+ },
+ {
+  "n": 302,
+  "ko": "화염 폭풍",
+  "name": "Firestorm",
+  "ruling_ids": [
+   12460
+  ],
+  "source": "ruling",
+  "expected": "\"Deal 3 to all enemy units at a battlefield\"는 유닛이 아니라 전장을 대상으로 한다(355.10.d — #12460 'it only targets a battlefield, not units'). 대상은 플레이 시점(체인 적재 전)에 정해져 상대가 어느 전장인지 보고 응수한다 — 같은 문형의 「쌍권총 난사」(268)는 이전 감사에서 이미 전장을 사전 지정으로 바꿨다.",
+  "sim_behavior": "bfDamageEnemies는 해결 시점에 UI.pickOption으로 전장을 고른다. PRE_TARGET_EXTRA에 bfDamageEnemies 항목이 없어 preTargetSpecs가 빈 배열을 돌려주고, 결전 중 체인 적재·중립 응수 창 모두 상대는 전장을 모른 채 응수한다(gunsBlazing은 {battlefield:true} 사전 지정 + takePreTarget으로 처리).",
+  "evidence": [
+   "client/web/js/cardscripts.js:883-890",
+   "client/web/js/cardscripts.js:1154-1174",
+   "client/web/js/cardscripts.js:617-625",
+   "client/web/js/engine.js:3297-3300"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "medium",
+  "suggested_fix": "PRE_TARGET_EXTRA.bfDamageEnemies=[{battlefield:true,_prompt:'피해를 줄 전장'}]를 추가하고 bfDamageEnemies에서 takePreTarget(ctx.p)의 {bf}를 우선 사용(gunsBlazing과 동일 패턴).",
+  "_g": "rj/2"
+ },
+ {
+  "n": 311,
+  "ko": "점멸",
+  "name": "Flash",
+  "ruling_ids": [
+   12181
+  ],
+  "source": "ruling",
+  "expected": "바일마우의 둥지(295)의 아군을 바람 타기(173)로 '기지'로 보내겠다고 선언할 수 있다 — 기지는 적법한 목적지이며 해결 때 둥지의 제한으로 이동 지시만 무시(negated)되고 '준비' 지시는 실행되어 유닛이 준비된다(359.3.e.9~11 룰북 예시 그대로 · #12181).",
+  "sim_behavior": "chooseEffectMove가 canEffectMove로 목적지를 미리 걸러 기지 선택지를 아예 만들지 않고(engine.js:1021-1026, 1065-1076), 이동이 필수(spec.optional 없음)라 남은 유일한 선택지(다른 전장)로 강제 이동시킨다(1093). 이동이 불가능한 경우 resolveEffectMove가 readyUnit 전에 null을 돌려(1108 → 1122) 준비도 되지 않는다. 헤드리스 실행: 둥지의 유닛에 바람 타기 → 선택지 [\"→ 바람 부는 언덕\"]뿐, 유닛이 다른 전장으로 이동·준비.",
+  "evidence": [
+   "client/web/js/engine.js:1021-1026",
+   "client/web/js/engine.js:1065-1076",
+   "client/web/js/engine.js:1093",
+   "client/web/js/engine.js:1108",
+   "client/web/js/engine.js:1122",
+   "tools/data/rules-2026-07-16.txt:2748-2754"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "medium",
+  "suggested_fix": "목적지 후보에 '기지(이동 불가 — 준비만)' 항목을 두어 선언은 가능하되 resolveEffectMove에서 이동만 건너뛰고 ready/buff 등 후속 지시는 수행한다(같은 spec을 쓰는 점멸·매혹 등에도 동일).",
+  "_g": "rj/10"
+ },
+ {
+  "n": 320,
+  "ko": "최후의 전사",
+  "name": "Highlander",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "룰북 355.10.c 예시가 이 카드 문구 그대로다: \"Choose a friendly unit. The next time it would die this turn, ... instead\" targets a friendly unit. 따라서 대상은 플레이 시점에 정해지고(352.8.a), 적법한 아군 유닛이 없으면 플레이할 수 없다(352 대상 요건). 꿈꾸는 나무(292) 격발도 파이널라이즈 시점.",
+  "sim_behavior": "EXTRA_OPS.highlanderMark가 해결 시점에 UI.pickUnitFrom으로 아군을 고르고 그때 noteSpellPick을 부른다(cardscripts.js:925-933). PRE_TARGET_EXTRA에 항목이 없어 (1) 체인 적재 시 대상이 공개되지 않고 응수 뒤 대상을 바꿀 수 있으며, (2) spellHasTargets(engine.js:2073-2095)가 preTargetSpecs 빈 배열로 검사 없이 true를 돌려 아군 유닛이 0기여도 플레이 가능(에너지 4만 소모, mine.length 0이면 조용히 return).",
+  "evidence": [
+   "client/web/js/cardscripts.js:925-933",
+   "client/web/js/cardscripts.js:1154-1173",
+   "client/web/js/engine.js:2073-2095",
+   "client/web/js/engine.js:1270"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "medium",
+  "suggested_fix": "PRE_TARGET_EXTRA.highlanderMark=[{side:'friendly',count:1,_prompt:'「최후의 전사」 대상 아군 유닛'}]를 추가하고 highlanderMark가 pickBySpec(ctx.p, spec, prompt, h.selection)으로 사전 지정 대상을 소비하게 한다(noteSpellPick은 playCardFromHand pre._units 경로가 처리).",
+  "_g": "cards/8"
+ },
+ {
+  "n": 130,
+  "ko": "명사수 해적",
+  "name": "Crackshot Corsair",
+  "ruling_ids": [
+   2989,
+   4164,
+   1361
+  ],
+  "source": "rulebook",
+  "expected": "룰 359.3.f(Referents): 'here'·'my' 같은 참조 정보는 지시를 실행하는 시점에 확인한다. 룰북 예시(야스오 공격 격발에 응수해 「투쟁 혹은 도피」로 기지에 되돌리면 'here'가 사라져 mistarget) 및 RiftJudge #2989(숨겨진 칼날로 해적을 죽이면 피해 1 없음)·#4164(돌풍으로 손패에 돌리면 격발 불발). 출처 유닛이 격발 뒤·해결 전에 그 전장을 떠나면 'here' 지시는 무효. 같은 구조의 #148 애니비아(이곳의 모든 적 유닛에게 3)·#159 워윅(이곳의 피해 입은 적 처치)도 동일.",
+  "sim_behavior": "전투 격발은 flushCombatTriggers가 격발 시점의 bfIdx를 항목에 담고(engine.js:359~371 preTargetAbility로 대상까지 확정) resolveChainItem이 `bfIdx: it.triggered ? it.bfIdx : ...`로 스냅샷 전장을 그대로 넘긴다(engine.js:2355~2357). takePreTarget은 대상 유닛이 spec을 여전히 만족하는지만 보고(engine.js:3248~3250) 출처 유닛이 보드/그 전장에 남아 있는지는 검사하지 않는다. 따라서 해적이 응수로 죽거나 손패로 돌아가도 피해 1이 들어가고, 애니비아·워윅도 마찬가지. 반면 사구 드레이크(cardscripts.js:1027~1032 duneAttack)는 `everyUnit().includes(ctx.unit)`로 직접 검사해 일관되지 않다.",
+  "evidence": [
+   "client/web/js/engine.js:2352",
+   "client/web/js/engine.js:2355",
+   "client/web/js/engine.js:3240",
+   "client/web/js/engine.js:359",
+   "client/web/js/cardscripts.js:1027",
+   "tools/data/rules-2026-07-16.txt:2920"
+  ],
+  "mismatch": "likely",
+  "category": "targeting",
+  "impact": "medium",
+  "suggested_fix": "triggered 항목 해결 시 spec.where==='here'(또는 _ctxBf 의존) 지시는 it.unit이 보드에 있고 it.unit.loc===it.bfIdx일 때만 실행하도록 resolveChainItem(또는 execOps의 'here' 후보 계산)에 출처 위치 검사를 추가한다 — duneAttack과 같은 기준.",
+  "_g": "cards/4"
+ },
+ {
+  "n": 147,
+  "ko": "야생발톱 주술사",
+  "name": "Wildclaw Shaman",
+  "ruling_ids": [
+   3092,
+   944,
+   3630,
+   3792,
+   2178,
+   2533
+  ],
+  "source": "rulebook",
+  "expected": "룰 383.3.d/376.4.b: 같은 사건으로 동시에 격발한 자기 능력들은 통제자가 체인 적재 순서를 고른다. RiftJudge #3092·#944·#3630: 버프 없는 시트리아(139)가 있을 때 주술사를 플레이하면 시트리아의 '다른 유닛 플레이 시 나를 버프'를 먼저 해결시키고, 그 버프를 주술사의 '버프 소모 → 나를 버프·준비'에 쓸 수 있다.",
+  "sim_behavior": "playCardFromHand는 유닛 자신의 onPlay 격발(runTriggerList → 체인/응수 창 → 해결, engine.js:1577)을 끝낸 뒤에야 fireEvent('onYouPlayUnit')(engine.js:1656)으로 시트리아를 격발한다. 순서가 고정이라 주술사 wildclawBloom(cardscripts.js:1039~1043)이 해결될 때 시트리아는 아직 버프가 없어(buffed 후보 0) 아무것도 못 하고, 그 뒤 시트리아만 버프된다. 통제자의 순서 선택이 없다.",
+  "evidence": [
+   "client/web/js/engine.js:1577",
+   "client/web/js/engine.js:1656",
+   "client/web/js/cardscripts.js:1039",
+   "client/web/js/cardscripts.js:103"
+  ],
+  "mismatch": "likely",
+  "category": "timing",
+  "impact": "medium",
+  "suggested_fix": "유닛 플레이 시 자기 onPlay 격발과 같은 통제자의 onYouPlayUnit 리스너 격발을 한 배치로 모아 통제자가 순서를 고르게 한다(전투 격발의 flushCombatTriggers 순서 선택과 같은 UI). 최소한 onYouPlayUnit(self)을 onPlay보다 먼저 해결하는 선택지를 준다. (fireEvent 격발이 체인을 안 타는 알려진 절충과 맞물린 문제)",
+  "_g": "cards/4"
+ },
+ {
+  "n": 180,
+  "ko": "희미해지는 기억",
+  "name": "Fading Memories",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"Give a unit at a battlefield or a gear [Temporary]\"는 대상 지시 — 대상은 주문을 낼 때(352.8.a) 고르고 상대가 그것을 보고 응수하며, 적법 대상이 없으면 플레이 불가(352.8). 굴절도 플레이 시점에 지불.",
+  "sim_behavior": "fadingMemory는 PRE_TARGET_EXTRA에 없어 preTargetSpecs가 빈 배열을 돌려준다 → 응수 창이 대상 없이 열리고, 해결 시점에 유닛/도구를 고르며 그때 payDeflect·noteSpellPick을 한다. 후보가 없어도 플레이가 허용되고 해결 시 조용히 끝난다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:668-684",
+   "client/web/js/cardscripts.js:1154-1175",
+   "client/web/js/engine.js:3150-3161",
+   "client/web/js/engine.js:1474-1478"
+  ],
+  "mismatch": "likely",
+  "category": "targeting",
+  "impact": "medium",
+  "suggested_fix": "유닛/도구 혼합 후보를 PRE_TARGET_EXTRA.fadingMemory(함수형 spec 또는 {v:{t,uid|pi,i}} 목록)로 플레이 시점에 고르고 해결 때 takePreTarget으로 꺼낸다.",
+  "_g": "cards/5"
+ },
+ {
+  "n": 6,
+  "ko": "와작와작 죠스",
+  "name": "Flame Chompers",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"When you discard me, you may pay Fury to play me\"는 격발 능력 — 버림 사건이 일어난 뒤 진행 중인 행동(추가 비용 지불·주문/등장 효과 해결)이 끝나고 체인에 오른다(신룰북 383 격발 적재 · 376.4.b). 예: 당돌한 해적(2)의 추가 비용으로 버리면 해적이 먼저 파이널라이즈·등장한 뒤 죠스가 플레이되고(플레이 순번: 해적→죠스), 신난다!(8)·화학공학 집행자(3)·징크스(30)·고철장 챔피언(20)으로 버려도 그 효과가 끝난 뒤 죠스가 나온다.",
+  "sim_behavior": "discardFromHand가 버린 직후 fx.onDiscardSelf(jawsReplay)를 그 자리에서 실행(engine.js:428) → 해적의 추가 비용 지불 중(engine.js:1517, 해적 배치 전)·신난다!의 피해 전·집행자/징크스 등장 격발 해결 도중에 playCardFromHand가 중첩 호출된다. 플레이 순번(playedSeq: 죠스가 먼저 → 다리우스 27 '두 번째 카드'가 해적에서 격발)·등장 위치 선택 시점·nextUnitReady 소비 대상이 규칙과 뒤바뀐다. 사망·정복 등 fireEvent 계열과 같은 '즉시 해결' 절충.",
+  "evidence": [
+   "client/web/js/engine.js:428",
+   "client/web/js/engine.js:1517",
+   "client/web/js/cardscripts.js:827",
+   "client/web/js/engine.js:3648"
+  ],
+  "mismatch": "confirmed",
+  "category": "known-compromise",
+  "impact": "low",
+  "suggested_fix": "onDiscardSelf를 즉시 실행하지 말고 대기 격발 큐에 넣어 현재 카드 플레이/효과 해결이 끝난 뒤(cleanup 직전) fireTriggeredAbility 경로로 열기. 최소한 추가 비용 경로(engine.js:1517)에서는 해적 배치 뒤로 미룬다.",
+  "_g": "cards/1"
+ },
+ {
+  "n": 63,
+  "ko": "정령의 안식처",
+  "name": "Spirit's Refuge",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"When you play this, buff a friendly unit\"은 도구의 플레이 격발 능력이라 대상을 격발 시점에 고른 뒤 체인에 올라가고(383.4.a), 상대가 [반응]으로 그 유닛을 치우면 그 지시만 불발된다(359.3.e).",
+  "sim_behavior": "도구 분기는 runTriggerList(fx.triggers.onPlay, {p, legionOK, paidAdd}) 를 viaChain 없이 호출해(engine.js:1644) 유닛 등장 격발(engine.js:1577 viaChain:!byEffect)과 달리 체인·응수 창 없이 즉시 해결된다. 유닛 onPlay만 체인을 타는 알려진 절충의 연장.",
+  "evidence": [
+   "client/web/js/engine.js:1644",
+   "client/web/js/engine.js:1577",
+   "client/web/js/engine.js:2763"
+  ],
+  "mismatch": "confirmed",
+  "category": "known-compromise",
+  "impact": "low",
+  "suggested_fix": "도구 onPlay 호출에도 viaChain:true를 넘겨 fireTriggeredAbility 경로(격발 시 대상 지정+응수 창)를 타게 한다. Origins 도구 중 등장 격발이 있는 카드가 적어 영향은 작다.",
+  "_g": "cards/2"
+ },
+ {
+  "n": 70,
+  "ko": "마법사냥꾼 간수",
+  "name": "Mageseeker Warden",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "\"While I'm at a battlefield, spells and abilities can't ready enemy units and gear.\" — 간수 통제자의 상대가 능력으로 자기 도구를 준비시키는 것도 막혀야 한다.",
+  "sim_behavior": "jailerReady 검사는 readyUnit(engine.js:1010)에만 있다. 도구를 준비시키는 경로 — 미스 포츈 - 선장(162)의 readySomething에서 '도구' 선택 시 sel.g.ex=false(cardscripts.js:749) — 는 간수 검사 없이 통과한다. 룬·전설 준비는 카드 문구 범위 밖이라 정상.",
+  "evidence": [
+   "client/web/js/engine.js:1010",
+   "client/web/js/cardscripts.js:749",
+   "client/web/js/cardscripts.js:123"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "low",
+  "suggested_fix": "readySomething의 도구 분기(및 향후 도구 준비 op)에 readyUnit과 같은 jailerReady 검사(상대 전장 유닛에 jailerReady가 있으면 차단)를 넣거나, 도구 준비를 readyGear(g, byP) 헬퍼로 모아 검사한다.",
+  "_g": "cards/2"
+ },
+ {
+  "n": 77,
+  "ko": "존야의 모래시계",
+  "name": "Zhonya's Hourglass",
+  "ruling_ids": [
+   10806
+  ],
+  "source": "ruling",
+  "expected": "[일시적] 처치는 개시 단계 시작 시의 격발 능력이라 체인에 오르고(816.1.b), 그 우선권 창에서 숨겨 둔 존야를 공개해 두면 대체 효과가 스프라이트를 구한다(#10806 · #2 · #11690).",
+  "sim_behavior": "개시 단계에서 effKw(u).temporary인 유닛을 순회하며 killUnit(u)를 곧바로 호출한다 — 체인·응수 창 없음(engine.js:845-848). 이미 앞면인 존야(P.gear)는 killUnit의 대체 후보로 잡혀 구하지만(engine.js:2650-2652, 그리고 회수 뒤 grants.temporary 유지 engine.js:933), 숨김 상태의 존야는 처치 전에 공개할 기회가 없어 판정과 다르다.",
+  "evidence": [
+   "client/web/js/engine.js:845",
+   "client/web/js/engine.js:2650",
+   "client/web/js/engine.js:933"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "low",
+  "suggested_fix": "[일시적] 처치를 격발로 취급해 killUnit 전에 reactionWindow(통제자 상대뿐 아니라 통제자 자신의 숨김 공개 포함)를 한 번 열거나, 최소한 개시 단계에 '숨김 카드 공개' 선택지를 통제자에게 먼저 제시한 뒤 처치한다. onPlay 격발이 체인을 타는 것과 같은 계열의 확장.",
+  "_g": "rj/4"
+ },
+ {
+  "n": 77,
+  "ko": "존야의 모래시계",
+  "name": "Zhonya's Hourglass",
+  "ruling_ids": [
+   12116,
+   10434,
+   11791,
+   150,
+   737
+  ],
+  "source": "ruling",
+  "expected": "[죽음의 종소리] 격발이 체인에 오르면(닫힌 상태) 그 창에서 숨긴 존야를 공개할 수 있다 — 죽은 유닛은 못 살리지만 앞면 도구로 기지에 회수되어 전장 통제 상실로 폐기되는 것을 피한다(#12116·#11791 예외·#10434·#150). 전투 사망의 종소리에도 같은 창이 있다(#737).",
+  "sim_behavior": "사망 격발(onDeath 종소리·onUnitDeath 리스너)은 killUnit의 afterDeath에서 체인 없이 즉시 실행되고(engine.js:2700-2720, 전투는 _deferDeathFx로 정리 뒤 일괄 실행 engine.js:2437-2440, 2478), 그 사이 응수 창이 없다. 이어지는 releaseEmptyBattlefields/정복 처리가 숨김 카드를 폐기한다(engine.js:2218-2225, 2495-2503). 안내문의 의도된 단순화(유닛 등장 격발만 체인 경유)에 해당.",
+  "evidence": [
+   "client/web/js/engine.js:2700",
+   "client/web/js/engine.js:2437",
+   "client/web/js/engine.js:2218",
+   "client/web/js/engine.js:2495"
+  ],
+  "mismatch": "confirmed",
+  "category": "known-compromise",
+  "impact": "low",
+  "suggested_fix": "종소리 격발도 fireTriggeredAbility(viaChain) 경로로 보내면 자동 해소. 그 전까지는 종소리 실행 직전에 사망 유닛 통제자에게 숨김 공개 창을 한 번 여는 절충도 가능.",
+  "_g": "rj/4"
+ },
+ {
+  "n": 90,
+  "ko": "후회의 보주",
+  "name": "Orb of Regret",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "발동 능력 라벨이 효과 전체(\"Give a unit -1 :rb_might: this turn, to a minimum of 1 :rb_might:\")를 표시해야 한다.",
+  "sim_behavior": "파서가 label:eff.slice(0,40)으로 잘라 \"Give a unit -1 :rb_might: this turn, to \"가 우클릭 메뉴·자원 충당 목록의 라벨로 노출된다(같은 40자 절단이 다른 파서 활성 능력에도 적용). 동작(might -1, min 1, 플레이 시점 대상)은 정상.",
+  "evidence": [
+   "client/web/js/effects.js:311",
+   "client/web/js/ui.js:2094"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "label을 describeOps(ops)나 한글 요약으로 만들거나 절단 길이를 늘린다.",
+  "_g": "cards/3"
+ },
+ {
+  "n": 103,
+  "ko": "레이븐블룸 학생",
+  "name": "Ravenbloom Student",
+  "ruling_ids": [
+   1333,
+   2516,
+   4312
+  ],
+  "source": "ruling",
+  "expected": "'주문을 플레이할 때' 격발은 주문 해결 뒤 새 체인에 올라 응수 가능(#1333, #2516). [일시적] 토큰의 개시 단계 처치도 격발 능력이라 그에 반응해 숨긴 물결을 바꾸는 자를 공개해 유지 득점을 챙길 수 있다(#4312).",
+  "sim_behavior": "fireEvent 리스너 격발(onYouPlaySpell)은 체인 없이 즉시 실행되고, [일시적] 처치는 startTurn이 규칙 처리로 바로 killUnit → 응수 창 없음. 안내문의 의도된 단순화(유닛 등장 격발만 체인 경유).",
+  "evidence": [
+   "client/web/js/engine.js:1721",
+   "client/web/js/engine.js:2816",
+   "client/web/js/engine.js:846"
+  ],
+  "mismatch": "confirmed",
+  "category": "known-compromise",
+  "impact": "low",
+  "suggested_fix": "절충 유지. 확장 시 fireEvent 격발도 fireTriggeredAbility 경로(응수 창)를 타게 하면 해소.",
+  "_g": "rj/6"
+ },
+ {
+  "n": 152,
+  "ko": "안개내림",
+  "name": "Mistfall",
+  "ruling_ids": [
+   1696,
+   3732
+  ],
+  "source": "card-text",
+  "expected": "원문 'When you buff a friendly unit' — 내가 버프한 유닛이 아군일 때만 격발. 적 유닛을 버프하는 효과(「나보리 격투장」 283 'buff a unit here' — 적도 선택 가능)로는 격발하지 않아야 한다.",
+  "sim_behavior": "buffUnit이 대상 진영과 무관하게 fireEvent('onYouBuff',{p:byP,it:u})를 낸다(engine.js:1003). SCRIPTS[152]의 onYouBuff 트리거에 cond가 없고(cardscripts.js:113) EXTRA_OPS.mistfall도 it.ctrl===ctx.p를 검사하지 않아(cardscripts.js:710~713) 적 유닛을 버프하면 '신체 힘 1+탈진으로 그 적 유닛을 준비'하겠느냐고 묻고, 수락하면 readyUnit(적 유닛)까지 실행된다.",
+  "evidence": [
+   "client/web/js/engine.js:1003",
+   "client/web/js/cardscripts.js:113",
+   "client/web/js/cardscripts.js:710"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "SCRIPTS[152] 트리거에 cond:(ctx)=>ctx.it&&ctx.it.ctrl===ctx.p 를 추가하거나 mistfall op 첫 줄에서 it.ctrl!==ctx.p면 return.",
+  "_g": "cards/4"
+ },
+ {
+  "n": 157,
+  "ko": "우디르 - 야인",
+  "name": "Udyr - Wildman",
+  "ruling_ids": [
+   8555
+  ],
+  "source": "card-text",
+  "expected": "선택지 'Stun a unit at a battlefield' — 진영 제한 없이 전장의 아무 유닛(아군 포함, 다른 전장도 가능 — RiftJudge #8555). 룰 423.1 기절 지시에 진영 제한 없음(엔진 stun op 주석과 동일 기준).",
+  "sim_behavior": "EXTRA_OPS.udyr의 stun 분기가 pickBySpec(ctx.p,{side:'enemy',where:'bf',count:1})로 적 유닛만 후보에 올린다(cardscripts.js:770). 같은 능력의 피해 분기는 side:'any'(769)라 자기 카드 안에서도 기준이 다르다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:769",
+   "client/web/js/cardscripts.js:770",
+   "client/web/js/engine.js:3538"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "stun 분기 spec을 {side:'any',where:'bf',count:1}로 바꾼다(봇은 프롬프트 '기절 대상'으로 적을 고른다).",
+  "_g": "cards/4"
+ },
+ {
+  "n": 158,
+  "ko": "볼리베어 - 위압",
+  "name": "Volibear - Imposing",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "괄호문 '(Bases are not battlefield.)' → '(기지는 전장이 아니다.)'",
+  "sim_behavior": "번역 괄호문이 '(기지은 전장이 아니다.)'로 조사 오타. 엔진 동작(SCRIPTS[158] cond: 볼리베어가 전장에 있고 목적지가 다른 전장일 때만)은 이전 감사에서 처리됨.",
+  "evidence": [
+   "client/web/js/cardscripts.js:118"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "cards.js #158 tko의 '기지은'을 '기지는'으로.",
+  "_g": "cards/4"
+ },
+ {
+  "n": 161,
+  "ko": "죽음꽃 포식자",
+  "name": "Deadbloom Predator",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "원문 'You may play me to an occupied enemy battlefield.' — 'occupied'는 룰 170.11.a '유닛이 있는 전장'. 한글은 '유닛이 있는(점유된) 적 전장'이어야 한다.",
+  "sim_behavior": "번역이 '나를 유지된 적 전장에 플레이할 수 있다'로 '유지(Hold, 득점 절차의 개념)'와 혼동을 준다. 엔진 동작(unitPlayLocationOptions: 상대가 통제하고 유닛이 1기 이상 있는 전장, engine.js:1300~1303)은 원문대로라 표시 문제뿐이다.",
+  "evidence": [
+   "client/web/js/engine.js:1300",
+   "tools/data/rules-2026-07-16.txt:1179"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "cards.js #161 tko를 '나를 유닛이 있는 적 전장에 플레이할 수 있다.'로 수정.",
+  "_g": "cards/4"
+ },
+ {
+  "n": 165,
+  "ko": "묘지 관리인",
+  "name": "Cemetery Attendant",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "\"return a unit from your trash to your hand\"에 may가 없다 — 후보가 있으면 반드시 한 장을 회수해야 한다(소름 끼치는 귀환 170 동일).",
+  "sim_behavior": "trashToHand가 UI.pickOption 취소(null)를 허용해 회수하지 않을 수 있다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:350-355"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "low",
+  "suggested_fix": "op.optional이 아니면 취소 시 첫 후보로 확정한다(revealHandPick과 같은 처리).",
+  "_g": "cards/5"
+ },
+ {
+  "n": 177,
+  "ko": "은밀한 추적자",
+  "name": "Stealthy Pursuer",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "동행 이동도 이동이다(427·Move 정의). 출발 전장의 '이곳에서 이동할 때' 격발(뒷골목 술집 277 등)과 상대의 onMoveToBf 리스너(볼리베어 158)가 추적자의 이동에도 반응해야 한다.",
+  "sim_behavior": "tagAlongFollow가 removeUnit/placeUnit·turnMoves++·fireAttackTriggers만 하고 fireBfTrigger(onMoveFromHere)·fireEvent(onMoveToBf)를 내지 않는다. 표준 이동(moveUnits)·효과 이동(effectMove)의 본체 유닛에는 둘 다 낸다.",
+  "evidence": [
+   "client/web/js/engine.js:2146-2158",
+   "client/web/js/engine.js:2180-2189",
+   "client/web/js/engine.js:1036-1038"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "low",
+  "suggested_fix": "tagAlongFollow에서 동행 유닛에도 onMoveFromHere(출발지)와 onMoveToBf(도착지) 이벤트를 낸다.",
+  "_g": "cards/5"
+ },
+ {
+  "n": 178,
+  "ko": "잠입 요원",
+  "name": "Undercover Agent",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "424.1 및 룰북 예시(바로 이 카드): 효과의 버림은 손패가 허락하는 한 반드시 지정 장수만큼 버려야 한다. 떠돌이 상인 185의 'discard 1'도 동일.",
+  "sim_behavior": "execOps 'discard'가 UI.pickHandCard 취소(null)를 그대로 허용해 해당 장을 건너뛴다 — 손패가 있어도 0장 버리고 2장 드로우가 가능하다.",
+  "evidence": [
+   "client/web/js/engine.js:3643-3651"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "low",
+  "suggested_fix": "취소 시 다시 묻고 그래도 거부하면 손패 첫 장을 버리도록(chooseEffectMove의 강제 처리와 같은 방식) 바꾼다.",
+  "_g": "cards/5"
+ },
+ {
+  "n": 179,
+  "ko": "감수할 만한 손실",
+  "name": "Acceptable Losses",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "\"Each player kills one of their gear\" — may 없음. 도구가 있으면 반드시 하나를 처치한다.",
+  "sim_behavior": "eachKillsGear가 각 플레이어의 pickOption 취소(null)를 허용해 처치를 건너뛸 수 있다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:662-667"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "low",
+  "suggested_fix": "취소 시 도구 하나를 강제로 고르게(재질문 후 첫 후보) 한다.",
+  "_g": "cards/5"
+ },
+ {
+  "n": 179,
+  "ko": "감수할 만한 손실",
+  "name": "Acceptable Losses",
+  "ruling_ids": [
+   11793
+  ],
+  "source": "ruling",
+  "expected": "유망한 미래(115)로 상대(시전자)가 눈부신 오로라(160), 내가 감수할 만한 손실을 골랐을 때: '다음 플레이어부터' 각자 카드를 체인에 올려 확정하는데, 감수할 만한 손실은 주문이라 체인에 남고 오로라는 도구라 확정 즉시 등장한다. 그 뒤 체인이 해결되어 감수할 만한 손실이 이미 등장한 오로라를 처치할 수 있다 (RiftJudge #11793).",
+  "sim_behavior": "promisingFuture가 [opp(ctx.p), ctx.p] 순으로 playCardByEffect → playCardFromHand(byEffect)로 한 장씩 플레이한다. byEffect 주문은 응수 창 없이 resolveSpellEffects로 즉시 해결되므로 비시전자의 감수할 만한 손실이 먼저 해결되고 그 다음에야 시전자의 오로라가 기지에 들어간다 → 오로라는 처치 대상이 될 수 없다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:512-533",
+   "client/web/js/engine.js:1620-1636",
+   "client/web/js/cardscripts.js:662-667"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "low",
+  "suggested_fix": "promisingFuture에서 두 플레이어의 선택 카드를 먼저 모두 '확정'(유닛·도구는 즉시 등장, 주문은 대기 목록)한 뒤, 대기 주문을 적재 역순(LIFO)으로 해결한다.",
+  "_g": "rj/7"
+ },
+ {
+  "n": 181,
+  "ko": "경이의 꾸러미",
+  "name": "Pack of Wonders",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"Return another friendly gear, unit, or [Hidden] card\" — '다른'은 이 도구 자신만 제외(같은 이름의 다른 꾸러미는 대상 가능). 아군 유닛에는 토큰도 포함된다. 활성화 능력의 대상은 발동 시점(비용 전)에 고르고 적법 대상이 없으면 발동 불가(403.1.b·404).",
+  "sim_behavior": "wonderBundle이 도구 후보를 card(g.n).n!==181로 걸러 두 번째 꾸러미도 후보에서 빠지고, 유닛은 !u.isToken으로 토큰을 제외한다. 또 PRE_TARGET_EXTRA에 wonderBundle 항목이 없어 preTargetAbility가 빈 결과를 내므로 후보가 없어도 탈진 후 발동되며 대상은 해결 시점에 고른다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:685-688",
+   "client/web/js/cardscripts.js:1154-1175",
+   "client/web/js/engine.js:2970-2977"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "g!==ctx.gear로 자기 자신만 제외하고 토큰 필터를 없앤다. 후보 목록 생성을 함수로 빼 ab.preTarget에서 발동 시점에 고르게 한다.",
+  "_g": "cards/5"
+ },
+ {
+  "n": 182,
+  "ko": "고철 더미",
+  "name": "Scrapheap",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "원문 \"When this is played, discarded, or killed, draw 1.\" — 처치·버림·플레이 세 경우에만 드로우. 손패로 되돌아가는 것(경이의 꾸러미 181)은 처치가 아니므로 드로우 없음.",
+  "sim_behavior": "SCRIPTS[182]가 '처치'를 onGearLeave로 표현하는데, onGearLeave는 killGear뿐 아니라 resolveReturnToHand(도구 손패 복귀)에서도 실행된다. 경이의 꾸러미로 고철 더미를 손패에 되돌리면 드로우 1이 붙는다(보물 무더기 186 'leaves the board'와 같은 이벤트를 공유).",
+  "evidence": [
+   "client/web/js/cardscripts.js:140",
+   "client/web/js/engine.js:1160-1167",
+   "client/web/js/engine.js:1246-1252"
+  ],
+  "mismatch": "confirmed",
+  "category": "parser",
+  "impact": "low",
+  "suggested_fix": "resolveReturnToHand에서 onGearLeave를 낼 때 ctx.reason:'hand'를 넘기고 182의 트리거에 cond로 처치만 통과시키거나, 별도 이벤트(onGearKilled)로 분리한다.",
+  "_g": "cards/5"
+ },
+ {
+  "n": 183,
+  "ko": "조작된 덱",
+  "name": "Stacked Deck",
+  "ruling_ids": [
+   11597
+  ],
+  "source": "ruling",
+  "expected": "메인 덱이 비어 있으면(0장) 볼 카드가 없어 조작된 덱을 플레이할 수 없다(FAQ #2237). 1~2장이면 있는 만큼만 보고 정상 해결.",
+  "sim_behavior": "playRestriction은 대상 유무(spellHasTargets)만 보고 덱 장수를 확인하지 않는다(engine.js:1270). lookTopHand는 덱이 비면 조용히 반환하므로(cardscripts.js:426) 빈 덱에서도 비용을 내고 플레이돼 '주문 플레이' 격발(레이븐블룸 학생 103·다리우스 27 두 번째 카드 등)만 얻을 수 있다. 1~2장일 때의 처리는 일치.",
+  "evidence": [
+   "client/web/js/engine.js:1270",
+   "client/web/js/cardscripts.js:426"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "playRestriction(또는 spellHasTargets)에서 fx.playOps에 lookTopHand가 있고 P.deck.length===0이면 '덱이 비어 플레이할 수 없습니다'로 거부한다.",
+  "_g": "rj/9"
+ },
+ {
+  "n": 184,
+  "ko": "사이렌 호",
+  "name": "The Syren",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "능력 버튼 라벨이 효과 전체(\"Move a friendly unit at a battlefield to your base\")를 표시해야 한다.",
+  "sim_behavior": "파서가 label을 eff.slice(0,40)으로 잘라 FX.activated[0].label이 \"Move a friendly unit at a battlefield to\"로 끝난다(개별 스크립트 없음).",
+  "evidence": [
+   "client/web/js/effects.js:372"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "SCRIPTS[184]에서 한글 라벨을 지정하거나 파서의 slice 한도를 늘린다.",
+  "_g": "cards/5"
+ },
+ {
+  "n": 199,
+  "ko": "물결을 바꾸는 자",
+  "name": "Tideturner",
+  "ruling_ids": [
+   9218,
+   6775,
+   11991
+  ],
+  "source": "ruling",
+  "expected": "등장 격발의 교환 대상은 격발이 체인에 오를 때(파이널라이즈) 고르고 상대는 그 대상을 보고 응수한다(#9218, #6775 \"choose targets during activation before opponent can react\"). 적법한 대상('다른 위치의 아군')이 하나도 없으면 격발은 체인에 오르지 않아 응수 창도 없다(#6775, #11991).",
+  "sim_behavior": "tideTurner op는 PRE_TARGET_EXTRA에 없어 fireTriggeredAbility의 사전 대상 지정(preTargetOps)이 아무것도 고르지 않고, 응수 창/체인 적재 뒤 해결 시점에 chooseEffectMove로 대상을 고른다. '모든 지시가 대상 지시인데 후보 0이면 격발 생략' 검사도 spec op만 보므로 같은 위치 유닛뿐이어도(후보 0) 응수 창이 열린다. 같은 위치 제외·기지 대상 허용·출처 소실 시 무효(#5154·#6278)는 일치.",
+  "evidence": [
+   "client/web/js/cardscripts.js:326",
+   "client/web/js/cardscripts.js:1154",
+   "client/web/js/engine.js:2785",
+   "client/web/js/engine.js:2791",
+   "client/web/js/engine.js:1052"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "PRE_TARGET_EXTRA.tideTurner에 {side:'friendly', optional:true, _exclude:[me], 다른 위치 조건} spec을 두어 격발 시점에 대상을 고정하고(후보 0이면 격발 생략), 해결 시 takePreTarget으로 재검증한 뒤 교환한다.",
+  "_g": "rj/6"
+ },
+ {
+  "n": 201,
+  "ko": "시간선 역전",
+  "name": "Invert Timelines",
+  "ruling_ids": [
+   11607
+  ],
+  "source": "card-text",
+  "expected": "\"Each player discards their hand\"는 손패의 각 카드를 버리는 지시다(버림 = 손패→폐기장, RiftJudge #11607). 손패의 와작와작 죠스(6) \"When you discard me, you may pay fury to play me\"·독수리 조련사류(182 onDiscardSelf 드로우)는 시간선 역전으로 버려질 때도 격발해야 한다.",
+  "sim_behavior": "timelineReset이 P.hand.pop()→P.trash.push()로 직접 옮겨 discardFromHand를 거치지 않는다. onYouDiscard 이벤트는 1회 발화하지만 카드별 onDiscardSelf(jawsReplay·182의 D1)는 실행되지 않아 죠스 재플레이 제안이 나오지 않는다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:476-486",
+   "client/web/js/engine.js:419-432",
+   "client/web/js/cardscripts.js:13"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "low",
+  "suggested_fix": "timelineReset이 손패를 discardFromHand(pi, 0, {batch:true})로 한 장씩 버리고 마지막에 onYouDiscard를 1회 낸다(기존 batch 규약과 동일).",
+  "_g": "rj/7"
+ },
+ {
+  "n": 216,
+  "ko": "비상하는 정찰병",
+  "name": "Soaring Scout",
+  "ruling_ids": [
+   11510
+  ],
+  "source": "ruling",
+  "expected": "[일시적]으로 카서스(236)와 정찰병이 같은 개시 단계에 동시에 죽어도 카서스의 상시 '[죽음의 종소리] 추가 1회'는 그 순간 보드에 있으므로 적용된다(#11510, 808.1.d.2 동시 사망).",
+  "sim_behavior": "startTurn이 [일시적] 유닛을 everyUnit 순서로 한 기씩 killUnit한다(engine.js:845-848). 배치 처치(killUnitsTogether의 _dkTwiceBatch 스냅샷, engine.js:2613-2616)를 거치지 않아 killUnit은 사망 시점의 allUnits로 카서스 여부를 본다(engine.js:2734) — 카서스가 먼저 처리되면 정찰병 종소리는 1회. 실행 확인(g3-verify.js T4): 기대 4룬(종소리 2+전개 2) 대신 3룬.",
+  "evidence": [
+   "client/web/js/engine.js:845-848",
+   "client/web/js/engine.js:2734",
+   "client/web/js/engine.js:2613-2616"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "low",
+  "suggested_fix": "개시 절차의 [일시적] 처치를 모아 killUnitsTogether(list)로 한 번에 처리한다(동시 사망·카서스 스냅샷·존야 선택이 모두 배치 경로를 탄다).",
+  "_g": "rj/3"
+ },
+ {
+  "n": 242,
+  "ko": "미끼 바늘",
+  "name": "Baited Hook",
+  "ruling_ids": [
+   2869
+  ],
+  "source": "ruling",
+  "expected": "미끼 바늘(및 증원 62·눈부신 오로라 160)로 덱에서 '플레이'한 유닛은 대기 항목이라 원 효과가 '나머지 재활용'까지 끝낸 뒤에야 파이널라이즈·해결된다(359.3.d·338.1.a.7 — RiftJudge #2869 '카르마는 미끼 바늘이 재활용까지 마친 뒤 해결'). 따라서 카르마(235)는 재활용 시점에 아직 보드에 없어 자기 '카드를 재활용할 때 버프' 격발이 그 재활용에는 나지 않고, [통찰]은 재활용 뒤에 격발한다.",
+  "sim_behavior": "lookTopPlayUnit이 고른 유닛을 playCardByEffect로 즉시 보드에 올린 뒤(등장 격발까지 해결) 나머지를 재활용하고 fireEvent('onYouRecycle')를 낸다 → 방금 등장한 카르마의 onYouRecycle(buff)이 격발해 아군 유닛에 버프 1개가 공짜로 붙는다. 같은 순서가 미끼 바늘(luredHook→lookTopPlayUnit)·증원(62)·눈부신 오로라(dawnAurora)에 공통.",
+  "evidence": [
+   "client/web/js/cardscripts.js:453",
+   "client/web/js/cardscripts.js:456",
+   "client/web/js/cardscripts.js:457",
+   "client/web/js/cardscripts.js:178",
+   "client/web/js/cardscripts.js:533",
+   "client/web/js/engine.js:1835"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "low",
+  "suggested_fix": "lookTopPlayUnit/dawnAurora에서 재활용·onYouRecycle 발화를 먼저 하고 그 뒤에 playCardByEffect를 부르거나, 재활용 이벤트 발화 시 '이 효과로 방금 낸 유닛'을 리스너에서 제외한다(덱 위 카드 순서엔 영향 없음 — 재활용은 덱 밑).",
+  "_g": "rj/8"
+ },
+ {
+  "n": 242,
+  "ko": "미끼 바늘",
+  "name": "Baited Hook",
+  "ruling_ids": [
+   11687,
+   1116,
+   6009
+  ],
+  "source": "ruling",
+  "expected": "미끼 바늘이 처치한 유닛의 [죽음의 종소리]는 처치 시점에 대기 항목으로만 오르고, 미끼 바늘이 5장 확인·유닛 플레이·재활용을 모두 마친 뒤 체인(LIFO)에서 해결된다 — 새 유닛의 등장 격발이 종소리보다 먼저 해결(808.1.d.2·340.1; #11687 '포로 드로우는 새 유닛 등장 뒤', #6009, #1116).",
+  "sim_behavior": "killUnit이 종소리·사망 이벤트를 즉시 실행한다(_deferDeathFx는 전투 사망만) → luredHook 안에서 종소리(포로 드로우·맛있는 요정족 룬 충전·에코 재활용 등)가 5장 확인보다 먼저 해결되고, 새 유닛의 등장 격발은 그 뒤에 난다. 결과(카서스 미중복 #1116, 포로 '혼자' 판정 #11687)는 같으나 해결 순서·드로우 시점이 판정과 반대.",
+  "evidence": [
+   "client/web/js/engine.js:2758",
+   "client/web/js/cardscripts.js:464",
+   "client/web/js/cardscripts.js:466"
+  ],
+  "mismatch": "confirmed",
+  "category": "known-compromise",
+  "impact": "low",
+  "suggested_fix": "알려진 절충 ①(사망 격발 즉시 해결 — rules-audit-2026/report.md #25와 동일 원인). 절충 유지 시 조치 불필요; 정식 구현 시 killUnit의 afterDeath를 현재 해결 중인 효과가 끝난 뒤로 미루는 큐(_deferDeathFx의 일반화)가 필요.",
+  "_g": "rj/8"
+ },
+ {
+  "n": 244,
+  "ko": "신성한 심판",
+  "name": "Divine Judgment",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "룬 재활용은 카드 재활용이 아니다 — 카르마(235) 원문 \"When you recycle one or more cards ... (Runes aren't cards.)\", 룰 164.2/416 룬은 룬 덱으로 재활용. 심판으로 룬만 재활용되고(유닛·도구·손패는 각 2개 이하라 전부 남음) 메인 덱 카드가 하나도 재활용되지 않은 플레이어의 카르마는 격발하면 안 된다.",
+  "sim_behavior": "divineJudgment의 룬 재활용 루프가 recycledFor.add(pi)를 하고 마지막에 recycledFor 전원에게 fireEvent('onYouRecycle')를 쏜다 → 룬만 잃은 플레이어의 카르마도 버프. 엔진의 recycleRune op(룬 강제 재활용)는 onYouRecycle을 쏘지 않아 서로 불일치.",
+  "evidence": [
+   "client/web/js/cardscripts.js:818",
+   "client/web/js/cardscripts.js:822",
+   "client/web/js/cardscripts.js:178",
+   "client/web/js/engine.js:3729"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "low",
+  "suggested_fix": "룬 루프에서는 recycledFor.add(pi)를 제거하고, toDeck[pi]에 카드가 들어간 플레이어만 onYouRecycle을 받게 한다.",
+  "_g": "cards/6"
+ },
+ {
+  "n": 252,
+  "ko": "초강력 초토화 로켓!",
+  "name": "Super Mega Death Rocket!",
+  "ruling_ids": [
+   6120
+  ],
+  "source": "ruling",
+  "expected": "정복 격발은 정복이 일어난 순간에 한꺼번에 평가된다. 다른 정복 격발(자운 빈민굴 298 '버린 뒤 드로우' 등)이 해결되는 도중 폐기장에 들어간 로켓의 격발은 소급해서 추가되지 않는다 (RiftJudge #6120).",
+  "sim_behavior": "resolveShowdown의 정복 격발은 유닛 격발·'전설·도구·폐기장'(onConquerYou)·전장 격발을 별개 job으로 만들고 통제자가 순서를 고른다. 폐기장 스냅샷은 fireEvent가 그 job이 실행되는 시점에 뜬다([...trash]). 로켓 1장이 이미 폐기장에 있어 onConquerYou job이 보이는 상태에서 자운 빈민굴을 먼저 해결해 손패의 로켓 2장째를 버리면, 뒤이어 도는 onConquerYou가 그 로켓도 격발시켜 두 장 모두 회수된다.",
+  "evidence": [
+   "client/web/js/engine.js:2506-2530",
+   "client/web/js/engine.js:2835-2838",
+   "client/web/js/cardscripts.js:1010-1013"
+  ],
+  "mismatch": "confirmed",
+  "category": "timing",
+  "impact": "low",
+  "suggested_fix": "정복 시점에 onConquerYou 리스너(폐기장 카드 포함)를 스냅샷해 두고 job 실행 순서와 무관하게 그 목록만 격발시킨다.",
+  "_g": "rj/7"
+ },
+ {
+  "n": 263,
+  "ko": "티모 - 신속한 정찰병",
+  "name": "Teemo - Swift Scout",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"Put a Teemo unit you own into your hand from … the board\": 보드를 떠나는 유닛의 장착 도구는 분리되어 기지로 회수된다(454 Recalls 'Gear can be Recalled' · resolveReturnToHand와 동일 처리). 또 '소유(own)' 기준이라 내가 통제만 하는 상대 소유 티모는 대상이 아니고, 상대가 뺏어간 내 소유 티모는 대상이다.",
+  "sim_behavior": "teemoFetch가 detachGear 없이 removeUnit → 장착 도구가 게임에서 사라진다(node 실행: 「강철 발리스타」 장착 티모 회수 후 P.gear 0). 후보 필터가 u.ctrl===p라 상대 소유(owner:1) 티모를 내 손패로 넣는다(node 실행: p0 hand=[121]).",
+  "evidence": [
+   "client/web/js/engine.js:3673-3681",
+   "client/web/js/engine.js:1186",
+   "client/web/js/engine.js:3850"
+  ],
+  "mismatch": "confirmed",
+  "category": "bug",
+  "impact": "low",
+  "suggested_fix": "removeUnit 전에 detachGear(sel) 호출, 후보 필터를 (u.owner??u.ctrl)===p로 바꾸고 손패도 소유자 기준으로(사실상 p).",
+  "_g": "cards/7"
+ },
+ {
+  "n": 266,
+  "ko": "힘 착취",
+  "name": "Siphon Power",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"Choose a battlefield\"는 전장을 대상으로 한다(355.10 예시 \"Kill all units at a battlefield\" targets a battlefield) → 플레이 시점에 지정하고 상대가 그것을 보고 응수. 쌍권총 난사(268)는 이미 같은 이유로 spec {battlefield:true} 적재 시점 지정으로 고쳐졌다.",
+  "sim_behavior": "powerSiphon이 해결 시 UI.pickOption으로 전장을 고른다 — PRE_TARGET_EXTRA에 powerSiphon 항목 없음. 상대는 어느 전장인지 모른 채 [반응]에 응수한다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:292-300",
+   "client/web/js/cardscripts.js:1167",
+   "client/web/js/engine.js:3295-3299"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "PRE_TARGET_EXTRA.powerSiphon=[{battlefield:true,_prompt:'전장 선택'}]로 두고 powerSiphon이 takePreTarget(ctx.p)의 {bf}를 쓰게 한다(gunsBlazing과 동일).",
+  "_g": "cards/7"
+ },
+ {
+  "n": 268,
+  "ko": "쌍권총 난사",
+  "name": "Bullet Time",
+  "ruling_ids": [
+   2633,
+   437,
+   5521,
+   325
+  ],
+  "source": "ruling",
+  "expected": "해결 중 힘을 낼 때 [반응] [추가] 능력을 쓸 수 있으므로(416.3/357.1.a) 재활용할 룬을 먼저 탈진해 에너지 1을 풀에 띄운 뒤 그 룬을 재활용해 힘을 낼 수 있다(#2633 'tap those runes for energy before recycling them', #437, #5521, #325). 띄운 에너지는 턴 끝까지 남는다.",
+  "sim_behavior": "gunsBlazing은 pickNumber 뒤 payCost(p,0,pips)를 바로 부르고, payCost의 힘 지불은 탈진 룬 → 준비 룬 순으로 재활용만 한다(준비 룬을 탈진시켜 에너지를 올리는 단계 없음). 해결 중에는 runeFloat를 쓸 프롬프트도 없어 준비 룬을 재활용하면 그 에너지는 사라진다. 같은 상황의 recycleRune op(폭풍의 인장)는 이전 감사에서 '준비 룬이면 먼저 탈진해 에너지 유지'로 고쳐졌으나 이 경로에는 적용되지 않았다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:617-630",
+   "client/web/js/engine.js:673-686",
+   "client/web/js/engine.js:3741-3745"
+  ],
+  "mismatch": "confirmed",
+  "category": "cost",
+  "impact": "low",
+  "suggested_fix": "gunsBlazing에서 payCost 전에 재활용될 준비 룬(풀로 못 내는 핍 수만큼)을 먼저 r.ex=true; P.energy++ 로 띄우거나(recycleRune op와 동일한 자동 처리), payCost 힘 지불 단계에서 준비 룬을 재활용할 때 에너지 1을 풀에 올리도록 공통화.",
+  "_g": "rj/2"
+ },
+ {
+  "n": 287,
+  "ko": "폭풍의 인장",
+  "name": "Sigil of the Storm",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "원문 \"When you conquer here, recycle one of your runes.\" — 재활용할 룬은 플레이어가 고른다(시뮬레이터 recycleRune도 항상 묻는다).",
+  "sim_behavior": "한글 번역(tko)이 \"반드시 재순환해야 한다. (이 효과는 아무것도 선택하지 않는다.)\"로 원문에 없는 괄호문을 덧붙였고, 실제 동작(어느 룬을 돌릴지 선택)과도 모순된다. 다른 카드는 '재활용' 용어를 쓴다.",
+  "evidence": [
+   "client/web/js/cards.js (\"n\":287 tko)",
+   "client/web/js/engine.js:3729-3748"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "tko를 \"당신이 이곳을 정복할 때, 당신의 룬 1개를 재활용한다.\"로 정리.",
+  "_g": "cards/7"
+ },
+ {
+  "n": 289,
+  "ko": "타곤의 정상",
+  "name": "Targon's Peak",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "신룰북(2026-07-16) 2291행·2908행이 카드 원문을 \"When you conquer here, ready up to 2 runes at the end of this turn.\"로 인용한다 — 준비는 '최대 2개까지'(선택).",
+  "sim_behavior": "동작은 일치한다: finishEndTurn이 readyRunesPick(pi,2,optional=true)로 준비한다(engine.js:937-941). 다만 cards.js 영문 원문은 구판 \"ready 2 runes\"이고 한글 번역만 '최대 2개까지'라 화면상 영문·한글이 서로 다르게 보인다(표시 문제).",
+  "evidence": [
+   "client/web/js/engine.js:936-941",
+   "tools/data/rules-2026-07-16.txt:2291",
+   "tools/data/rules-2026-07-16.txt:2908"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "cards.js n=289의 영문 text를 룰북 인용문(\"ready up to 2 runes\")으로 갱신한다.",
+  "_g": "cards/8"
+ },
+ {
+  "n": 295,
+  "ko": "바일마우의 둥지",
+  "name": "Vilemaw's Lair",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "번역: '유닛은 이곳에서 기지로 이동할 수 없다.'",
+  "sim_behavior": "한글 번역이 '기지으로'로 오타(cards.js n=295 tko). moveUnits의 토스트 문구도 같은 오타(engine.js:2170).",
+  "evidence": [
+   "client/web/js/engine.js:2169-2170"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "'기지으로' → '기지로' (카드 번역·engine.js 토스트).",
+  "_g": "cards/8"
+ },
+ {
+  "n": 295,
+  "ko": "바일마우의 둥지",
+  "name": "Vilemaw's Lair",
+  "ruling_ids": [
+   11771,
+   4784,
+   11402,
+   3407,
+   3283
+  ],
+  "source": "ruling",
+  "expected": "둥지의 유닛을 '기지로' 옮기는 효과 이동(바람 타기 173·매혹 43)은 대상·목적지 선택 자체는 적법하고, 해결 시 이동 지시만 부정(negated)된다. 바람 타기는 이동이 막혀도 연결 지시 '준비시킨다'를 그대로 수행해 유닛이 둥지에 남은 채 준비 상태가 된다(#11771 'They will be readied', 356.3.e.11). 매혹으로 둥지의 적 유닛을 기지로 지정하면 아무 일도 일어나지 않는다(#11402·#3283).",
+  "sim_behavior": "chooseEffectMove가 목적지 후보를 canEffectMove로 걸러(engine.js:1076) 둥지(BF_STATIC.NO_RETREAT, 1025)의 유닛에게는 '기지' 선택지를 아예 주지 않는다. 남는 후보는 다른 전장뿐이고 spec.optional이 아니면 취소해도 첫 후보로 강제 이동한다(1093). 따라서 ① 바람 타기로 둥지의 유닛을 제자리에서 준비시킬 수 없다 — 다른 전장으로 반드시 옮겨야 하고, 이동이 없으면 readyUnit도 실행되지 않는다(resolveEffectMove 1108: uCan false면 return null → 1121~1122의 effectMove·readyUnit 미도달). ② 매혹으로 둥지의 적 유닛을 골라 '기지(효과 없음)'를 지정할 수 없고 다른 전장으로 강제 이동된다.",
+  "evidence": [
+   "client/web/js/engine.js:1025",
+   "client/web/js/engine.js:1076",
+   "client/web/js/engine.js:1093",
+   "client/web/js/engine.js:1108",
+   "client/web/js/engine.js:1121",
+   "client/web/js/cardscripts.js:132",
+   "client/web/js/cardscripts.js:39"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "chooseEffectMove에서 '기지' 목적지는 canEffectMove가 false여도 후보로 남기되 movement에 negated 표식을 붙이고, resolveEffectMove는 이동만 건너뛰고(로그) choice.ready 등 연결 지시는 수행한다(교환(swap) 경로가 이미 같은 '가능한 만큼만' 원칙을 쓴다).",
+  "_g": "rj/5"
+ },
+ {
+  "n": 310,
+  "ko": "애니 - 고집쟁이",
+  "name": "Annie - Stubborn",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "'return a spell from your trash to your hand'는 'may'가 없는 강제 지시 — 폐기장에 주문이 있으면 반드시 한 장을 되돌린다.",
+  "sim_behavior": "EXTRA_OPS.trashToHand가 UI.pickOption(취소 가능: ui.js:648-653 pickCardOption cancel=true)으로 고르고 sel===null이면 아무것도 하지 않는다(cardscripts.js:353). 사람 플레이어가 취소하면 강제 효과를 건너뛸 수 있다(불리한 경우는 드물어 영향 낮음).",
+  "evidence": [
+   "client/web/js/cardscripts.js:350-355",
+   "client/web/js/ui.js:648-653"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "recycleFromTrash처럼 취소 시 첫 후보로 폴백하거나 pickOption을 취소 불가('cardsRequired')로 호출한다.",
+  "_g": "cards/8"
+ },
+ {
+  "n": 311,
+  "ko": "점멸",
+  "name": "Flash",
+  "ruling_ids": [
+   5189,
+   2103
+  ],
+  "source": "ruling",
+  "expected": "RiftJudge #5189(verified): 점멸·물결을 바꾸는 자 등은 바일마우의 둥지(295)의 유닛을 적법한 대상으로 고를 수 있고, '기지로 이동' 지시만 불가능해 무시된다(356.3.e do as much as you can). 즉 둥지의 아군을 대상으로 지정(→ 꿈꾸는 나무 격발 등)할 수 있어야 한다.",
+  "sim_behavior": "chooseEffectMove가 후보마다 canEffectMove(u,'base')를 요구해(engine.js:1074) 둥지의 유닛은 NO_RETREAT로 제외되고(engine.js:1025) '이동 없음(대상 지정만)' 선택지는 u.loc==='base'일 때만 만든다(engine.js:1061-1064). 둥지의 아군은 점멸 대상으로 고를 수 없다. 이전 감사(#295)는 물결을 바꾸는 자 교환만 고쳤다.",
+  "evidence": [
+   "client/web/js/engine.js:1020-1026",
+   "client/web/js/engine.js:1058-1077",
+   "client/web/js/cardscripts.js:858-860"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "chooseEffectMove에서 to==='base'&&stayOK이고 canEffectMove가 NO_RETREAT 때문에 거짓인 유닛도 '이동 불가 — 대상 지정만' 선택지로 넣어 noteSpellPick/굴절만 처리하고 이동은 생략한다.",
+  "_g": "cards/8"
+ },
+ {
+  "n": 311,
+  "ko": "점멸",
+  "name": "Flash",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "'up to 2 friendly units'는 서로 다른 유닛 0~2기를 플레이 시점에 고른다(355.13 복수 대상은 서로 다른 객체).",
+  "sim_behavior": "SCRIPTS[311]이 moveSpec op 2개를 따로 두고(cardscripts.js:858-860) PRE_TARGET_EXTRA.moveSpec이 앞 선택을 _exclude하지 않아(cardscripts.js:1155) 같은 유닛을 두 번 고를 수 있다. 해결 때 두 번째는 '이미 기지 — 이동 없음'으로 끝나 실효 피해는 없으나 대상 표시가 중복된다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:858-860",
+   "client/web/js/cardscripts.js:1155",
+   "client/web/js/engine.js:1061-1064"
+  ],
+  "mismatch": "confirmed",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "두 번째 moveSpec의 사전 지정 spec에 (p,prev)=>({..., _exclude:prev.slice(-1).filter(Boolean)})를 적용한다(mightTwoDistinct와 같은 방식).",
+  "_g": "cards/8"
+ },
+ {
+  "n": 311,
+  "ko": "점멸",
+  "name": "Flash",
+  "ruling_ids": [
+   4875
+  ],
+  "source": "ruling",
+  "expected": "떠돌이 상인(185)을 상대 유닛이 있는 전장으로 이동하면 '이동 시' 격발이 체인에 올라 닫힌 상태가 되고, 그 격발에 대응해 점멸로 상인을 기지로 되돌리면 경합이 해제되어 결전(전투)이 아예 열리지 않는다. 상인 격발은 2회(버리고 1장 뽑기 ×2).",
+  "sim_behavior": "moveUnits가 onMoveSelf 격발을 viaChain 없이 즉시 실행하고(engine.js:2187-2189 → runTriggerList 2771-2772 즉시 execOps) 곧바로 cleanup이 결전을 연다(2195, 2280) — 격발에 응수할 창이 없어 점멸은 이미 전투 결전이 열린 뒤에만 낼 수 있고, 그러면 지정·전투 정리(치유 등)가 일어난다.",
+  "evidence": [
+   "client/web/js/engine.js:2186-2195",
+   "client/web/js/engine.js:2759-2773",
+   "client/web/js/engine.js:2274-2284"
+  ],
+  "mismatch": "confirmed",
+  "category": "known-compromise",
+  "impact": "low",
+  "suggested_fix": "알려진 절충 ①(이동 격발 즉시 해결). onMoveSelf도 onPlay처럼 fireTriggeredAbility(ctx.viaChain) 경로로 올리면 격발 해결 전 응수 창이 생겨 판정과 일치한다.",
+  "_g": "rj/10"
+ },
+ {
+  "n": 317,
+  "ko": "애니 - 어둠의 아이",
+  "name": "Annie - Dark Child (Starter)",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "'At the end of your turn, ready 2 runes.'는 강제 — 탈진 룬이 있으면 2개(또는 가능한 만큼)를 반드시 준비한다(룰북 3300행 격발 예시).",
+  "sim_behavior": "SCRIPTS[317]이 readyRunes {n:2, optional:true}로 두어(cardscripts.js:865) readyRunesPick이 '더 준비하지 않음' 선택지를 넣고 0개도 허용한다(engine.js:481-493). 준비를 거를 이유가 없어 실효 영향은 거의 없다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:865",
+   "client/web/js/engine.js:481-493"
+  ],
+  "mismatch": "confirmed",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "optional:false로 바꾼다(타곤의 정상과 달리 이 카드는 'up to'가 아니다).",
+  "_g": "cards/8"
+ },
+ {
+  "n": 32,
+  "ko": "갈까마귀 마도서",
+  "name": "Ravenborn Tome",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"The next spell you play this turn deals 1 Bonus Damage\" — 비격발 효과가 참조하는 '플레이한 주문'은 파이널라이즈 기준(신룰북 420.3.b). 다음 주문이 체인에 올라 파이널라이즈되면 그 주문이 '다음 주문'이므로 카운터당해도 보너스는 그 주문에 붙어 소모된다(격노한 화염룡 31의 할인과 같은 논리 — 5차 #31 수정, RiftJudge #4039 유추). 그 뒤의 주문에는 보너스가 없어야 한다.",
+  "sim_behavior": "TF().nextSpellBonus는 resolveSpellEffects 끝에서만 0이 된다(engine.js:1785). 중립 응수 창에서 카운터당한 주문은 resolveSpellEffects를 거치지 않고 trashCard만 하며(engine.js:1636~1638), 결전 체인의 countered 항목도 마찬가지라 보너스가 남아 그다음 주문의 피해에 +1이 붙는다. 격노한 화염룡의 nextSpellDisc는 payCost 직후 소모하도록 이미 고쳤지만(engine.js:1508) nextSpellBonus는 같은 처리가 없다.",
+  "evidence": [
+   "client/web/js/engine.js:1785",
+   "client/web/js/engine.js:1636",
+   "client/web/js/engine.js:1508",
+   "client/web/js/engine.js:969"
+  ],
+  "mismatch": "likely",
+  "category": "timing",
+  "impact": "low",
+  "suggested_fix": "주문 파이널라이즈 시(engine.js:1508 부근) TF().nextSpellBonus[p]를 체인 항목/해결 컨텍스트로 옮겨(item.bonus) 플래그를 즉시 0으로 만들고, dealDamage는 G._casting 대신 현재 해결 중 주문에 붙은 보너스를 본다.",
+  "_g": "cards/1"
+ },
+ {
+  "n": 37,
+  "ko": "불멸의 불사조",
+  "name": "Immortal Phoenix",
+  "ruling_ids": [
+   11770
+  ],
+  "source": "ruling",
+  "expected": "황제의 칙령(221)의 지연 격발이 처치를 수행하면 처치 책임은 칙령의 통제자(=지연 격발의 통제자)에게 있고, 그 플레이어의 폐기장 불사조가 격발한다 (RiftJudge #11770 · 룰 416 처치 지시의 귀속). 피해만 준 주문은 치명 피해가 아니면 처치의 책임자가 아니다.",
+  "sim_behavior": "killUnit(byDamage)은 u._spellDmgBy(마지막으로 피해를 준 주문의 시전자)가 있으면 그것을 killer로 쓰고, 없을 때만 _decreeBy(칙령 시전자)를 본다. A의 마법공학 광선(9)이 비치명 피해를 주고 B의 칙령 표식으로 죽는 경우 killer=A로 귀속되어 A의 불사조가 열리고 B의 불사조는 열리지 않는다. (판정의 동일 플레이어 시나리오는 일치)",
+  "evidence": [
+   "client/web/js/engine.js:2729-2732",
+   "client/web/js/engine.js:2245",
+   "client/web/js/engine.js:975-977"
+  ],
+  "mismatch": "likely",
+  "category": "bug",
+  "impact": "low",
+  "suggested_fix": "hadDecree이고 피해가 치명(wasLethal)이 아니면 _decreeBy를 우선 귀속하고, 치명이면서 칙령도 있으면 둘 다(#7440처럼 두 사건) 귀속한다.",
+  "_g": "rj/7"
+ },
+ {
+  "n": 67,
+  "ko": "블리츠크랭크 - 무심한",
+  "name": "Blitzcrank - Impassive",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "원문 \"When you play me to a battlefield, you may move an enemy unit to here.\" — 전장에 플레이했을 때만 격발 조건이 충족된다(383.2.b 격발 조건 뒤의 조건문은 조건의 일부). 기지에 플레이하면 격발 자체가 없고 응수 창도 열리지 않는다.",
+  "sim_behavior": "TRIGGER_PATTERNS가 'to a battlefield'를 선택 접두로 삼켜 조건 없는 onPlay로 컴파일한다(effects.js:239). 기지에 내도 runTriggerList→fireTriggeredAbility가 돌아 격발 로그·상대 응수 창(reactionWindow)이 열린다(engine.js:2763, 2810-2812). 실제 이동은 _ctxBf=null→moveUnit to=null→canEffectMove가 모두 false라 후보 0으로 조용히 불발(engine.js:3600-3604, 1066-1075, 1035-1041)이라 결과는 같지만, 존재하지 않는 격발에 상대가 [반응]을 쓸 기회를 얻는다.",
+  "evidence": [
+   "client/web/js/effects.js:239",
+   "client/web/js/engine.js:2763",
+   "client/web/js/engine.js:2810",
+   "client/web/js/engine.js:3600",
+   "client/web/js/engine.js:1035"
+  ],
+  "mismatch": "likely",
+  "category": "parser",
+  "impact": "low",
+  "suggested_fix": "'When you play me to a battlefield' 접두를 별도 패턴으로 잡아 cond:ctx=>ctx.bfIdx!==null 을 붙이거나, SCRIPTS[67]에 같은 cond를 두어 기지 플레이 시 격발하지 않게 한다.",
+  "_g": "cards/2"
+ },
+ {
+  "n": 111,
+  "ko": "하이머딩거 - 발명가",
+  "name": "Heimerdinger - Inventor",
+  "ruling_ids": [
+   2679,
+   4686
+  ],
+  "source": "card-text",
+  "expected": "\"I have all :rb_exhaust: abilities of all friendly legends, units, and gear\" — 복사한 [반응] [추가] 능력(통찰의 인장 120·에너지 도관 98·카이사 전설 247 등)도 하이머딩거 자신의 능력이므로 비용 지불 중 자원 충당(357.1.a)이나 닫힌 상태(상대 주문 응수 창·결전 체인 중)에서 하이머딩거를 탈진해 발동할 수 있어야 한다.",
+  "sim_behavior": "copyAllExhaust는 ui.js의 우클릭 메뉴에서만 구현된다. 자원 충당(listResourceFunding→polAbList)과 응수 창의 [반응] 능력 목록(reactionWindowChoices→polAbList)은 polAbList가 각 카드의 자기 activated만 모으므로 하이머딩거의 복사 능력이 빠진다 → 비용 지불 모달에서 하이머딩거를 탈진해 인장/도관의 [추가]로 충당할 수 없고, 상대 턴 응수 창에서도 복사 [반응] 능력을 고를 수 없다(중립 열린 상태의 우클릭으로만 가능). 봇은 복사 능력을 전혀 쓰지 않는다.",
+  "evidence": [
+   "client/web/js/ui.js:2102-2122",
+   "client/web/js/bot-policy.js:1994-2003",
+   "client/web/js/engine.js:565-570",
+   "client/web/js/engine.js:1916-1926"
+  ],
+  "mismatch": "likely",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "polAbList가 copyAllExhaust 유닛에 대해 아군 전설·유닛·도구의 cost.exhaustSelf 능력을 {src:{kind:'unit',u:하이머딩거}, ab} 항목으로 함께 내보내게 하면 충당·응수 창·봇이 모두 같은 목록을 본다.",
+  "_g": "cards/3"
+ },
+ {
+  "n": 111,
+  "ko": "하이머딩거 - 발명가",
+  "name": "Heimerdinger - Inventor",
+  "ruling_ids": [
+   8631,
+   9851
+  ],
+  "source": "ruling",
+  "expected": "RiftJudge #8631·#9851: 하이머딩거는 능력 자체만 복사하고 원 카드에 붙은 '전장에 있을 때만 사용' 같은 상시 제한은 복사하지 않는다 — 원 유닛이 전장에 있어야 할 필요도, 하이머딩거가 전장에 있어야 할 필요도 없다. 풀 안 해당 카드: 「케이틀린 - 명사수」(68) \"Use this ability only while I'm at a battlefield\".",
+  "sim_behavior": "케이틀린(68) 스크립트가 activated[0].onlyAtBf=true를 두고, activateAbility가 ab.onlyAtBf && source.kind==='unit' && source.u.loc==='base'면 발동을 막는다. 복사 발동 시 source.u가 하이머딩거이므로 기지의 하이머딩거는 케이틀린의 '내 위력만큼 피해' 능력을 쓸 수 없다(판정은 가능).",
+  "evidence": [
+   "client/web/js/engine.js:2946",
+   "client/web/js/cardscripts.js:59-61",
+   "client/web/js/ui.js:2115-2117"
+  ],
+  "mismatch": "likely",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "복사 발동(ui copy 경로)에는 onlyAtBf 검사를 건너뛴다 — 예: activateAbility(p, source, ab, {copied:true})로 전달해 copied면 onlyAtBf 무시.",
+  "_g": "cards/3"
+ },
+ {
+  "n": 122,
+  "ko": "시간 왜곡",
+  "name": "Time Warp",
+  "ruling_ids": [
+   129
+  ],
+  "source": "ruling",
+  "expected": "「유망한 미래」로 양측이 각각 시간 왜곡을 내면 두 장이 체인에 대기 항목으로 쌓여 LIFO로 해결(시전자 것 먼저 해결 → 상대 것이 나중에 해결되며 '이 턴 직후'에 끼어듦) → 상대의 추가 턴이 먼저, 시전자의 추가 턴이 그다음 (#129; 판정 자체가 열린 문제라고 명시).",
+  "sim_behavior": "promisingFuture가 [상대, 시전자] 순으로 playCardByEffect를 호출해 각 주문을 즉시 해결하므로 상대 시간 왜곡이 먼저 해결되어 extraTurns.unshift 순서가 [시전자, 상대]가 되고 시전자의 추가 턴이 먼저 온다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:527",
+   "client/web/js/cardscripts.js:531",
+   "client/web/js/engine.js:3805",
+   "client/web/js/engine.js:950"
+  ],
+  "mismatch": "likely",
+  "category": "timing",
+  "impact": "low",
+  "suggested_fix": "효과로 낸 주문을 즉시 해결하는 절충을 유지한다면, 유망한 미래에서만 두 플레이어의 주문 해결 순서를 뒤집거나(시전자 먼저) extraTurns 삽입 순서를 보정한다. 판정이 미확정이라 우선순위 낮음.",
+  "_g": "rj/6"
+ },
+ {
+  "n": 157,
+  "ko": "우디르 - 야인",
+  "name": "Udyr - Wildman",
+  "ruling_ids": [
+   2111,
+   3380,
+   7883
+  ],
+  "source": "rulebook",
+  "expected": "룰 376(활성화 능력 플레이 절차)·RiftJudge #2111: 모드('하나 선택')와 그 모드의 대상은 능력을 체인에 올릴 때(비용 지불 전, 상대 응수 전) 정한다. 상대는 어떤 모드·대상인지 보고 응수한다.",
+  "sim_behavior": "activateAbility는 버프를 소모(engine.js:3022)하고 reactionWindow를 연 뒤(engine.js:3066~3068) execOps에서 EXTRA_OPS.udyr가 그제야 모드와 대상을 묻는다(cardscripts.js:759~773). PRE_TARGET_EXTRA에 udyr 항목이 없어 preTargetAbility도 아무것도 미리 고르지 않는다(cardscripts.js:1155~1176). 또 모드 선택을 취소(sel===null)하면 이미 소모한 버프만 사라진다(cardscripts.js:767).",
+  "evidence": [
+   "client/web/js/engine.js:3022",
+   "client/web/js/engine.js:3066",
+   "client/web/js/cardscripts.js:759",
+   "client/web/js/cardscripts.js:1155"
+  ],
+  "mismatch": "likely",
+  "category": "timing",
+  "impact": "low",
+  "suggested_fix": "SCRIPTS[157] activated에 preTarget:(p,source)=>{모드 선택 + 모드별 대상 선택} 을 두고(미래의 용광로 212 방식) udyr op는 ctx.preAb로 받은 모드·대상을 실행만 하게 한다. 취소 시 null 반환으로 발동 자체를 취소(비용 미지불).",
+  "_g": "cards/4"
+ },
+ {
+  "n": 171,
+  "ko": "신비한 포로",
+  "name": "Mystic Poro",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "817.1 [통찰]은 격발 능력(트리거: 영구물의 보드 진입). 유닛 등장 격발과 마찬가지로 체인/응수 창을 거쳐 해결되어야 한다(사이 정찰병 174, 도구의 통찰도 동일).",
+  "sim_behavior": "playCardFromHand가 visionCheck를 runTriggerList(onPlay) 앞에서 직접 호출해 체인·응수 창 없이 즉시 덱 위를 보고 재활용한다(도구는 1643). onPlay만 fireTriggeredAbility로 체인에 오른다.",
+  "evidence": [
+   "client/web/js/engine.js:1575-1577",
+   "client/web/js/engine.js:1643-1644",
+   "client/web/js/engine.js:2012-2024",
+   "client/web/js/engine.js:2769-2771"
+  ],
+  "mismatch": "likely",
+  "category": "timing",
+  "impact": "low",
+  "suggested_fix": "통찰을 onPlay 목록의 앞에 {ops:[{op:'vision'}]} 격발로 넣어 runTriggerList(viaChain) 경로를 함께 타게 한다.",
+  "_g": "cards/5"
+ },
+ {
+  "n": 224,
+  "ko": "인양",
+  "name": "Salvage",
+  "ruling_ids": [
+   1923,
+   2110,
+   2181,
+   362
+  ],
+  "source": "card-text",
+  "expected": "에라타 후 원문은 \"You may kill up to one gear. Draw 1.\"(RiftJudge #2110 — 대상 없이도 플레이 가능). 'up to one' 대상은 여전히 플레이 시점에 지정한다(355 Targeting: 특정 게임 오브젝트를 고르면 대상 · 353 대상 지정→비용 순). 해결 때는 지정한 도구를 처치할지(may)만 정하고 드로우는 항상 한다.",
+  "sim_behavior": "cards.js의 영문 원문은 에라타 전 문구(\"You may kill a gear.\")이며(번역은 에라타판 '도구 최대 하나'), 스크립트 224는 pickKillGear를 해결 시점에 실행해 도구를 그때 고른다(PRE_TARGET_EXTRA에 pickKillGear 없음 → 플레이 시점 지정 없음). 상대는 응수 창에서 어떤 도구가 대상인지 모른 채 응수하고, 해결 때 응수 결과를 본 뒤 도구를 고를 수 있다. 굴절은 도구에 없어 자원 영향은 없다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:942",
+   "client/web/js/cardscripts.js:959",
+   "client/web/js/cardscripts.js:1154"
+  ],
+  "mismatch": "likely",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "PRE_TARGET_EXTRA.pickKillGear로 플레이 시점에 도구(선택, 0개 허용)를 고정하고 해결 때 '처치할까요?'만 묻는다. cards.js 224 영문 text도 에라타 문구로 갱신.",
+  "_g": "cards/6"
+ },
+ {
+  "n": 226,
+  "ko": "망령 안주인",
+  "name": "Spectral Matron",
+  "ruling_ids": [
+   11803,
+   11802,
+   1552
+  ],
+  "source": "ruling",
+  "expected": "격발 능력이 고르는 대상(망령 안주인의 '폐기장의 유닛', 물결을 바꾸는 자(199)의 '아군 유닛')은 격발이 체인에 파이널라이즈될 때 확정된다(352.4.b/383.3.b · #11803 #11802 #1552). 상대는 무엇이 골라졌는지 보고 응수하며, 해결 시 다른 카드/유닛으로 바꿀 수 없다(may 거부만 가능).",
+  "sim_behavior": "fireTriggeredAbility는 preTargetSpecs가 있는 op만 격발 시점에 고르는데(engine.js:2786-2793), playFromTrash(cardscripts.js:356-364)와 tideTurner(326-329)는 PRE_TARGET_EXTRA(1154-1174)에 항목이 없어 응수 창이 닫힌 뒤 execOps 안에서 고른다 — 상대는 대상을 모른 채 응수하고, 응수로 보드가 바뀌면 그때 다른 대상을 고를 수 있다. 현 카드 풀에는 상대 폐기장을 반응 속도로 건드리는 카드가 없어 안주인 쪽 실효 차이는 정보 노출·재선택뿐이다.",
+  "evidence": [
+   "client/web/js/engine.js:2786-2793",
+   "client/web/js/cardscripts.js:356-364",
+   "client/web/js/cardscripts.js:326-329",
+   "client/web/js/cardscripts.js:1154-1174"
+  ],
+  "mismatch": "likely",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "PRE_TARGET_EXTRA에 playFromTrash(폐기장 카드 선택 — preAb 방식)와 tideTurner(아군 유닛 spec)를 추가해 격발 시점에 고정하고 해결 때 takePreTarget으로 소비한다.",
+  "_g": "rj/10"
+ },
+ {
+  "n": 243,
+  "ko": "다리우스 - 처형자",
+  "name": "Darius - Executioner",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"Other friendly units have +1 Might here.\" — 'here'는 발생원의 위치이며 위치(Location)에는 기지도 포함된다(198.1 \"Locations include the Battlefields and the Bases\", 157 \"A Unit's Location is the Base or Battlefield it currently occupies\"). 다리우스가 기지에 있으면 기지의 다른 아군 유닛도 +1이어야 한다(위력 조건 주문·미끼 바늘의 '처치된 유닛 위력' 등에 영향).",
+  "sim_behavior": "스크립트 243(및 파서의 'here' 오라 공통 규칙 effects.js:423,425)이 mightAura filter에 srcAtBf:true를 붙여 staticMatch가 src.unit.loc==='base'면 즉시 false → 기지에서는 오라가 전혀 걸리지 않는다.",
+  "evidence": [
+   "client/web/js/cardscripts.js:188",
+   "client/web/js/engine.js:162",
+   "client/web/js/effects.js:423"
+  ],
+  "mismatch": "likely",
+  "category": "keyword",
+  "impact": "low",
+  "suggested_fix": "'here' 오라는 srcAtBf 없이 u.loc===src.unit.loc(기지 포함)으로 맞춘다. 기지에서의 위력이 무의미하다고 본 의도된 단순화라면 known-compromise로 기록.",
+  "_g": "cards/6"
+ },
+ {
+  "n": 262,
+  "ko": "천공의 검",
+  "name": "Zenith Blade",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "\"You may move a friendly unit to that enemy unit's battlefield\"의 아군 유닛은 선택적(may) 대상이지만 대상인 이상 플레이 시점에 지정한다(355.9~355.10; '선택 안 함'도 적법). 목적지는 고정이라 절충 ④에 해당하지 않는다.",
+  "sim_behavior": "moveFriendlyToItsBf가 해결 시 chooseEffectMove({side:'friendly',optional:true}, it.loc)로 유닛을 고른다 — PRE_TARGET_EXTRA 항목 없음(moveSpec은 있음). 기절 대상만 적재 시점 지정.",
+  "evidence": [
+   "client/web/js/cardscripts.js:314-316",
+   "client/web/js/cardscripts.js:1154-1171"
+  ],
+  "mismatch": "likely",
+  "category": "targeting",
+  "impact": "low",
+  "suggested_fix": "PRE_TARGET_EXTRA.moveFriendlyToItsBf=[{side:'friendly',count:1,optional:true,_prompt:...}] 추가(선택 안 함 허용) — 해결 때 대상 유닛이 사라졌거나 it가 없으면 이동 불발.",
+  "_g": "cards/7"
+ },
+ {
+  "n": 118,
+  "ko": "메아리의 망령",
+  "name": "Wraith of Echoes",
+  "ruling_ids": [],
+  "source": "rulebook",
+  "expected": "룰북(2026-07-16) 383.x [Nth] time 예시가 카드 원문을 \"The first time another friendly unit dies each turn, draw 1.\"로 인용한다(현행 오라클은 'another'). 자기 자신의 죽음은 세지 않는다.",
+  "sim_behavior": "cards.js 원문·번역은 \"a friendly unit\"/\"아군 유닛이 처음으로\"로 'another'가 없다. 동작은 fireEvent가 같은 배치로 죽는 유닛(_dyingBatch, 자기 자신 포함)을 리스너에서 제외하므로 결과적으로 'another'와 같다 — 표시(원문·번역)만 차이.",
+  "evidence": [
+   "client/web/js/engine.js:2823",
+   "client/web/js/cardscripts.js:92",
+   "tools/data/rules-2026-07-16.txt:3311-3313"
+  ],
+  "mismatch": "uncertain",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "오라클 확인 후 cards.js 원문·번역을 'another friendly unit'/'다른 아군 유닛'으로 갱신(동작 변경 불필요).",
+  "_g": "cards/3"
+ },
+ {
+  "n": 194,
+  "ko": "녹턴 - 공포",
+  "name": "Nocturne - Horrifying",
+  "ruling_ids": [],
+  "source": "card-text",
+  "expected": "DB 영문 원문: \"When you look at cards from the top of your deck (and don't draw them) and see me, you may play me for :rb_rune_rainbow:.\" — 추방(banish) 문구 없음.",
+  "sim_behavior": "한글 번역은 \"나를 추방할 수 있다. 그렇게 했다면 ✳를 지불하고 플레이할 수 있다\"로 두 단계(추방→플레이)를 서술해 영문과 다르다. 동작(nocturneOffer: 본 카드 목록에서 빼고 ✳ 지불 후 playCardByEffect)은 결과적으로 같지만 표시 텍스트가 원문과 어긋난다. 어느 쪽이 최신 인쇄 문구인지는 확인하지 못했다.",
+  "evidence": [
+   "client/web/js/engine.js:1849-1860"
+  ],
+  "mismatch": "uncertain",
+  "category": "other",
+  "impact": "low",
+  "suggested_fix": "최신 카드 문구를 확인해 영문·한글 중 한쪽을 맞춘다.",
+  "_g": "cards/5"
+ }
+]

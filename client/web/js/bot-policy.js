@@ -2012,7 +2012,7 @@ function polAbLegal(p, c){
   } else if(G.turn !== p || G.phase !== 'action'){
     if(!ab.reaction) return false;   // [반응] 능력은 중립 닫힌 상태(상대 턴 응수 창)에서도 가능 (룰 309.2)
   }
-  if(ab.legion && !(P.playedCards >= 1)) return false;
+  if(ab.legion && !legionOKFor(p, c.src)) return false;   // '다른 카드' 기준(engine legionOKFor) — 이 턴에 낸 발동원 자신은 제외
   if(ab.onlyAtBf && c.src.kind === 'unit' && c.src.u.loc === 'base') return false;
   if(typeof abilityHasTargets === 'function' && !abilityHasTargets(p, c.src, ab)) return false;   // 대상 없으면 발동 불가 (404 — 엔진 preTargetAbility와 같은 판단)
   // 봇은 효과가 없는 추가 버프를 피한다. 사람은 경고를 확인한 뒤 규칙상 적법한 대상을 유지할 수 있다.

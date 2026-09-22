@@ -235,7 +235,8 @@ function parseOp(s){
 
 // ---------- 트리거 접두 판별 ----------
 const TRIGGER_PATTERNS = [
-  { re:/^When you play me(?: to a battlefield)?,\s*/i, ev:'onPlay' },
+  { re:/^When you play me to a battlefield,\s*/i, ev:'onPlay', cond:ctx=>ctx.bfIdx!==null&&ctx.bfIdx!==undefined },   // 기지 플레이엔 격발 없음(블리츠크랭크 67)
+  { re:/^When you play me,\s*/i, ev:'onPlay' },
   { re:/^When you play me here,\s*/i, ev:'onPlay' },
   { re:/^When I die,\s*/i, ev:'onDeath' },
   { re:/^When I conquer(?: after an attack)?,\s*/i, ev:'onConquer' },
@@ -344,15 +345,15 @@ function compileCard(c){
     }
 
     // 트리거 접두
-    let matchedTrig = null;
+    let matchedTrig = null, matchedCond = null;
     for(const tp of TRIGGER_PATTERNS){
       const mm = body.match(tp.re);
-      if(mm){ matchedTrig = tp.ev; body = body.slice(mm[0].length); break; }
+      if(mm){ matchedTrig = tp.ev; matchedCond = tp.cond || null; body = body.slice(mm[0].length); break; }
     }
 
     if(matchedTrig){
       const ops = parseOpsSeq(body);
-      if(ops) pushTrig(fx, matchedTrig, {ops, legion});
+      if(ops) pushTrig(fx, matchedTrig, matchedCond ? {ops, legion, cond:matchedCond} : {ops, legion});
       else fx.manual.push(cl);
       continue;
     }
