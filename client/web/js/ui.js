@@ -887,8 +887,9 @@ function boardChainView(){
   return _showdownChainView;
 }
 function canPassReaction(){
+  // 응수 창은 결전 종료 처리 중(정복 격발, G.state는 아직 'showdown')에도 열린다 — 상태로 막으면 패스가 안 돼 갇힌다(제보 2026-09-22: 불굴의 정신)
   return !!(_reactionPick && _boardCardPick && _resolver && G && G.winner===null
-    && G.state!=='showdown' && (!NET.online || _reactionPick.p===NET.seat));
+    && (!NET.online || _reactionPick.p===NET.seat));
 }
 function toggleBoardChain(){
   const view=boardChainView();
