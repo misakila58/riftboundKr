@@ -577,16 +577,29 @@ function liveLocalPrompt(){
   return !!_resolver || UI.unitSelectionPending || UI.placementPending || !!UI.spellStage || !!UI.spellStageSubmitting
     || document.getElementById('modal-overlay')?.style.display!=='none' || !!document.getElementById('placement-overlay');
 }
-// 온라인에서 라우팅 선택(routedPick)이 살아 있으면 반드시 (내 좌석) 로컬 프롬프트가 떠 있거나 (어느 좌석이든) 서버 응답을
-// 기다리는 NET.pendingChoices 항목이 있다. 둘 다 없는데 _turnGlowPick만 남아 있으면 낡은 표식이다 — 그대로 두면
-// isPicking()이 영원히 참이라 패스·턴 종료 버튼이 잠긴다(제보 2026-09-23: 떠돌이 상인 점령 뒤 패스 불가). 지우고 계속 진행한다.
-// 봇전·핫시트는 봇의 지연 선택이 표식 없이 진행될 수 있어 손대지 않는다.
+// 온라인에서 게임 선택은 전부 NET.choice 안에서 돈다: 내 좌석의 로컬 프롬프트(_resolver·보드 선택·배치 선택)든 상대 좌석 대기든,
+// 살아 있는 동안은 반드시 서버 응답을 기다리는 NET.pendingChoices 항목이 있다(등록이 프롬프트보다 먼저, 삭제는 응답 도착 때).
+// 그 항목이 하나도 없는데 선택 표식(_turnGlowPick·_resolver·unitSelectionPending·placementPending)만 남아 있으면 낡은 표식이다 —
+// 그대로 두면 isPicking()이 영원히 참이라 패스·턴 종료가 잠기고 손패 클릭은 "진행 중인 선택을 먼저 완료하세요"로 막힌다
+// (제보 2026-09-23: 떠돌이 상인 점령 뒤 패스 불가·주문도 안 나감). 지우고 계속 진행한다.
+// 봇전·핫시트는 봇의 지연 선택이 표식 없이 진행될 수 있어 손대지 않는다. 모달(항복 확인 등)은 선택 밖에서도 쓰므로 건드리지 않는다.
 function healStaleRoutedPicks(){
-  if(!NET.online || !_turnGlowPick || _turnGlowPick.game!==G) return false;
-  if(liveLocalPrompt() || Object.keys(NET.pendingChoices||{}).length) return false;
-  console.warn('stale routed pick cleared', {p:_turnGlowPick.p, pending:_pendingRoutedPicks.size, state:G.state, acting:G.actingPlayer});
+  if(!NET.online || !G || G.winner!==null) return false;
+  if(Object.keys(NET.pendingChoices||{}).length) return false;
+  const glow=!!(_turnGlowPick && _turnGlowPick.game===G);
+  const local=!!_resolver || UI.unitSelectionPending || UI.placementPending;
+  if(!glow && !local) return false;
+  console.warn('stale pick state cleared', {glow, resolver:!!_resolver, unitSel:UI.unitSelectionPending, placement:UI.placementPending,
+    reaction:!!_reactionPick, pending:_pendingRoutedPicks.size, state:G.state, acting:G.actingPlayer, seat:NET.seat});
   for(const x of [..._pendingRoutedPicks]) if(x.game===G) _pendingRoutedPicks.delete(x);
   _turnGlowPick=[..._pendingRoutedPicks].filter(x=>x.game===G).pop()||null;
+  if(local){
+    _resolver=null; _boardCardPick=null; _pickableUids=null; _reactionPick=null;
+    UI.unitSelectionPending=false; UI.placementPending=false;
+    document.getElementById('placement-overlay')?.remove();
+    clearPicking();
+    try{ UI.render(); UI.promptForState(); }catch(e){}
+  }
   updateTurnGlow();
   return true;
 }
@@ -626,6 +639,7 @@ UI.canShowdownPass = ()=>{
 };
 // 선택창을 닫고 보드를 보여 주는 동안 다른 메뉴가 선택 안내를 덮지 않게 한다.
 document.addEventListener('click',e=>{
+  healStaleRoutedPicks();   // 낡은 선택 표식이 클릭을 삼키지 않게 먼저 지운다 (제보 2026-09-23: 손패 클릭이 먹통)
   if(UI.spellStage && e.target.closest('#spell-stage,#btn-endturn')) return;
   if(!UI.unitSelectionPending || e.target.closest('#prompt-area,#reaction-chain,#aurora-reveal,#card-zoom,#chain-overlay,#ctx-menu,.bf-scroll')) return;
   if(_suppressClick) return; // 롱프레스 정보 보기 뒤에 따라오는 클릭은 아래 전용 리스너가 막는다.
@@ -2384,6 +2398,7 @@ function onHandClick(p, idx, e){
   if(e.altKey) return;              // Alt+클릭은 카드 확대 전용
   if(UI.spellStage || UI.spellStageSubmitting) return;
   e.stopPropagation();              // 메뉴를 연 클릭이 document 닫기 리스너로 버블링되는 것 방지
+  healStaleRoutedPicks();           // 낡은 선택 표식이면 지우고 손패를 연다 (제보 2026-09-23: "주문도 안 들어감")
   if(_resolver){ UI.toast('진행 중인 선택을 먼저 완료하세요','warn'); return; }
   if(NET.online && p!==NET.seat) return; // 상대 손패는 비공개
   const n=G.players[p].hand[idx];
