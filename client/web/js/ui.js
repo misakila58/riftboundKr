@@ -116,6 +116,7 @@ setInterval(()=>{
   try{
     if(typeof G==='undefined' || !G || G.winner!==null || replayLock()) return;
     if(document.getElementById('game-screen')?.style.display==='none') return;
+    healStaleRoutedPicks();   // 낡은 선택 표식 자가 복구는 여기(타이머)와 클릭 핸들러에서만
     const btnPass=document.getElementById('btn-pass'), btnEnd=document.getElementById('btn-endturn');
     if(!btnPass || !btnEnd) return;
     const inSd=G.state==='showdown' && !!G.showdown;
@@ -493,7 +494,7 @@ UI.renderSelectedTargets=function(){
   }
 };
 async function routedPick(p, interactiveFn, serialize, deserialize){
-  const pick={game:G,p};
+  const pick={game:G,p,at:Date.now()};
   _pendingRoutedPicks.add(pick);
   _turnGlowPick=pick;
   updateTurnGlow();
@@ -585,9 +586,13 @@ function liveLocalPrompt(){
 // 그대로 두면 isPicking()이 영원히 참이라 패스·턴 종료가 잠기고 손패 클릭은 "진행 중인 선택을 먼저 완료하세요"로 막힌다
 // (제보 2026-09-23: 떠돌이 상인 점령 뒤 패스 불가·주문도 안 나감). 지우고 계속 진행한다.
 // 봇전·핫시트는 봇의 지연 선택이 표식 없이 진행될 수 있어 손대지 않는다. 모달(항복 확인 등)은 선택 밖에서도 쓰므로 건드리지 않는다.
+// 주의: 엔진 흐름 안(updateButtons/can*)에서 부르면 안 된다 — routedPick은 NET.choice 등록 전에 버튼을 갱신하므로 그 순간엔 '대기 없음'으로 보인다
+// (1.0.91에서 그렇게 불러 온라인 손패 선택이 전부 손패 메뉴로 새던 회귀). 감시 타이머·클릭 핸들러에서만, 막 시작한 선택은 유예한다.
 function healStaleRoutedPicks(){
   if(!NET.online || !G || G.winner!==null) return false;
   if(Object.keys(NET.pendingChoices||{}).length) return false;
+  const now=Date.now();
+  if([..._pendingRoutedPicks].some(x=>x.game===G && now-(x.at||0)<1500)) return false;   // 등록 직전/직후의 정상 선택
   const glow=!!(_turnGlowPick && _turnGlowPick.game===G);
   const local=!!_resolver || UI.unitSelectionPending || UI.placementPending;
   if(!glow && !local) return false;
@@ -627,14 +632,12 @@ function localControlsPlayer(p){
   return !(typeof botIs==='function' && botIs(p));
 }
 UI.canEndTurn = ()=>{
-  healStaleRoutedPicks();
   return !!(G && G.winner===null && G.phase==='action' && G.state==='neutral'
     && !G._endingTurn && G.turn===G.actingPlayer && !pendingCombatMove()
     && !UI.isPicking() && localControlsPlayer(G.turn));
 };
 UI.canShowdownPass = ()=>{
   const sd=G?.showdown;
-  healStaleRoutedPicks();
   return !!(G && G.winner===null && G.state==='showdown' && sd
     && !sd.resolvingItem && !sd.finalizingTriggers && !sd.pendingTriggers?.length
     && !UI.isPicking() && localControlsPlayer(G.actingPlayer));
