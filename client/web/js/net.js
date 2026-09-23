@@ -172,7 +172,11 @@ NET._pump = async function(){
       if(!NET._authorized(a, seat)){ console.warn('rejected unauthorized action', a, 'seat', seat); updateButtons(); continue; }
       await NET._execAction(a);
     }
-    catch(e){ console.error('action error', a, e); UI.toast('동기화 오류: '+e.message,'warn'); }
+    catch(e){
+      console.error('action error', a, e); UI.toast('동기화 오류: '+e.message,'warn');
+      // 행동 도중 예외가 나면 화면이 중간 상태로 남는다 — 지금 상태로 다시 그려 버튼·안내가 잠기지 않게 한다
+      try{ UI.render(); UI.promptForState(); }catch(e2){}
+    }
   }
   NET.processing = false;
 };
@@ -263,7 +267,8 @@ NET.dispatch = function(action, localFn){
     UI.toast('지금은 턴을 종료할 수 없습니다','warn'); return;
   }
   if(action.k==='pass' && UI.canShowdownPass && !UI.canShowdownPass()){
-    UI.toast('지금은 패스할 수 없습니다','warn'); return;
+    const why=UI.passBlockReason?.();
+    UI.toast('지금은 패스할 수 없습니다'+(why?' — '+why:''),'warn'); return;
   }
   if(NET.online){
     if(action.k==='play' && action.opts?.stageSpell){
@@ -301,7 +306,12 @@ NET._resolveChoice = function(m){
   const pc = NET.pendingChoices[m.id];
   if(!pc){ if(typeof m.id==='number') NET.earlyChoices[m.id]=m; return; }
   // 선택 응답은 반드시 그 선택을 요구받은 좌석에서만 와야 함 (상대 선택 가로채기 차단)
-  if(typeof m.seat === 'number' && m.seat !== pc.p){ console.warn('rejected choice from wrong seat', m); return; }
+  if(typeof m.seat === 'number' && m.seat !== pc.p){
+    // 두 클라이언트의 선택 순번이 어긋난 상태 — 조용히 버리면 게임이 영원히 멈춘다. 알려서 제보할 수 있게 한다
+    console.warn('rejected choice from wrong seat', m, 'expected seat', pc.p);
+    UI.toast('동기화 오류: 선택 응답 순서가 어긋났습니다 (상대와 앱 버전이 다르거나 연결 문제) — 이 대전은 이어가기 어려울 수 있습니다','warn');
+    return;
+  }
   delete NET.pendingChoices[m.id];
   pc.res(pc.deserialize(m.data));
   // 기다리던 선택이 끝났으니 안내를 지금 상태에 맞게 되돌린다.

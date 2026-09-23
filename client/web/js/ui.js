@@ -108,7 +108,28 @@ UI.promptShowdown = function(){
   // 결전 상태에서 열린 응수 창(정복 격발·결전 종료 처리 중)에서는 '패스'(턴 종료 자리) 버튼이 응수 패스다 — 숨기면 패스할 길이 없어 갇힌다(제보 2026-09-22)
   document.getElementById('btn-pass').style.display=_reactionPick?'none':'';
   document.getElementById('btn-endturn').style.display=_reactionPick?'':'none';
+  updateButtons();   // 안내를 새로 그릴 때마다 패스 버튼의 활성 상태도 지금 상태로 맞춘다 (렌더 예외로 버튼만 낡은 채 남지 않게)
 };
+// 버튼 상태 감시: 렌더 도중 예외가 나거나 표식이 낡아 버튼만 잠긴 채 남으면 사람이 아무것도 못 한다 —
+// 실제 상태와 어긋난 패스/턴 종료 버튼을 주기적으로 되맞춘다 (표시 여부 포함). 상태 계산은 위의 can* 함수가 한다.
+setInterval(()=>{
+  try{
+    if(typeof G==='undefined' || !G || G.winner!==null || replayLock()) return;
+    if(document.getElementById('game-screen')?.style.display==='none') return;
+    const btnPass=document.getElementById('btn-pass'), btnEnd=document.getElementById('btn-endturn');
+    if(!btnPass || !btnEnd) return;
+    const inSd=G.state==='showdown' && !!G.showdown;
+    const passDisp=(inSd && !_reactionPick)?'':'none';
+    const endDisp=(inSd && !_reactionPick && !UI.spellStage)?'none':'';
+    const canPass=UI.canShowdownPass(), canEnd=UI.canEndTurn(), reactionPass=canPassReaction();
+    const stale=(btnPass.style.display!==passDisp) || (btnEnd.style.display!==endDisp)
+      || (btnPass.disabled===canPass) || (!UI.spellStage && btnEnd.disabled===(reactionPass||canEnd));
+    if(!stale) return;
+    console.warn('button state resynced', {passDisp, endDisp, canPass, canEnd, reactionPass});
+    btnPass.style.display=passDisp; btnEnd.style.display=endDisp;
+    updateButtons();
+  }catch(e){}
+}, 800);
 
 // ---------- 체인 보기 (게임 선택/온라인 응답과 독립적인 정보창) ----------
 let _chainReturnFocus=null;
@@ -551,15 +572,54 @@ let _pickableUids = null;
 UI.isPicking = ()=>!!_resolver || UI.unitSelectionPending || UI.placementPending
   || !!UI.spellStage || !!UI.spellStageSubmitting
   || !!(_turnGlowPick && _turnGlowPick.game===G);
+// 지금 이 화면에서 실제로 답을 기다리는 프롬프트가 있는가 (보드 선택·배치·주문 준비·모달)
+function liveLocalPrompt(){
+  return !!_resolver || UI.unitSelectionPending || UI.placementPending || !!UI.spellStage || !!UI.spellStageSubmitting
+    || document.getElementById('modal-overlay')?.style.display!=='none' || !!document.getElementById('placement-overlay');
+}
+// 온라인에서 라우팅 선택(routedPick)이 살아 있으면 반드시 (내 좌석) 로컬 프롬프트가 떠 있거나 (어느 좌석이든) 서버 응답을
+// 기다리는 NET.pendingChoices 항목이 있다. 둘 다 없는데 _turnGlowPick만 남아 있으면 낡은 표식이다 — 그대로 두면
+// isPicking()이 영원히 참이라 패스·턴 종료 버튼이 잠긴다(제보 2026-09-23: 떠돌이 상인 점령 뒤 패스 불가). 지우고 계속 진행한다.
+// 봇전·핫시트는 봇의 지연 선택이 표식 없이 진행될 수 있어 손대지 않는다.
+function healStaleRoutedPicks(){
+  if(!NET.online || !_turnGlowPick || _turnGlowPick.game!==G) return false;
+  if(liveLocalPrompt() || Object.keys(NET.pendingChoices||{}).length) return false;
+  console.warn('stale routed pick cleared', {p:_turnGlowPick.p, pending:_pendingRoutedPicks.size, state:G.state, acting:G.actingPlayer});
+  for(const x of [..._pendingRoutedPicks]) if(x.game===G) _pendingRoutedPicks.delete(x);
+  _turnGlowPick=[..._pendingRoutedPicks].filter(x=>x.game===G).pop()||null;
+  updateTurnGlow();
+  return true;
+}
+// 패스가 막힌 이유(토스트·콘솔용). 막히지 않았으면 null.
+UI.passBlockReason = ()=>{
+  const sd=G?.showdown;
+  if(!G || G.winner!==null) return '게임이 끝났습니다';
+  if(G.state!=='showdown' || !sd) return '결전 중이 아닙니다';
+  if(sd.resolvingItem) return '체인 항목을 해결하는 중입니다';
+  if(sd.finalizingTriggers || sd.pendingTriggers?.length) return '전투 격발을 정리하는 중입니다';
+  if(!localControlsPlayer(G.actingPlayer)) return pname(G.actingPlayer)+'의 차례입니다';
+  if(UI.spellStage || UI.spellStageSubmitting) return '준비 중인 주문을 먼저 확인하거나 되돌려 주세요';
+  if(UI.placementPending) return '배치 위치 선택을 먼저 마쳐 주세요';
+  if(_resolver || UI.unitSelectionPending) return '진행 중인 선택을 먼저 완료해 주세요';
+  if(NET.online && Object.keys(NET.pendingChoices||{}).length){
+    const w=Object.values(NET.pendingChoices)[0]; return (w && w.p!==NET.seat ? pname(w.p)+'의 선택을 기다리는 중입니다' : '선택 응답을 기다리는 중입니다');
+  }
+  if(_turnGlowPick && _turnGlowPick.game===G) return '선택 처리가 끝나기를 기다리는 중입니다';
+  return null;
+};
 function localControlsPlayer(p){
   if(NET.online) return p===NET.seat;
   return !(typeof botIs==='function' && botIs(p));
 }
-UI.canEndTurn = ()=>!!(G && G.winner===null && G.phase==='action' && G.state==='neutral'
-  && !G._endingTurn && G.turn===G.actingPlayer && !pendingCombatMove()
-  && !UI.isPicking() && localControlsPlayer(G.turn));
+UI.canEndTurn = ()=>{
+  healStaleRoutedPicks();
+  return !!(G && G.winner===null && G.phase==='action' && G.state==='neutral'
+    && !G._endingTurn && G.turn===G.actingPlayer && !pendingCombatMove()
+    && !UI.isPicking() && localControlsPlayer(G.turn));
+};
 UI.canShowdownPass = ()=>{
   const sd=G?.showdown;
+  healStaleRoutedPicks();
   return !!(G && G.winner===null && G.state==='showdown' && sd
     && !sd.resolvingItem && !sd.finalizingTriggers && !sd.pendingTriggers?.length
     && !UI.isPicking() && localControlsPlayer(G.actingPlayer));
@@ -3151,7 +3211,12 @@ window.addEventListener('DOMContentLoaded', ()=>{
   };
   document.getElementById('btn-pass').onclick=()=>{
     if(_reactionPick){ if(canPassReaction()) _boardCardPick.finish(_reactionPick.passIndex); return; }   // 응수 창이 열려 있으면 결전 패스 버튼도 응수 패스
-    if(!UI.canShowdownPass()) return;
+    if(!UI.canShowdownPass()){
+      const why=UI.passBlockReason();
+      console.warn('pass blocked', why, {state:G?.state, acting:G?.actingPlayer, seat:NET.seat, sd:G?.showdown&&{chain:G.showdown.chain.length,passes:G.showdown.passes,ri:G.showdown.resolvingItem,ft:G.showdown.finalizingTriggers,pt:G.showdown.pendingTriggers?.length}, picking:UI.isPicking(), pending:Object.keys(NET.pendingChoices||{})});
+      if(why) UI.toast('지금은 패스할 수 없습니다 — '+why,'warn');
+      return;
+    }
     NET.dispatch({k:'pass'}, ()=>showdownPass());
   };
   document.getElementById('btn-settings').onclick=openSystemMenu;
