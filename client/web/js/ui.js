@@ -504,6 +504,7 @@ async function routedPick(p, interactiveFn, serialize, deserialize){
       return await UI.routeSpellStagePick(draft,interactiveFn,serialize,deserialize);
     }
     const preparation=[..._chainSoundPreparations].some(x=>x.game===G && x.p===p);
+    NET._nextChoiceLabel=UI._choiceLabel||null; UI._choiceLabel=null;   // 상대 화면 "선택 대기 중 — 무엇" 표시용
     const result=!NET.online ? await interactiveFn() : await NET.choice(p, interactiveFn, serialize, deserialize);
     if(preparation && pick.game===G && G.winner===null && result!==null && result!==undefined && localControlsPlayer(p))
       UI.playSpellStageSound?.('target');
@@ -522,6 +523,7 @@ UI.unitSelectionPending=false;
 // 항복·채팅·👁 보드 보기 등 아무것도 누를 수 없다 (routedPick은 상대 좌석이면 NET.choice로 결과만 기다린다).
 function lockUnitSelection(p){ UI.unitSelectionPending = !(NET.online && p!==NET.seat); }
 UI.pickUnitFrom = async function(p, candidates, promptText, optional){
+  UI._choiceLabel=promptText;
   if(!candidates.length) return Promise.resolve(null);
   lockUnitSelection(p);
   try{
@@ -729,6 +731,7 @@ function _pickCardOptionLocal(p,title,options,targets,cancel=true){
   });
 }
 async function pickCardOption(p,title,options,targets,cancel=true){
+  UI._choiceLabel=title;
   lockUnitSelection(p);
   try{
     const idx=await routedPick(p,()=>_pickCardOptionLocal(p,title,options,targets,cancel),v=>v,v=>v);
@@ -740,6 +743,7 @@ async function pickCardOption(p,title,options,targets,cancel=true){
 // 같은 시점에 생긴 여러 효과의 해결 순서를 보드 카드에서 한 번에 정한다.
 // 선택한 카드를 다시 누르면 해제되며, 숫자는 먼저 해결할 순서다.
 UI.pickBoardOrder = async function(p,title,options,targets){
+  UI._choiceLabel=title;
   if(options.length<2) return options.map((_,i)=>i);
   UI.unitSelectionPending=!(NET.online && p!==NET.seat);
   try{
@@ -748,10 +752,11 @@ UI.pickBoardOrder = async function(p,title,options,targets){
       while(true){
         const choices=options.map((o,i)=>({...o,v:i}));
         if(selected.length===options.length) choices.push({v:'done',label:'이 순서로 확정'});
+        else choices.push({v:'default',label:selected.length?'나머지는 기본 순서로 진행':'순서 안 고르고 이대로 진행'});   // 순서를 몰라 멈추지 않게 (기본: 목록 순)
         if(selected.length) choices.push({v:'reset',label:'순서 초기화'});
         const choiceTargets=choices.map((_,i)=>i<options.length?targets[i]:null);
         const pending=_pickCardOptionLocal(p,
-          `${title} — 카드를 순서대로 누르세요 (${selected.length}/${options.length})`,choices,choiceTargets,false);
+          `${title} — 강조된 카드를 먼저 해결할 순서대로 누른 뒤 확정하거나, 아래 버튼으로 바로 진행하세요 (${selected.length}/${options.length})`,choices,choiceTargets,false);
         selected.forEach((optionIndex,orderIndex)=>{
           const el=boardCardElement(targets[optionIndex]); if(!el) return;
           el.classList.add('selected');
@@ -763,6 +768,7 @@ UI.pickBoardOrder = async function(p,title,options,targets){
         if(picked===null) continue;
         const choice=choices[picked].v;
         if(choice==='done') return selected;
+        if(choice==='default') return [...selected, ...options.map((_,i)=>i).filter(i=>!selected.includes(i))];
         if(choice==='reset'){selected.length=0;continue;}
         const at=selected.indexOf(choice);
         if(at>=0) selected.splice(at,1); else selected.push(choice);
@@ -792,6 +798,7 @@ function cardifyInto(el, text){
 
 // 옵션 선택 (인덱스 기반 동기화)
 UI.pickOption = function(p, title, options, boardPick=false){
+  UI._choiceLabel=title;
   if(boardPick==='placement') return pickPlacementOption(p,title,options);
   if(boardPick==='movement') return pickPlacementOption(p,title,options,true);
   if(boardPick==='battlefield') return pickPlacementOption(p,title,options,false,'선택');
@@ -817,6 +824,7 @@ UI.pickOption = function(p, title, options, boardPick=false){
 // 위치 선택도 기존 옵션 인덱스로 동기화한다. 보드 위 버튼은 표시와 입력만 담당한다.
 UI.placementPending=false;
 async function pickPlacementOption(p,title,options,movement=false,verb='배치'){
+  UI._choiceLabel=title;
   UI.placementPending=true;
   let dispose=()=>{};
   try{
@@ -1096,6 +1104,7 @@ function renderReactionChain(){
   UI.renderSelectedTargets?.();
 }
 UI.pickReaction = async function(p, title, options){
+  UI._choiceLabel='응수 여부';
   lockUnitSelection(p);
   try{
     const idx=await routedPick(p,()=>{
@@ -1115,6 +1124,7 @@ UI.pickReaction = async function(p, title, options){
 
 // 확인 (예/아니오)
 UI.confirmP = function(p, text, previewCard, context){
+  UI._choiceLabel=text;
   if(context?.boardCard) return confirmBoardCard(p,text,previewCard,context.boardCard);
   return routedPick(p, ()=>_confirmLocal(p,text,previewCard,context), v=>v, v=>v);
 };
@@ -1174,6 +1184,7 @@ function _confirmLocal(p, text, previewCard, context){
 
 // 숫자 선택
 UI.pickNumber = function(p, text, min, max){
+  UI._choiceLabel=text;
   return routedPick(p, ()=>_pickNumberLocal(p,text,min,max), v=>v, v=>v);
 };
 function _pickNumberLocal(p, text, min, max){
@@ -1266,6 +1277,7 @@ UI.pickHandCard = function(p, title){
     G.players[p].hand.map((_,i)=>({kind:'hand',p,index:i})),false);
 };
 UI.pickBuffs = async function(p,title,candidates){
+  UI._choiceLabel=title;
   lockUnitSelection(p);
   try{
     return await routedPick(p,async()=>{
@@ -1382,6 +1394,7 @@ function markModalDismissable(){ document.getElementById('modal-overlay').datase
 
 // 멀리건: 교체할 카드 다중 선택 (게임 시작 시)
 UI.pickMulligan = function(p){
+  UI._choiceLabel='멀리건';
   return routedPick(p, ()=>_pickMulliganLocal(p), v=>v, v=>v);
 };
 function _pickMulliganLocal(p){

@@ -290,6 +290,7 @@ NET.dispatch = function(action, localFn){
 //  - 상대 좌석이면 "상대 선택 중..." 표시 후 대기
 NET.choice = function(p, interactiveFn, serialize, deserialize){
   const id = ++NET.choiceSeq;
+  const label0=NET._nextChoiceLabel||null; NET._nextChoiceLabel=null;   // routedPick이 넘긴 라벨 — 이 선택 한 번만 쓴다
   const pr = new Promise(res=>{ NET.pendingChoices[id] = { res, deserialize, p }; });
   // 관전자가 진행 중인 게임을 따라잡을 때는 선택 응답이 엔진이 묻기 전에 먼저 와 있다 — 그걸 바로 쓴다
   if(NET.earlyChoices[id]){ const early=NET.earlyChoices[id]; delete NET.earlyChoices[id]; queueMicrotask(()=>NET._resolveChoice(early)); return pr; }
@@ -298,7 +299,8 @@ NET.choice = function(p, interactiveFn, serialize, deserialize){
   } else {
     // 게임 시작 전(Bo3 전장 선택 등)에는 G가 없을 수 있다 — 시작 메시지의 이름으로 대신한다
     const nm=(typeof G!=='undefined'&&G&&G.players&&G.players[p])?pname(p):(NET.lastStart?.players?.[p]?.id||'상대');
-    UI.prompt(`⏳ ${nm} 선택 대기 중...`);
+    const label=String(label0||'').replace(/\s+/g,' ').trim();   // 무엇을 고르는 중인지 — 멈춘 게 아니라는 걸 알 수 있게
+    UI.prompt(`⏳ ${nm} 선택 대기 중${label?' — '+(label.length>48?label.slice(0,47)+'…':label):'...'}`);
   }
   return pr;
 };
