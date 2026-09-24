@@ -111,10 +111,11 @@ function makeUnit(n, ctrl, opts={}){
     dmg:0, buff:0, tempM:[], grants:{}, stunned:false,
     gear:[], isToken:opts.isToken||false,
     tokenMight:opts.tokenMight, tokenName:opts.tokenName,
+    tokenImg:opts.tokenImg || (opts.isToken && typeof tokenImg==='function' ? tokenImg(opts.tokenName, opts.tokenTags) : undefined),   // 공식 토큰 카드 일러스트(loc.js TOKEN_IMG) — 출처 카드 태그로 지역판 선택
     turnPlayed:G.turnCount,
   };
 }
-function unitCard(u){ return u.isToken ? {n:0,name:u.tokenName,ko:u.tokenName,type:'Unit',m:u.tokenMight,dom:[],tags:[],text:'',tko:'',img:''} : card(u.n); }
+function unitCard(u){ return u.isToken ? {n:0,name:u.tokenName,ko:u.tokenName,type:'Unit',m:u.tokenMight,dom:[],tags:[],text:'',tko:'',img:u.tokenImg||''} : card(u.n); }
 function unitName(u){ return u.isToken ? (u.tokenName==='Recruit'?'신병 토큰':u.tokenName+' 토큰') : card(u.n).ko; }
 // 목록에서 유닛을 고를 때 어디에 있는 유닛인지 함께 보여준다 —
 // 같은 이름이 기지와 전장에 하나씩 있으면 이름만으로는 구분할 수 없다.
@@ -787,6 +788,8 @@ async function mulliganPhase(){
   await decideFirstPlayer();
   if(UI.finishSetup) UI.finishSetup();
   if(setupStage && UI.setSetupStage) UI.setSetupStage(false);
+  // 단판(Bo1) 변형 시작 절차(대회 규정 406.1.f): 전장 공개·선후공 결정 뒤, 손패를 뽑기 전에 사이드보딩 — 온라인만 (UI.sideboardStep이 Bo3면 스스로 건너뜀)
+  if(G.reviewSetup && NET.online && typeof UI.sideboardStep==='function'){ await UI.sideboardStep(); if(G.winner!==null) return; }
   if(G.reviewSetup){
     G.players.forEach(p=>{ for(let i=0;i<4;i++) drawCard(p.idx,true); });
     G.reviewSetup=false;
@@ -3819,7 +3822,7 @@ async function execOpsInner(ops, ctx){
         if(TF().nextUnitReady[p]){ tokReady=true; TF().nextUnitReady[p]=false; }
         const madeTokens=[];
         for(let i=0;i<op.count;i++){
-          const u=makeUnit(0,p,{loc,isToken:true,tokenMight:op.might,tokenName:op.name,ready:tokReady});
+          const u=makeUnit(0,p,{loc,isToken:true,tokenMight:op.might,tokenName:op.name,ready:tokReady,tokenTags:(ctx.n!=null && card(ctx.n))?card(ctx.n).tags:[]});
           if(op.temp) u.grants.temporary=true;
           placeUnit(u,loc);
           madeTokens.push(u);

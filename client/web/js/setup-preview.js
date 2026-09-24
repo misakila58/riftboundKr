@@ -9,6 +9,8 @@ UI.finishSetup = function(){
   document.getElementById('game-screen').inert=view.wasInert;
 };
 const SETUP_DICE_PROTOCOL='setup-dice-1';
+// 주사위 연출 재생 배속 — 물리 계산은 그대로 두고 프레임을 이 배수로 빨리 넘긴다(결과 표시·정리 대기도 같이 짧아진다). 1.0.93부터 2배(요청 2026-09-24: 느리다)
+const SETUP_DICE_SPEED=2;
 function setupChoice(p,local){ return NET.online?NET.choice(p,local,v=>v,v=>v):local(); }
 function setupBot(p){ return typeof botIs==='function' && botIs(p); }
 function setupDelay(ms){ return new Promise(resolve=>setTimeout(resolve,ms)); }
@@ -164,12 +166,37 @@ UI.rollSetupDiceBoth = async function(d0,d1,round){
   view.button.hidden=true; view.instantButton.hidden=true;
   view.status.textContent=round>1?'무승부 — 다시 굴립니다':'선후공을 정하는 주사위를 굴립니다';
   view.hint.textContent='';
+  // 무승부 재굴림(round>1)은 물리 연출을 생략하고 결과만 보여 준다 (요청 2026-09-24). 눈은 이미 시드에서 정해져 있고
+  // 온라인 양쪽이 같은 round를 보므로 시작 시각 동기화 선택을 건너뛰어도 선택 순번은 어긋나지 않는다 — 완료 확인(finishSetupDice)은 그대로 둔다.
+  if(round>1){   // 무승부 재굴림: 연출 없이 결과만 (재접속 따라잡기는 아래 — 선택 순번을 원래 판과 맞춰야 한다)
+    UI.hideHover(); UI.hideZoom();
+    await finishSetupDice(view,(async()=>{
+      await setupDelay(NET.catchingUp?0:500);
+      if(view.events.signal.aborted) return false;
+      for(const [p,v] of [[0,d0],[1,d1]]){ const el=view.overlay.querySelector(`[data-seat="${p}"] .setup-roll-result`); if(el) el.textContent=v; }
+      view.overlay.dataset.stage='result';
+      await setupDelay(NET.catchingUp?0:900);
+      view.overlay.dataset.stage='finished-roll';
+      return !view.events.signal.aborted;
+    })());
+    return;
+  }
   let startsAt;
   if(NET.online){
     await setupSyncClock(view);
-    startsAt=await setupChoice(0,async()=>Date.now()+700);
+    startsAt=await setupChoice(0,async()=>Date.now()+400);   // 시작 전 여유(왕복 보정 뒤 양쪽 동시 시작)
     if(!Number.isFinite(startsAt)) throw new Error('Invalid dice start time');
-  } else startsAt=Date.now()+(round>1?300:900);
+  } else startsAt=Date.now()+(round>1?300:450);
+  // 재접속 따라잡기: 시계 동기화·시작 시각 선택은 원래 판과 똑같이 거쳐(로그의 선택 번호가 그 순서로 온다) 연출만 생략한다
+  if(NET.catchingUp){
+    UI.hideHover(); UI.hideZoom();
+    await finishSetupDice(view,(async()=>{
+      for(const [p,v] of [[0,d0],[1,d1]]){ const el=view.overlay.querySelector(`[data-seat="${p}"] .setup-roll-result`); if(el) el.textContent=v; }
+      view.overlay.dataset.stage='finished-roll';
+      return !view.events.signal.aborted;
+    })());
+    return;
+  }
   UI.hideHover(); UI.hideZoom();
   // 공통 시작 시각을 섞어 순서를 정한다. 게임 난수와 온라인 선택 순서는 그대로 유지한다.
   let orderSeed=(Math.trunc(startsAt)^Math.imul(round,1013904223))>>>0;
@@ -282,7 +309,7 @@ async function animateSetupDice(view,dice,startsAt){
     view.events.signal.addEventListener('abort',abort,{once:true});
     const paint=now=>{
       if(document.hidden || setupNow(view)<startsAt){UI.stopDiceAudio?.();previous=null;frame=requestAnimationFrame(paint);return;}
-      if(previous!==null) elapsed+=Math.min(100,now-previous);
+      if(previous!==null) elapsed+=Math.min(100,now-previous)*SETUP_DICE_SPEED;   // 배속 재생 (충돌음·둘째 주사위 지연·결과 대기 모두 sim 시간 기준이라 함께 빨라진다)
       previous=now;
       while(impactIndex<simulation.impacts.length && simulation.impacts[impactIndex].time<=elapsed){
         UI.playDiceImpact?.(simulation.impacts[impactIndex++]);
@@ -317,7 +344,7 @@ async function animateSetupDice(view,dice,startsAt){
     var hard=setTimeout(()=>{
       for(const {track} of stages){ const el=view.overlay.querySelector(`[data-seat="${track.p}"] .setup-roll-result`); if(el) el.textContent=track.value; }
       finish(true);
-    }, Math.max(0, startsAt-setupNow(view))+duration+1350+2500);
+    }, Math.max(0, startsAt-setupNow(view))+(duration+1350)/SETUP_DICE_SPEED+2500);
   });
 }
 

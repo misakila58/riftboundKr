@@ -26,6 +26,19 @@ const KEYWORDS_KO = {
 const KEYWORDS_EN = {};
 Object.entries(KEYWORDS_KO).forEach(([en,v])=>KEYWORDS_EN[v.ko]=en);
 
+// 토큰 유닛 일러스트 — 공식 토큰 카드(Origins 271~274)의 Riot CDN 이미지. 카드 이미지와 같은 경로라 로컬 캐시(imgmap)·CDN 폴백이 그대로 적용된다.
+// 신병은 출처 카드의 지역 태그로 고른다: 데마시아(271, Six More Vodka)·녹서스(272, Six More Vodka)·그 외 자운(273, Fortiche — 빅토르 계열이 가장 흔해 기본).
+const TOKEN_IMG = {
+  Recruit: { Demacia:'https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/7c3362dc6e6e6fb724ef31b061a44d2976f5b01f-744x1039.png?accountingTag=RB',
+             Noxus:'https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/c168ca334739090a060710dfc440982c3462ac8c-744x1039.png?accountingTag=RB',
+             default:'https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/d93ec9a524a2989b9d7ef23c6fc02e8ce39959c2-744x1039.png?accountingTag=RB' },
+  Sprite:  { default:'https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/055892752559d2d3d32e76f491a7a0b540e1a669-744x1039.png?accountingTag=RB' },
+};
+function tokenImg(name, tags){
+  const t=TOKEN_IMG[name]; if(!t) return '';
+  for(const tag of tags||[]) if(t[tag]) return t[tag];
+  return t.default||'';
+}
 const DOMAIN_KO = { Fury:'분노', Calm:'평정', Mind:'정신', Body:'신체', Order:'질서', Chaos:'혼돈', Colorless:'무색' };
 const DOMAIN_ICON = { Fury:'🔥', Calm:'🍃', Mind:'💠', Body:'💪', Order:'⚖️', Chaos:'🌀', Colorless:'⚪', Any:'✳️' };
 const DOMAIN_COLOR = { Fury:'#e06a4a', Calm:'#5ac88a', Mind:'#5a9de0', Body:'#e0a05a', Order:'#e8d88a', Chaos:'#b06ae0', Colorless:'#aab' };

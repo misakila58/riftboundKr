@@ -939,7 +939,7 @@ Object.assign(EXTRA_OPS, {
       if(sel!==null) loc=sel;
     }
     for(let i=0;i<op.count;i++){
-      const u=makeUnit(0, ctx.p, {loc, isToken:true, tokenMight:1, tokenName:'Recruit'});
+      const u=makeUnit(0, ctx.p, {loc, isToken:true, tokenMight:1, tokenName:'Recruit', tokenTags:(ctx.n!=null && card(ctx.n))?card(ctx.n).tags:[]});
       placeUnit(u, loc);
       await tokenPlayed(ctx.p, u);   // 토큰도 플레이된 유닛 — 오라 [통찰]·'유닛 플레이' 리스너 (룰 351.3, RiftJudge #5092)
     }

@@ -7,6 +7,13 @@ const NET = {
   spectating:false,         // 관전자: 좌석 없이(-1) 액션·선택을 받아 같은 게임을 그린다
   spectView:'both',         // 관전자가 손패를 보는 쪽: 'both' | 0 | 1 | 'none'
   onRooms:null, onStart:null, onErr:null, onOppLeft:null,
+  // 재접속: 연결이 끊긴 진행 중 대전에 같은 계정으로 다시 붙어 서버의 행동/선택 로그를 재생해 따라잡는다 (2026-09-24)
+  reconnecting:false,       // 끊김 뒤 재연결 시도 중 (행동 입력 차단)
+  catchingUp:false,         // 로그 재생으로 따라잡는 중 (연출 생략·입력 차단·핸드셰이크 전송 금지)
+  rejoined:false,           // 이번 게임은 재접속으로 이어받았다 (부분 기록이라 리플레이 공유 제외)
+  startPending:false,       // 재대결 신호로 새 게임 시작을 예약함 — newGame 전까지 행동 펌프 정지
+  leaving:false,            // 사용자가 방을 나가는 중 — 소켓 종료를 끊김으로 보지 않는다
+  oppAway:false,            // 상대 좌석이 끊겨 재접속 대기 중
 };
 
 // 방 입장·P2P·채팅 버전 확인에 쓰는 클라이언트 버전 문자열
@@ -61,21 +68,28 @@ NET.connect = function(){
   return new Promise((res,rej)=>{
     const ws = new WebSocket(NET.wsUrl());
     NET.ws = ws;
+    let authed=false;
     ws.onopen = ()=>ws.send(JSON.stringify({t:'auth',token:NET.token}));
+    ws.onerror = ()=>{ if(!authed) rej(new Error('서버에 연결할 수 없습니다')); };
     ws.onmessage = ev=>{
       const m = JSON.parse(ev.data);
       switch(m.t){
-        case 'authOk': res(); break;
+        case 'authOk': authed=true; res(); break;
         case 'authFail': rej(new Error('인증 실패 — 다시 로그인하세요')); break;
         case 'rooms': NET.onRooms && NET.onRooms(m.rooms); break;
         case 'roomCreated': NET.onRoomCreated && NET.onRoomCreated(m.room); break;
         case 'spectating': NET.onSpectating && NET.onSpectating(m.room); break;
         case 'start':
+          if(m.rejoin){ NET.catchingUp=true; NET.rejoined=true; NET.reconnecting=false; }   // 로그 재생 시작 — 끝은 rejoinDone
           NET.onStart && NET.onStart(m);
-          if(!m.spectate) NET._verSendCheck();   // 서버를 못 믿는 경로 대비: 채팅 채널로 클라끼리 버전 검증 (관전자는 제외)
+          if(!m.spectate && !m.rejoin) NET._verSendCheck();   // 서버를 못 믿는 경로 대비: 채팅 채널로 클라끼리 버전 검증 (관전자·재접속은 제외)
           break;
+        case 'rejoinDone': NET._enqueueAction({ action:{k:'_rejoinDone'}, seat:-1 }); break;   // 로그 뒤에 줄을 서서, 다 재생된 뒤 복귀 처리
+        case 'rejoinNone': NET._onRejoinNone(); break;
+        case 'opponentAway': NET.oppAway=true; UI.toast('상대 연결이 끊겼습니다 — 재접속을 기다립니다 (최대 2분)','warn'); UI.promptForState?.(); break;
+        case 'opponentBack': NET.oppAway=false; UI.toast('상대가 다시 접속했습니다'); UI.promptForState?.(); break;
         case 'err': NET.onErr && NET.onErr(m.msg); break;
-        case 'opponentLeft': NET.onOppLeft && NET.onOppLeft(); break;
+        case 'opponentLeft': NET.oppAway=false; NET.clearRejoinFlag(); NET.onOppLeft && NET.onOppLeft(); break;
         case 'chat':
           if(NET._verIntercept(m)) break;    // 버전 확인 메시지는 채팅으로 표시하지 않고 가로챈다
           NET.onChat && NET.onChat(m);
@@ -85,10 +99,12 @@ NET.connect = function(){
       }
     };
     ws.onclose = ()=>{
+      if(!authed){ rej(new Error('서버에 연결할 수 없습니다')); return; }
+      if(NET.ws!==ws) return;              // 이미 새 소켓으로 바뀐 옛 소켓
       if(!NET.online) return;
-      // 대전 중이었다면 조용히 두면 안 된다 — 보드는 그대로인데 어떤 행동도 전달되지 않는다.
-      // (서버가 재시작되면 방 자체가 사라지므로 이어서 둘 방법이 없다)
       const inGame = typeof G!=='undefined' && G && G.winner===null;
+      // 대전 중 끊김: 로비로 내보내지 않고 재접속을 시도한다 — 서버가 좌석을 2분 비워 두고(재시작 뒤 복원 포함) 로그를 다시 보내 준다
+      if(inGame && !NET.spectating && !NET.leaving){ NET.reconnect(); return; }
       NET.online = false;
       if(inGame){
         UI.prompt('⚠ 서버 연결이 끊어졌습니다 — 이 대전은 이어서 진행할 수 없습니다');
@@ -104,6 +120,44 @@ NET.connect = function(){
     };
   });
 };
+// ── 재접속 ──
+// 끊긴 뒤 2분까지 점점 간격을 늘려 다시 연결하고 rejoin을 보낸다. 서버는 start(rejoin)+행동/선택 로그+rejoinDone으로 답한다.
+NET.reconnect = async function(){
+  if(NET.reconnecting) return;
+  NET.reconnecting=true;
+  UI.prompt('⚠ 서버 연결이 끊어졌습니다 — 재접속 시도 중… (최대 2분, 그동안 상대는 기다립니다)');
+  const delays=[1000,2000,3000,5000], t0=Date.now(); let n=0;
+  while(Date.now()-t0 < 2*60*1000+15000){   // 서버 유예(2분)보다 조금 더 — 만료 뒤엔 rejoinNone으로 정리된다
+    await new Promise(r=>setTimeout(r, delays[Math.min(n++, delays.length-1)]));
+    if(!NET.reconnecting) return;                      // 그 사이 사용자가 나갔거나 복귀가 끝남
+    try{
+      await NET.connect();
+      NET.send({t:'rejoin'});
+      return;                                          // 이후 흐름은 start(rejoin)/rejoinNone 메시지가 이끈다
+    }catch(e){ UI.prompt(`⚠ 재접속 시도 중… (${n}회 실패, 계속 시도합니다)`); }
+  }
+  NET.reconnecting=false;
+  alert('서버에 다시 연결하지 못했습니다.\n\n로비로 돌아갑니다.');
+  location.reload();
+};
+NET._onRejoinNone = function(){
+  NET.clearRejoinFlag();
+  NET.reconnecting=false;
+  const inGame = typeof G!=='undefined' && G && G.winner===null && NET.online;
+  if(inGame){ alert('복귀할 대전이 없습니다 (상대가 나갔거나 대기 시간이 지났습니다).\n\n로비로 돌아갑니다.'); location.reload(); }
+  else UI.toast('복귀할 진행 중 대전이 없습니다');
+};
+// 로그 재생이 끝났다 — 연출·입력 잠금을 풀고 지금 상태에 맞는 안내로
+NET.finishCatchUp = function(){
+  if(!NET.catchingUp) return;   // 한 번만 (라이브 경계 감지와 rejoinDone 표식 둘 다 부른다)
+  NET.catchingUp=false; NET.reconnecting=false; NET.startPending=false;
+  try{ UI.render(); UI.promptForState(); }catch(e){}
+  UI.toast('진행 중이던 대전에 복귀했습니다');
+};
+// 새로고침·앱 재시작 뒤 자동 복귀용 표식 (기기 저장). 게임 시작 때 켜고, 방을 나가거나 상대가 나가면 끈다.
+NET.setRejoinFlag   = function(){ try{ localStorage.setItem('rb_rejoin', JSON.stringify({server:NET.base, at:Date.now()})); }catch(e){} };
+NET.clearRejoinFlag = function(){ try{ localStorage.removeItem('rb_rejoin'); }catch(e){} };
+NET.readRejoinFlag  = function(){ try{ return JSON.parse(localStorage.getItem('rb_rejoin')||'null'); }catch(e){ return null; } };
 // ── 클라이언트 간 버전 검증 (서버 무관) ──
 // 서버는 채팅을 그대로 릴레이하므로, 게임 시작 직후 채팅 채널로 버전 확인 메시지를 보낸다.
 // 신버전 클라는 이 메시지를 가로채 비교하고(화면에 안 보임), 구버전 클라는 채팅으로 그대로
@@ -165,9 +219,15 @@ NET._pump = async function(){
   if(NET.processing) return;
   NET.processing = true;
   while(NET.actionQueue.length){
+    // 재대결 신호로 새 게임 시작이 예약됐으면 newGame이 만들어질 때까지 기다린다 (그 전에 다음 행동을 실행하면 옛 게임에 적용된다)
+    while(NET.startPending) await new Promise(r=>setTimeout(r,20));
+    // 준비 단계(주사위·멀리건·시작 단계) 동안은 행동을 실행하지 않는다 — 재접속·관전 따라잡기에서 로그가 한꺼번에 오고,
+    // 평소에도 상대 클라이언트가 먼저 행동 단계에 들어가 행동을 보낼 수 있다
+    while(typeof G!=='undefined' && G && G.winner===null && !['action','ending'].includes(G.phase) && !NET.startPending) await new Promise(r=>setTimeout(r,50));
     // 턴 시작 연출이 끝날 때까지 큐를 멈추되, 연출이 어떤 이유로든 안 끝나도 3초 뒤엔 진행한다
     if(G?.phase==='turn-intro' && UI.turnIntroDone) await Promise.race([UI.turnIntroDone, new Promise(r=>setTimeout(r,3000))]);
     const { a, seat } = NET.actionQueue.shift();
+    if(a && a.k==='_rejoinDone'){ NET.finishCatchUp(); continue; }   // 로그 재생 완료 표식 (서버 rejoinDone)
     try {
       if(!NET._authorized(a, seat)){ console.warn('rejected unauthorized action', a, 'seat', seat); updateButtons(); continue; }
       await NET._execAction(a);
@@ -257,6 +317,7 @@ NET.dispatch = function(action, localFn){
   // 리플레이 관전 중에는 어떤 행동도 게임 상태를 바꾸지 못하게 한다 (최종 차단선)
   if(typeof REPLAY!=='undefined' && REPLAY.viewing) return;
   if(NET.spectating){ UI.toast('관전 중에는 조작할 수 없습니다','warn'); return; }
+  if(NET.reconnecting || NET.catchingUp){ UI.toast('재접속 중입니다 — 잠시만 기다려 주세요','warn'); return; }
   if(UI.spellStage || UI.spellStageSubmitting){
     UI.toast('준비 중인 주문을 확인하거나 손패로 되돌려 주세요','warn'); return;
   }
@@ -293,7 +354,10 @@ NET.choice = function(p, interactiveFn, serialize, deserialize){
   const label0=NET._nextChoiceLabel||null; NET._nextChoiceLabel=null;   // routedPick이 넘긴 라벨 — 이 선택 한 번만 쓴다
   const pr = new Promise(res=>{ NET.pendingChoices[id] = { res, deserialize, p }; });
   // 관전자가 진행 중인 게임을 따라잡을 때는 선택 응답이 엔진이 묻기 전에 먼저 와 있다 — 그걸 바로 쓴다
-  if(NET.earlyChoices[id]){ const early=NET.earlyChoices[id]; delete NET.earlyChoices[id]; queueMicrotask(()=>NET._resolveChoice(early)); return pr; }
+  const earlyQ=NET.earlyChoices[id];
+  // 따라잡는 중인데 이 선택의 답이 로그에 없다 = 끊기기 전 마지막 지점에 닿았다(그 뒤 행동은 이 답 없이는 생길 수 없다) → 여기서부터 라이브
+  if(NET.catchingUp && !(earlyQ && earlyQ.length)) NET.finishCatchUp();
+  if(earlyQ && earlyQ.length){ const early=earlyQ.shift(); if(!earlyQ.length) delete NET.earlyChoices[id]; queueMicrotask(()=>NET._resolveChoice(early)); return pr; }
   if(p===NET.seat){
     interactiveFn().then(v=>{ NET.send({t:'choice', id, data:serialize(v)}); });
   } else {
@@ -306,7 +370,7 @@ NET.choice = function(p, interactiveFn, serialize, deserialize){
 };
 NET._resolveChoice = function(m){
   const pc = NET.pendingChoices[m.id];
-  if(!pc){ if(typeof m.id==='number') NET.earlyChoices[m.id]=m; return; }
+  if(!pc){ if(typeof m.id==='number') (NET.earlyChoices[m.id]||(NET.earlyChoices[m.id]=[])).push(m); return; }   // 아직 묻기 전 — id별 큐(게임마다 번호가 1부터 다시 시작)
   // 선택 응답은 반드시 그 선택을 요구받은 좌석에서만 와야 함 (상대 선택 가로채기 차단)
   if(typeof m.seat === 'number' && m.seat !== pc.p){
     // 두 클라이언트의 선택 순번이 어긋난 상태 — 조용히 버리면 게임이 영원히 멈춘다. 알려서 제보할 수 있게 한다
@@ -323,8 +387,11 @@ NET._resolveChoice = function(m){
 };
 
 // ---------- 게임 종료/이탈 정리 ----------
-NET.resetGameSync = function(){
+// full=true(방을 나감·리플레이 진입): 큐까지 모두 비운다. 기본(재대결·새 게임 시작): 선택 번호와 대기 선택만 초기화하고,
+// 먼저 도착한 다음 게임의 행동/선택(actionQueue·earlyChoices)은 남긴다 — 비우면 상대가 먼저 시작해 보낸 행동이 사라져 어긋난다
+NET.resetGameSync = function(full){
   UI.resetScorePresentation?.();
   UI.resetSpellStage?.();
-  NET.choiceSeq=0; NET.pendingChoices={}; NET.earlyChoices={}; NET.actionQueue=[]; NET.processing=false;
+  NET.choiceSeq=0; NET.pendingChoices={};
+  if(full){ NET.earlyChoices={}; NET.actionQueue=[]; NET.processing=false; NET.startPending=false; NET.catchingUp=false; NET.rejoined=false; NET.oppAway=false; }
 };

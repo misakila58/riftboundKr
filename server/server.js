@@ -174,6 +174,8 @@ const LIMITS = {
   REG_MAX: 5,
   WS_MSG_WINDOW_MS: 10 * 1000,
   WS_MSG_MAX: 120,
+  REJOIN_GRACE_MS: +process.env.RB_REJOIN_GRACE_MS || 2 * 60 * 1000,    // 소켓이 끊긴 좌석을 이만큼 비워 둔다 — 그 안에 같은 계정이 rejoin 하면 이어서 둔다
+  REJOIN_GRACE_RESTART_MS: 2 * 60 * 1000,   // 서버 재시작 뒤 복원된 방도 같은 유예 (클라이언트는 몇 초 안에 재접속을 시도한다)
   CONCURRENT_HASH: 4,
   AUTH_DEADLINE_MS: 15000,
 };
@@ -718,7 +720,62 @@ const server = http.createServer(async (req, res) => {
 const wss = new WebSocket.Server({ server, maxPayload: LIMITS.WS_PAYLOAD });
 const rooms = new Map();
 let roomSeq = 1;
-function wsSend(ws, obj) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
+function wsSend(ws, obj) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }   // 끊긴 좌석(ws=null)은 조용히 건너뛴다
+
+// ── 진행 중 방 저장/복원 (재접속·서버 재시작 대비) ──
+// 시작된 방만 저장한다: 시드·덱·좌석·행동/선택 로그가 있으면 클라이언트가 처음부터 재생해 같은 상태에 닿는다(락스텝).
+const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
+let roomsSaveTimer = null;
+function persistRooms() {
+  clearTimeout(roomsSaveTimer);
+  roomsSaveTimer = setTimeout(() => {
+    const out = [...rooms.values()].filter(r => r.started).map(r => ({
+      id: r.id, name: r.name, seed: r.seed, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
+      password: r.password, startedAt: r.startedAt, seq: r.seq, log: r.log || [],
+      players: r.players.map(pl => ({ id: pl.id, deck: pl.deck, seat: pl.seat, ver: pl.ver })),
+    }));
+    const tmp = ROOMS_FILE + '.tmp';
+    try { fs.writeFileSync(tmp, JSON.stringify(out)); fs.renameSync(tmp, ROOMS_FILE); } catch (e) {}
+  }, 500);
+}
+// 좌석이 비워진 채 유예가 끝나면 진짜 퇴장 처리
+function expireGone(r, pl) {
+  if (!rooms.has(r.id) || pl.ws) return;
+  const i = r.players.indexOf(pl); if (i >= 0) r.players.splice(i, 1);
+  if (!r.players.some(q => q.ws)) {           // 남은 접속자가 없으면 방 종료 (관전자에게만 알림)
+    rooms.delete(r.id);
+    (r.spectators || []).forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); });
+  } else roomEveryone(r).forEach(q => wsSend(q.ws, { t: 'opponentLeft' }));
+  broadcastLobby(); persistRooms();
+}
+function scheduleExpire(r, pl, ms) {
+  clearTimeout(pl.timer);
+  pl.timer = setTimeout(() => expireGone(r, pl), ms);
+  if (pl.timer.unref) pl.timer.unref();
+}
+// 시작된 방에서 플레이어 소켓이 끊기면 좌석만 비워 둔다 — 새로고침·네트워크 끊김·서버 재시작 뒤 같은 계정이 이어서 둘 수 있게
+function dropPlayer(ws) {
+  const r = ws._room; if (!r) return false;
+  const pl = r.players.find(q => q.ws === ws);
+  if (!pl || !r.started) return false;
+  ws._room = null; pl.ws = null; pl.gone = Date.now();
+  roomEveryone(r).forEach(q => wsSend(q.ws, { t: 'opponentAway', id: pl.id }));
+  scheduleExpire(r, pl, LIMITS.REJOIN_GRACE_MS);
+  persistRooms();
+  return true;
+}
+try {
+  if (fs.existsSync(ROOMS_FILE)) {
+    const saved = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8'));
+    for (const sr of saved) {
+      const r = { ...sr, started: true, spectators: [], log: sr.log || [], players: (sr.players || []).map(pl => ({ ...pl, ws: null, gone: Date.now() })) };
+      rooms.set(r.id, r);
+      const n = parseInt(String(r.id).replace(/^r/, ''), 10); if (Number.isFinite(n) && n >= roomSeq) roomSeq = n + 1;
+      r.players.forEach(pl => scheduleExpire(r, pl, LIMITS.REJOIN_GRACE_RESTART_MS));
+    }
+    if (saved.length) console.log(`진행 중이던 방 ${saved.length}개 복원 — 플레이어 재접속 대기`);
+  }
+} catch (e) { console.log('방 복원 실패:', e.message); }
 function roomInfo(r) {
   return { id: r.id, name: r.name, host: r.players[0]?.id, count: r.players.length, started: r.started, banRule: !!r.banRule,
     allowSpectate: !!r.allowSpectate, spectators: (r.spectators || []).length, locked: !!r.password, format: r.format || 'bo1' };
@@ -771,6 +828,7 @@ function leaveRoom(ws, notify = true) {
     r.spectators.forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); });
   } else if (notify) roomEveryone(r).forEach(pl => wsSend(pl.ws, { t: 'opponentLeft' }));
   if (r.players.length === 0 || !r.started) broadcastLobby();
+  if (r.started) persistRooms();
 }
 
 wss.on('connection', (ws, req) => {
@@ -785,7 +843,7 @@ wss.on('connection', (ws, req) => {
       const user = userFromToken(m.token);
       if (!user) return wsSend(ws, { t: 'authFail' });
       clearTimeout(ws._authTimer);
-      wss.clients.forEach(c => { if (c !== ws && c._userId === user.id) { leaveRoom(c); c.close(); } });
+      wss.clients.forEach(c => { if (c !== ws && c._userId === user.id) { if (!dropPlayer(c)) leaveRoom(c); c.close(); } });   // 같은 계정의 새 접속 — 옛 소켓의 좌석은 유예로 남겨 rejoin 가능
       ws._authed = true; ws._userId = user.id;
       wsSend(ws, { t: 'authOk', id: user.id });
       broadcastLobby();
@@ -845,6 +903,7 @@ wss.on('connection', (ws, req) => {
         r.startedAt = Date.now();   // 배포 전 '몇 분째 두는 중인지' 보여주는 데 쓴다
         r.seed = crypto.randomBytes(4).readUInt32LE(0);
         r.players.forEach(pl => wsSend(pl.ws, startMsg(r, pl.seat)));
+        persistRooms();
         (r.spectators || []).forEach(sp => wsSend(sp.ws, startMsg(r, -1)));
         broadcastLobby();
         break;
@@ -866,6 +925,20 @@ wss.on('connection', (ws, req) => {
         break;
       }
       case 'leaveRoom': leaveRoom(ws); break;
+      case 'rejoin': {
+        // 같은 계정의 빈 좌석이 있는 시작된 방을 찾아 소켓을 다시 붙이고, start + 그동안의 행동/선택 로그를 보내 따라잡게 한다
+        if (ws._room) return;
+        let found = null, seat = null;
+        for (const r of rooms.values()) { const pl = r.started && r.players.find(q => q.id === ws._userId && !q.ws); if (pl) { found = r; seat = pl; break; } }
+        if (!found) return wsSend(ws, { t: 'rejoinNone' });
+        clearTimeout(seat.timer); seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false;
+        wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true });
+        (found.log || []).forEach(o => wsSend(ws, o));
+        wsSend(ws, { t: 'rejoinDone' });
+        roomEveryone(found).forEach(q => { if (q.ws !== ws) wsSend(q.ws, { t: 'opponentBack', id: ws._userId }); });
+        broadcastLobby(); persistRooms();
+        break;
+      }
       case 'act':
       case 'choice': {
         const r = ws._room; if (!r || !r.started) return;
@@ -874,7 +947,8 @@ wss.on('connection', (ws, req) => {
         const out = { t: m.t, seq: ++r.seq, from: ws._userId, seat: me.seat };
         if (m.t === 'act') out.action = m.action;
         else { out.id = m.id; out.data = m.data; }
-        if (r.allowSpectate) { r.log = r.log || []; r.log.push(out); if (r.log.length > 20000) r.log.splice(0, r.log.length - 20000); }
+        r.log = r.log || []; r.log.push(out); if (r.log.length > 20000) r.log.splice(0, r.log.length - 20000);   // 관전 따라잡기 + 재접속 재생용 (모든 방)
+        persistRooms();
         roomEveryone(r).forEach(pl => wsSend(pl.ws, out));
         break;
       }
@@ -887,7 +961,7 @@ wss.on('connection', (ws, req) => {
       }
     }
   });
-  ws.on('close', () => { clearTimeout(ws._authTimer); leaveRoom(ws); });
+  ws.on('close', () => { clearTimeout(ws._authTimer); if (!dropPlayer(ws)) leaveRoom(ws); });   // 시작된 방의 플레이어는 좌석을 유예로 남긴다
   ws.on('error', () => {});
 });
 

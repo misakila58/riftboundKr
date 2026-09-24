@@ -1,50 +1,63 @@
-// 온라인 락스텝 어긋남·잠김 제보를 서버·계정 없이 재현하는 브라우저 스니펫 (2026-09-23, 떠돌이 상인 패스 불가 제보 조사에 사용)
+// 온라인 락스텝·재접속(rejoin) 재현 하네스 — 서버·계정 없이 브라우저 탭 두 개로 (2026-09-24 재접속 기능 검증에 사용)
 //
 // 쓰는 법
-//  1) client/web 을 정적 서버로 띄운다:  cd client/web && python -m http.server 8777
-//  2) 브라우저 탭 두 개에서 http://localhost:8777/ 을 연다 (같은 출처여야 BroadcastChannel 로 서로 이어진다)
-//  3) 각 탭 콘솔에 이 파일 내용을 붙여 넣고, 좌석 1 탭에서 먼저 lockstep(1), 그 다음 좌석 0 탭에서 lockstep(0) 을 부른다
-//     (좌석 0이 먼저 선택 응답을 보내므로 좌석 1 탭이 먼저 듣고 있어야 한다)
-//  4) 게임 시작은 두 가지 —
-//     · 실제 시작 절차(주사위·멀리건·턴 시작 연출)까지 재현: 각 탭에서 startOnlineGame(startMsg(seat, D1, D2)) 을 좌석 1 → 0 순으로
-//     · 특정 국면부터: 서버 리플레이(.rbr)의 상태 스냅샷(rpLoad(...).states[i])을 JSON 으로 client/web 에 두고 두 탭에서 loadState(url, maxUid+1)
-//       (리플레이 상태는 '_'로 시작하는 키가 빠져 있다 — _pendingTriggers 등은 비어 있다고 가정)
-//  5) 이후 한쪽 탭에서 UI 로 행동(이동·플레이·패스)하면 서버 에코와 같은 경로(NET._enqueueAction / NET._resolveChoice)로 양쪽에 전달된다.
-//     양쪽의 NET.choiceSeq · Object.keys(NET.pendingChoices) 가 항상 같아야 한다 — 다르면 선택 순번 어긋남(락스텝 붕괴).
-//  6) 잠김 진단: UI.canShowdownPass() · UI.passBlockReason() · UI.isPicking() · _turnGlowPick · _resolver · NET.processing · NET.actionQueue
-//
-// 주의: 서버 릴레이가 없으므로 양쪽이 동시에 보내면 순서가 뒤섞일 수 있다 — 한 번에 한 탭만 조작할 것.
+//  1) cd client/web && python -m http.server 8777  → 탭 두 개에서 http://localhost:8777/ 을 연다 (같은 출처여야 BroadcastChannel 로 이어진다)
+//  2) 각 탭 콘솔에 이 파일 내용을 붙여 넣고, 좌석 1 탭에서 __lock(1) → 좌석 0 탭에서 __lock(0) 순으로 부른다 (좌석 0 탭이 서버 역할: 로그 보관·중계·rejoin 응답)
+//  3) 좌석 0 탭에서 __startGame() — 실제 서버처럼 start 를 배포하고 사이드보딩 핸드셰이크(rematch/rematchGo)부터 흘러간다
+//  4) 끊김 흉내: 좌석 1 탭에서 __bc.postMessage({kind:'away'}) 뒤 그 탭을 새로고침 → 다시 이 파일 붙여 넣고 __lock(1); NET.reconnecting=true; NET.ws.send(JSON.stringify({t:'rejoin'}))
+//     → 서버 탭이 start(rejoin)+로그+rejoinDone 을 내려보내고 클라이언트가 따라잡는다. 양쪽 __hash() 가 같아야 한다. __status() 로 큐·선택 번호 확인
+//  주의: 진짜 서버가 아니므로 양쪽이 동시에 보내면 순서가 뒤섞일 수 있다 — 한 번에 한 탭만 조작할 것
 
-function lockstep(SEAT, channel='rb-lockstep'){
-  window.SEAT=SEAT;
-  NET.online=true; NET.seat=SEAT; NET.userId='P'+(SEAT+1); NET.token='x'; NET.spectating=false;
-  const bc=new BroadcastChannel(channel); window.__bc=bc;
-  const deliver=m=>{ if(m.t==='act') NET._enqueueAction(m); else if(m.t==='choice') NET._resolveChoice(m); };
+// 두 탭 락스텝 + 재접속(rejoin) 흉내. seat 0 탭이 서버 역할(로그 보관·중계·rejoin 응답)
+window.__lock=function(SEAT){
+  window.SEAT=SEAT; window.__isServer=(SEAT===0);
+  NET.online=true; NET.seat=SEAT; NET.userId='P'+(SEAT+1); NET.token='x'; NET.spectating=false; NET.leaving=false;
+  window.__log=window.__log||[];
+  const bc=new BroadcastChannel('rbrejoin'); window.__bc=bc;
+  const D1={legendN:253,champN:27,main:[27,...Array(4).fill(169),...Array(35).fill(210)],runes:Array(12).fill(7),bfs:[294,297,280],arts:null};
+  const D2={legendN:265,champN:246,main:[246,...Array(4).fill(185),...Array(35).fill(210)],runes:Array(12).fill(7),bfs:[294,297,280],arts:null};
+  window.__START=seat=>({t:'start',seed:777,yourSeat:seat,spectate:false,manual:false,banRule:false,format:'bo1',players:[{id:'P1',deck:D1},{id:'P2',deck:D2}]});
+  window.__deliver=m=>{
+    switch(m.t){
+      case 'act': NET._enqueueAction(m); break;
+      case 'choice': NET._resolveChoice(m); break;
+      case 'start': if(m.rejoin){ NET.catchingUp=true; NET.rejoined=true; NET.reconnecting=false; } startOnlineGame(m); break;
+      case 'rejoinDone': NET._enqueueAction({action:{k:'_rejoinDone'},seat:-1}); break;
+      case 'opponentAway': NET.oppAway=true; UI.toast('상대 연결 끊김'); UI.promptForState?.(); break;
+      case 'opponentBack': NET.oppAway=false; UI.toast('상대 복귀'); UI.promptForState?.(); break;
+    }
+  };
+  // 서버 역할: 로그에 쌓고 양쪽에 내려보낸다
+  window.__srvRelay=out=>{ __log.push(out); bc.postMessage({kind:'down',msg:out}); __deliver(out); };
   NET.ws={readyState:1, send:str=>{
-    const m=JSON.parse(str); if(m.t!=='act' && m.t!=='choice') return;
-    const out={t:m.t, seat:SEAT, from:'P'+(SEAT+1)};
-    if(m.t==='act') out.action=m.action; else { out.id=m.id; out.data=m.data; }
-    bc.postMessage(out); deliver(out);
+    const m=JSON.parse(str);
+    if(m.t==='act'||m.t==='choice'){
+      const out={t:m.t,seat:SEAT,from:'P'+(SEAT+1)}; if(m.t==='act') out.action=m.action; else { out.id=m.id; out.data=m.data; }
+      if(__isServer) __srvRelay(out); else bc.postMessage({kind:'up',msg:out});
+    } else if(m.t==='rejoin'){ bc.postMessage({kind:'rejoin',seat:SEAT}); }
   }};
-  bc.onmessage=e=>deliver(e.data);
-  NET.resetGameSync();
-  return 'lockstep seat '+SEAT;
-}
-// 서버의 startMsg 와 같은 모양. 덱은 {legendN, champN, main[40], runes[12], bfs[3], arts}
-function startMsg(seat, D1, D2, seed=777){
-  return {t:'start', seed, yourSeat:seat, spectate:false, manual:false, banRule:false, format:'bo1', sideboarded:true,
-    players:[{id:'P1',deck:D1},{id:'P2',deck:D2}]};
-}
-// 리플레이 상태 스냅샷을 그대로 G 로 (두 탭 모두 같은 파일·같은 uid 로)
-async function loadState(url, nextUid){
-  const s=await (await fetch(url+'?x='+Date.now())).json();
-  G=s; UID=nextUid; G.players.forEach(P=>{ P.name='P'+(P.idx+1); });
-  showScreen('game-screen'); UI.render(); UI.promptForState();
-  return {turn:G.turn, acting:G.actingPlayer, state:G.state, seq:NET.choiceSeq};
-}
-// 두 탭에서 같은 값이어야 하는 동기화 지표
-function lockstepStatus(){
-  return {seq:NET.choiceSeq, pending:Object.keys(NET.pendingChoices), early:Object.keys(NET.earlyChoices), processing:NET.processing,
-    queue:NET.actionQueue.length, state:G&&G.state, acting:G&&G.actingPlayer, canPass:UI.canShowdownPass(), why:UI.passBlockReason(),
-    picking:UI.isPicking(), glow:!!(_turnGlowPick&&_turnGlowPick.game===G), resolver:!!_resolver};
-}
+  bc.onmessage=e=>{
+    const d=e.data;
+    if(__isServer){
+      if(d.kind==='up') __srvRelay(d.msg);
+      else if(d.kind==='rejoin'){ const msgs=[{...__START(d.seat),rejoin:true}, ...__log, {t:'rejoinDone'}]; bc.postMessage({kind:'downTo',seat:d.seat,msgs}); __deliver({t:'opponentBack'}); }
+      else if(d.kind==='away'){ __deliver({t:'opponentAway'}); }
+    } else {
+      if(d.kind==='down') __deliver(d.msg);
+      else if(d.kind==='downTo' && d.seat===SEAT){ for(const m of d.msgs) __deliver(m); }
+    }
+  };
+  return 'locked seat '+SEAT+(__isServer?' (server)':'');
+};
+// 서버 탭에서 게임 시작: 양쪽에 start 배포 (사이드보딩 핸드셰이크부터 — 실제 서버와 같은 경로)
+window.__startGame=function(){ __bc.postMessage({kind:'downTo',seat:1,msgs:[__START(1)]}); __deliver(__START(0)); return 'started'; };
+// 상태 요약 해시 (양쪽 비교용)
+window.__hash=function(){
+  if(!G) return null;
+  const u=x=>x.n+'#'+x.uid+'@'+x.loc+'/'+x.ctrl+(x.ex?'x':'')+'d'+x.dmg;
+  return JSON.stringify({turn:G.turn,tc:G.turnCount,phase:G.phase,state:G.state,acting:G.actingPlayer,seq:NET.choiceSeq,
+    P:G.players.map(p=>({h:p.hand.join(','),d:p.deck.length,e:p.energy,pts:p.points,base:p.base.map(u),runes:p.runes.map(r=>r.n+(r.ex?'x':'')).join(',')})),
+    bfs:G.bfs.map(b=>({n:b.n,c:b.controller,u:b.units.map(u),h:b.hiddenCards.length})),
+    sd:G.showdown&&{bf:G.showdown.bfIdx,chain:G.showdown.chain.length,passes:G.showdown.passes}});
+};
+window.__status=function(){ return {seq:NET.choiceSeq, pc:Object.keys(NET.pendingChoices), early:Object.keys(NET.earlyChoices), q:NET.actionQueue.length, proc:NET.processing, catching:NET.catchingUp, pending:NET.startPending, phase:G&&G.phase, turn:G&&G.turn, state:G&&G.state, acting:G&&G.actingPlayer, prompt:document.getElementById('prompt-area')?.innerText.slice(0,70), modal:document.getElementById('modal-overlay')?.style.display, screen:currentScreen&&currentScreen()}; };

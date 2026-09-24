@@ -366,6 +366,7 @@ REPLAY.share = async function(rec){
     if(!REPLAY.shareEnabled() || !rec || !rec.result || rec.meta.tutorial || rec.meta.manual) return;
     const mode = rec.meta.modeKey || 'hotseat';
     if((mode==='online' || mode==='p2p') && !(typeof NET!=='undefined' && NET.seat===0)) return;
+    if(typeof NET!=='undefined' && NET.rejoined) return;   // 재접속으로 이어받은 판은 앞부분이 없는 부분 기록
     const bytes = await rpBuildFile(rpAnonymize(rec));
     if(bytes.length > 1500000) return;               // 서버 상한(1.5MB) — 비정상적으로 긴 경기는 보내지 않는다
     await fetch(STATS.URL.replace(/\/+$/,'') + '/api/replay', {

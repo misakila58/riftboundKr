@@ -46,13 +46,20 @@ async function download(url, dest) {
 
 (async () => {
   const cards = loadCards();
+  // 토큰 카드 일러스트(loc.js TOKEN_IMG)도 함께 받는다 — 보드의 신병·스프라이트 토큰이 쓴다
+  let tokenUrls = [];
+  try {
+    const loc = fs.readFileSync(path.join(ROOT, 'client', 'web', 'js', 'loc.js'), 'utf8');
+    const tm = new Function(loc + '\nreturn TOKEN_IMG;')();
+    tokenUrls = Object.values(tm).flatMap(v => Object.values(v));
+  } catch (e) { console.warn('토큰 이미지 목록을 읽지 못함:', e.message); }
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   // 같은 이미지를 여러 카드가 공유할 수 있으므로 키 기준으로 중복 제거
   const jobs = new Map();
   let noKey = 0;
-  for (const c of cards) {
-    // 기본 일러스트 + 같은 카드의 대체 일러스트(alts)를 모두 받는다
+  for (const c of [...cards, { img: null, alts: tokenUrls }]) {
+    // 기본 일러스트 + 같은 카드의 대체 일러스트(alts)를 모두 받는다 (+ 토큰 일러스트)
     for (const url of [c.img, ...(c.alts || [])]) {
       if (!url) continue;
       const key = imgKey(url);

@@ -1485,6 +1485,7 @@ function renderRooms(roomsArr){
         // 밴 적용 여부는 방장이 정한다 — 밴 방이면 내 덱에 밴 카드가 없어야 입장할 수 있다
         if(!banSelfCheck(r.banRule, lobbySelectedDeck())) return;
         MATCH.myDeck=lobbySelectedDeck();   // Bo3 사이드보딩은 등록 덱(사이드 포함)에서 — 서버는 사이드를 돌려주지 않는다
+        UI.chatReset?.();
         withPw(password=>NET.send({t:'joinRoom', roomId:r.id, ...pay, password, banRule:document.getElementById('lobby-ban').checked, ver:NET.clientVersion()}));
       };
       btns.appendChild(bj);
@@ -1492,7 +1493,7 @@ function renderRooms(roomsArr){
     if(r.allowSpectate){
       const bs=document.createElement('button'); bs.textContent=r.started?'👁 관전 (진행 중)':'👁 관전';
       bs.title='이 방의 게임을 관전합니다 — 덱 없이 들어가며 조작은 할 수 없습니다';
-      bs.onclick=()=>withPw(password=>NET.send({t:'spectate', roomId:r.id, password, ver:NET.clientVersion()}));
+      bs.onclick=()=>{ UI.chatReset?.(); withPw(password=>NET.send({t:'spectate', roomId:r.id, password, ver:NET.clientVersion()})); };
       btns.appendChild(bs);
     }
     div.appendChild(btns);
@@ -1515,6 +1516,7 @@ function initLobby(){
     const password=(document.getElementById('lobby-password')?.value||'').trim();
     const format=document.getElementById('lobby-format')?.value==='bo3'?'bo3':'bo1';
     MATCH.myDeck=lobbySelectedDeck();
+    UI.chatReset?.();
     NET.send({t:'createRoom', ...pay, manual, banRule:ban, allowSpectate, password, format, name:document.getElementById('lobby-room-name').value.trim(), ver:NET.clientVersion()});
   };
   NET.onRooms=renderRooms;
@@ -1629,6 +1631,7 @@ function initP2P(){
     hostStatus('방을 만드는 중... (몇 초 걸릴 수 있음)');
     try{
       const manual = !$('p2p-auto').checked;
+      UI.chatReset?.();
       const code=await P2P.hostViaCode(p2pNick(), deckForMatch(deck), manual, ban, p2pSignalOpts());
       $('p2p-code').textContent=SIGNAL.pretty(code);
       $('p2p-code-box').style.display='';
@@ -1656,6 +1659,7 @@ function initP2P(){
     if(!raw){ UI.toast('방 코드를 입력하세요','warn'); return; }
     role='guest';
     guestStatus('방을 찾는 중...');
+    UI.chatReset?.();
     try{ await P2P.joinViaCode(p2pNick(), deckForMatch(deck), raw, ban, p2pSignalOpts()); }
     catch(e){ guestStatus('오류: '+e.message); }
   };
@@ -1834,8 +1838,8 @@ const RM = {
         NET.sendAction({k:'rematch', p:NET.seat, deck:deckForMatch(d), fresh:true});
         UI.prompt('🔄 재대결 준비 완료 — 상대의 덱 선택을 기다리는 중...');
       };
-      // 사이드덱이 있는 덱이면 교체 화면을 한 번 거친다 (게임 사이에만 가능한 절차)
-      if(deck.side && deck.side.length){ closeModal(); RM.openSideboard(deck, ban, send); return; }
+      // 새 매치의 1게임은 등록 덱 그대로(403.6). 단판이면 게임 안(전장 공개·선후공 뒤)에서 사이드보딩하므로 사이드 목록을 남겨 둔다
+      MATCH.myDeck=deck;
       closeModal();
       send(deck);
     };
@@ -1854,6 +1858,7 @@ const RM = {
   },
   onRequest(a){
     RM.decks[a.p]=a.deck;
+    if(NET.catchingUp) return;   // 재접속 따라잡기: 로그의 rematchGo가 이어서 온다 — 창을 띄우지도, 시작 신호를 보내지도 않는다
     if(MATCH.pregame){ RM._tryStart(); return; }   // 첫 게임 사이드보딩: 양쪽 덱이 모이면 방장이 시작 신호
     if(a.fresh) MATCH._continue=false;              // 한쪽이라도 '새 매치'면 매치를 이어 가지 않는다 (1게임·주사위부터)
     if(MATCH.active() && !MATCH.finished() && !a.fresh && !RM.fresh){
@@ -1902,8 +1907,40 @@ const RM = {
     RM.reset();
     const ov=document.getElementById('modal-overlay'); if(ov.style.display!=='none') closeModal();
     UI.log('🔄 재대결 시작!', 'sys');
+    NET.startPending=true;                    // newGame 전까지 다음 게임 행동을 실행하지 않는다
     setTimeout(()=>startOnlineGame(m), 0);   // 액션 펌프 밖에서 새 게임 시작 (큐 리셋과 충돌 방지)
   },
+};
+
+// ---------- 단판(Bo1) 사이드보딩 — 대회 규정 406.1.f 변형 시작 절차 ----------
+// 전장이 공개되고 선후공이 정해진 뒤(406.1.f.2~4), 손패를 뽑기 전에 양쪽이 동시에 사이드보딩한다(406.1.f.5). 선발 챔피언도 이때 바꿀 수 있다(403.5.a).
+// Bo3는 1게임에 사이드보딩이 없고(403.6) 게임 사이(MATCH.next)에서만 한다. 결과(메인 40장·선발)는 NET.choice로 교환해 양쪽이 같은 순서로 덱을 다시 만든다.
+// 엔진 mulliganPhase가 decideFirstPlayer 뒤에 부른다 (온라인만 — 봇전·핫시트는 부르지 않음).
+UI.sideboardStep=async function(){
+  const ls=NET.lastStart; if(!ls || (ls.format||'bo1')==='bo3') return;
+  const ban=!!ls.banRule;
+  const results=await Promise.all([0,1].map(p=>{
+    const mine=!NET.spectating && p===NET.seat;
+    const base=mine ? (MATCH.myDeck || ls.players[p].deck) : null;
+    const interactive=()=>new Promise(res=>{
+      if(!base || !base.side || !base.side.length){ res(null); return; }   // 사이드덱이 없으면 자동 통과
+      UI.prompt('🔁 사이드덱 교체 — 전장과 선후공을 보고 덱을 조정하세요');
+      RM.openSideboard(base, ban, d=>res({main:[...d.main], champN:d.champN}), {pregame:true, start:ls});
+    });
+    NET._nextChoiceLabel='사이드덱 교체';
+    return NET.choice(p, interactive, v=>v, v=>v);
+  }));
+  for(const p of [0,1]){
+    const r=results[p]; if(!r || !Array.isArray(r.main) || r.main.length!==40) continue;
+    const P=G.players[p]; const main=r.main.map(Number);
+    let champN=Number.isInteger(r.champN)?r.champN:P.champN;
+    if(!main.includes(champN)) champN=P.champN;
+    const deck=shuffle([...main]); const ci=deck.indexOf(champN); if(ci>=0) deck.splice(ci,1);   // newGame과 같은 방식 — 선발은 챔피언 존으로
+    P.deckList=[...main]; P.deck=deck; P.champN=champN; P.champInZone=true;
+    UI.log(`${pname(p)} 사이드덱 교체 완료 (선발: ${card(champN).ko})`, 'sys');
+  }
+  if(results.some(Boolean)) UI.render();
+  UI.prompt('');
 };
 
 // ---------- Bo3 매치 (온라인 로비 방장 설정) ----------
@@ -1980,14 +2017,16 @@ const MATCH = {
 
 // ---------- ESC 시스템 메뉴 & 게임 나가기 ----------
 function gameLeave(){
+  NET.leaving=true; NET.reconnecting=false; NET.clearRejoinFlag?.();   // 내가 나가는 것 — 소켓 종료를 끊김으로 보지 않고, 새로고침 복귀도 끈다
+  UI.chatReset?.();   // 방을 나가면 그 방의 대화도 지운다
   if(NET.online){
     if(typeof P2P!=='undefined' && P2P.active){
-      P2P.reset(); NET.online=false; NET.resetGameSync();
+      P2P.reset(); NET.online=false; NET.resetGameSync(true);
       p2pRefreshDecks(); showScreen('p2p-screen');
       UI.toast('P2P 연결을 종료했습니다');
     } else {
       NET.send({t:'leaveRoom'});
-      NET.online=false; NET.resetGameSync();
+      NET.online=false; NET.resetGameSync(true);
       document.getElementById('lobby-status').textContent='';
       showScreen('lobby-screen');
       NET.send({t:'listRooms'});
@@ -2124,24 +2163,13 @@ function openSystemMenu(){
 // ---------- 게임 시작 ----------
 async function startOnlineGame(m){
   NET.spectating=!!m.spectate;
-  // 첫 게임 사이드보딩: 서버의 start 직후 각자 사이드덱을 교체하고(없으면 자동 통과) 덱을 교환한 뒤에야 게임을 만든다.
-  // 재대결 핸드셰이크(rematch → rematchGo)를 그대로 쓰며, rematchGo로 다시 들어올 때는 m.sideboarded가 켜져 있어 건너뛴다.
-  // Bo3는 공식 규정(487)대로 1게임을 등록 덱 그대로 시작한다 — 사이드보딩은 게임 사이(MATCH.next)에서만. 시작 사이드보딩(하우스 룰)은 단판에만.
-  if(!m.sideboarded && !m.match && (m.format||'bo1')!=='bo3'){
-    NET.online=true; NET.seat=NET.spectating?-1:m.yourSeat; NET.lastStart=m;
-    MATCH.start(m); MATCH.pregame=true; RM.reset(); NET.resetGameSync();
-    const status=t=>{ const el=document.getElementById('lobby-status'); if(el) el.textContent=t; UI.toast(t); };
-    if(NET.spectating){ status('👁 플레이어들이 사이드보딩 중... 끝나면 자동으로 관전 화면으로 갑니다'); return; }
-    const base=MATCH.myDeck || m.players[NET.seat].deck;
-    const send=d=>{ NET.sendAction({k:'rematch', p:NET.seat, deck:deckForMatch(d)}); status('⏳ 상대의 사이드보딩을 기다리는 중... (사이드덱이 없으면 바로 시작됩니다)'); };
-    if(base.side && base.side.length) RM.openSideboard(base, !!m.banRule, send, {pregame:true, start:m});
-    else send(base);
-    return;
-  }
+  // 첫 게임은 등록 덱 그대로 시작한다 (대회 규정 403.6 "첫 게임엔 사이드 사용 불가"). 단판(Bo1)은 대회 규정 406.1.f의 변형 시작 절차대로
+  // 전장 공개·선후공 결정 뒤 손패를 뽑기 전에 사이드보딩한다(mulliganPhase → UI.sideboardStep). Bo3는 게임 사이(MATCH.next)에서만.
+  // 예전의 '시작 직후 사이드보딩(덱 교환 뒤 게임 생성)'은 없앴다 (2026-09-25).
   MATCH.pregame=false;
   MATCH.start(m);
   // 관전자는 통계·리플레이 제공 대상이 아니다 (좌석이 없어 리플레이 업로드 조건 seat===0에도 안 걸린다)
-  if(typeof STATS!=='undefined'){ if(NET.spectating){ STATS.mode=null; STATS._ended=true; } else STATS.gameStart((typeof P2P!=='undefined' && P2P.active) ? 'p2p' : 'online'); }
+  if(typeof STATS!=='undefined' && !NET.catchingUp){ if(NET.spectating){ STATS.mode=null; STATS._ended=true; } else STATS.gameStart((typeof P2P!=='undefined' && P2P.active) ? 'p2p' : 'online'); }
   NET.online=true;
   NET.seat=NET.spectating ? -1 : m.yourSeat;
   NET.lastStart=m;    // 재대결용: 모드/밴/플레이어 이름 보존
@@ -2155,7 +2183,7 @@ async function startOnlineGame(m){
   const bfs = MATCH.active()
     ? await MATCH.chooseBattlefields(m)
     : m.players.map(pl=>pl.deck.bfs[Math.floor(rng()*pl.deck.bfs.length)]);
-  if(!bfs) return;   // 선택 도중 게임이 바뀜(이탈 등)
+  if(!bfs){ NET.startPending=false; return; }   // 선택 도중 게임이 바뀜(이탈 등)
   // 선후공은 mulliganPhase 앞의 decideFirstPlayer가 시드 주사위로 정한다 (양쪽 동일). Bo3 2·3게임은 이전 게임 패자가 고른다.
   newGame({
     seed: m.seed,
@@ -2168,6 +2196,9 @@ async function startOnlineGame(m){
     })),
     bfs,
   });
+  NET.startPending=false;                       // 새 게임이 생겼다 — 밀려 있던 다음 게임 행동을 펌프가 실행해도 된다
+  NET.leaving=false;
+  if(!NET.spectating) NET.setRejoinFlag?.();    // 새로고침·앱 재시작 뒤 자동 복귀용
   showScreen('game-screen');
   PLAYMAT.startOnline(m.seed);
   const modeLabel = G.manual ? '수동' : '자동';
@@ -2318,6 +2349,22 @@ window.addEventListener('DOMContentLoaded', ()=>{
   initP2P();
   initHotseat();
   document.getElementById('btn-replays').onclick=()=>REPLAY.openLibrary('connect-screen');
+  // 새로고침·앱 재시작 직후: 진행 중이던 온라인 대전 표식이 있으면 같은 서버·계정으로 붙어 복귀를 묻는다 (없으면 조용히 시작 화면)
+  (async()=>{
+    const flag=NET.readRejoinFlag?.(); if(!flag) return;
+    if(!flag.server || Date.now()-flag.at > 6*60*60*1000){ NET.clearRejoinFlag(); return; }
+    const token=localStorage.getItem('rb_token'), userId=localStorage.getItem('rb_id');
+    if(!token || !userId){ NET.clearRejoinFlag(); return; }
+    try{
+      NET.setBase(flag.server); NET.token=token; NET.userId=userId;
+      UI.toast('진행 중이던 대전에 복귀를 시도합니다…');
+      await NET.health();
+      await enterMenu();
+      await NET.connect();
+      NET.reconnecting=true;                     // start(rejoin) 또는 rejoinNone이 풀어 준다
+      NET.send({t:'rejoin'});
+    }catch(e){ console.warn('자동 복귀 건너뜀:', e); NET.reconnecting=false; }
+  })();
   // 오픈톡방 — 누르면 카카오톡 앱이 바로 뜨며 참여(딥링크, open.kakao.com PC 참여 버튼과 같은 형식).
   // 카톡 미설치 등에 대비해 링크도 함께 복사해 둔다 (clipboard API 실패 시 textarea 폴백)
   document.getElementById('btn-openchat').onclick=async()=>{

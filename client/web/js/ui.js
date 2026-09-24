@@ -65,6 +65,7 @@ UI.manualNotice = function(c){
 
 // ---------- 프롬프트 ----------
 UI.prompt = function(text){
+  if(text && typeof NET!=='undefined' && NET.oppAway && G && G.winner===null) text='⏳ 상대 재접속 대기 중(최대 2분) · '+text;
   document.getElementById('prompt-area').innerHTML =
     text?`<div class="prompt-title">${esc(text)}</div>`:'';
 };
@@ -1964,6 +1965,15 @@ function chatPopOpen(){
 function chatPopClose(){
   const pop=document.getElementById('chat-pop'); if(pop) pop.style.display='none';
 }
+// 방을 바꿀 때(입장·생성·관전·P2P 시작·나가기) 대화를 비운다 — 안 비우면 이전 방의 대화가 새 방 채팅창에 그대로 남아
+// "다른 방 채팅이 보인다"가 된다(제보 2026-09-24). 서버는 방 안에서만 중계하므로 실제 유출이 아니라 화면에 남은 기록이다.
+UI.chatReset=function(){
+  CHAT.msgs.length=0;
+  chatPopClose();
+  const dot=document.getElementById('chat-dot'); if(dot) dot.style.display='none';
+  const inp=document.getElementById('chat-input'); if(inp) inp.value='';
+  const box=document.getElementById('chat-pop-msgs'); if(box) box.innerHTML='';
+};
 function chatShow(from, msg, mine){
   CHAT.msgs.push({from, msg, mine});
   if(CHAT.msgs.length>200) CHAT.msgs.shift();
@@ -2439,10 +2449,13 @@ function onHandClick(p, idx, e){
     hide.onclick=()=>{ hideMenu(); NET.dispatch({k:'hide',p,handIdx:idx}, ()=>hideCard(p,idx)); };
     menu.appendChild(hide);
   }
-  const sep=document.createElement('div'); sep.className='ctx-sep'; menu.appendChild(sep);
-  const disc=document.createElement('div'); disc.className='ctx-item'; disc.textContent='🗑 버리기(수동)';
-  disc.onclick=()=>{ hideMenu(); NET.dispatch({k:'manual',tool:'discardIdx',args:[p,idx]}, ()=>{ discardFromHand(p,idx); UI.render(); }); };
-  menu.appendChild(disc);
+  // 손패 수동 버리기는 수동 모드 전용 — 자동 모드에서는 효과가 아닌 임의 버림이 가능해지므로 숨긴다 (요청 2026-09-24)
+  if(G.manual){
+    const sep=document.createElement('div'); sep.className='ctx-sep'; menu.appendChild(sep);
+    const disc=document.createElement('div'); disc.className='ctx-item'; disc.textContent='🗑 버리기(수동)';
+    disc.onclick=()=>{ hideMenu(); NET.dispatch({k:'manual',tool:'discardIdx',args:[p,idx]}, ()=>{ discardFromHand(p,idx); UI.render(); }); };
+    menu.appendChild(disc);
+  }
   openMenuAt(menu, e);
 }
 

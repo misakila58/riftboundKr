@@ -72,6 +72,7 @@ const SFX = {
   // 소리만 내고 바로 돌아온다(입력 정지 없음). 켜져 있으면 띠를 띄우고 1.2초만 멈춘다.
   UI.presentTurnStart = async function(p){
     if(typeof REPLAY!=='undefined' && REPLAY.viewing) return;
+    if(typeof NET!=='undefined' && NET.catchingUp) return;   // 재접속 로그 재생 중 — 연출·대기 없음
     const game=G, m=mine();
     SFX.play(m!==null && p===m ? 'myturn' : 'turn');
     const intro = (typeof PLAY_OPTIONS==='undefined' || PLAY_OPTIONS.turnIntro!==false) && UI.fx.on && !document.hidden;
