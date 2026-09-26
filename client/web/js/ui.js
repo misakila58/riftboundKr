@@ -1568,24 +1568,85 @@ function unitEl(u){
     : card(u.n);
   attachZoom(el);
   // 드래그 앤 드롭 이동 (준비된 아군 유닛, 내 턴 중립 상태에서만)
-  const canDrag = canArrangeMove(u.ctrl) && !u.ex && !u.stunned;
+  const canDrag = canArrangeMove(u.ctrl) && !u.ex;
   if(canDrag){
     // PC도 게임 안에서 드래그 수명을 관리한다. 브라우저 기본 드래그가 입력을
     // 붙잡거나 보드 재렌더로 dragend 대상이 사라지는 경로를 사용하지 않는다.
     attachMouseMoveDrag(el,u);
     attachTouchDrag(el,
       ()=>G.winner===null && G.state==='neutral' && G.phase==='action' && G.turn===u.ctrl
-        && !u.ex && !u.stunned && !_resolver && !_pickableUids
+        && !u.ex && !_resolver && !_pickableUids
         && !(typeof REPLAY!=='undefined' && REPLAY.viewing)
         && !(typeof botIs==='function' && botIs(u.ctrl)) && (!NET.online || NET.seat===u.ctrl),
-      zone=>moveDropAllowed(u,zone),
-      zone=>dropMove(u.uid,zone._dropDest));
+      (zone,uids)=>moveDropAllowed(u,zone,uids),
+      (zone,uids)=>dropMove(u.uid,zone._dropDest,uids),u);
   }
   return el;
 }
 
 // ---------- 드래그 앤 드롭 이동 ----------
 let _dragHand=null;
+function initialDraggedMoveUids(u){
+  return !pendingCombatMove() && _moveSel.has(u.uid) ? new Set(_moveSel) : new Set([u.uid]);
+}
+function draggedMoveUnits(uids){ return everyUnit().filter(u=>uids.has(u.uid)); }
+function appendMoveDragPreview(ghost,el,count){
+  if(count<=3){
+    const layer=el.cloneNode(true);
+    layer.removeAttribute('data-uid'); layer.className='card-mini unit-drag-layer';
+    layer.style.left=(count-1)*8+'px'; layer.style.top=(count-1)*8+'px';
+    ghost.appendChild(layer);
+  }
+  let badge=ghost.querySelector('.unit-drag-count');
+  if(!badge){ badge=document.createElement('span'); badge.className='unit-drag-count'; ghost.appendChild(badge); }
+  badge.textContent=String(count);
+}
+function createMoveDragPreview(el,uids){
+  const ghost=el.cloneNode(true);
+  ghost.removeAttribute('data-uid'); ghost.removeAttribute('draggable');
+  ghost.className='card-mini touch-drag-preview unit-drag-preview';
+  ghost.setAttribute('aria-hidden','true');
+  ghost.style.width=el.offsetWidth+'px'; ghost.style.height=el.offsetHeight+'px';
+  document.body.appendChild(ghost);
+  let count=1;
+  for(const uid of uids){
+    if(uid===Number(el.dataset.uid)) continue;
+    const other=document.querySelector(`.card-mini[data-uid="${uid}"]`);
+    if(other) appendMoveDragPreview(ghost,other,++count);
+  }
+  return ghost;
+}
+let _dragHover=null;   // 드래그 중 지금 위에 있는 유닛과 머문 시각
+function collectDraggedMoveUnit(origin,uids,hit,ghost){
+  const pending=pendingCombatMove();
+  if(pending && !pending.uids.has(origin.uid)) return;
+  const el=hit?.closest('.card-mini[data-uid]');
+  if(!el){ _dragHover=null; return; }
+  const uid=Number(el.dataset.uid);
+  if(uids.has(uid)) return;
+  // 스쳐 지나가는 유닛은 묶지 않는다 — 같은 유닛 위에 160ms 이상 머물렀을 때만 (의도치 않은 다중 이동 방지)
+  const now=performance.now();
+  if(!_dragHover || _dragHover.uid!==uid){ _dragHover={uid,at:now}; return; }
+  if(now-_dragHover.at<160) return;
+  const candidate=everyUnit().find(u=>u.uid===uid);
+  if(!candidate || candidate.ctrl!==origin.ctrl || candidate.ex) return;
+  const current=draggedMoveUnits(uids);
+  if(current.length!==uids.size) return;
+  if(pending){
+    // 대기 중인 유닛의 loc는 아직 출발지다. 같은 출발지의 대기 유닛만 함께 되돌린다.
+    if(!pending.uids.has(uid) || candidate.loc!==origin.loc) return;
+  }else{
+    const units=[...current,candidate];
+    const destinations=['base',...G.bfs.map((_,i)=>i)];
+    if(!destinations.some(dest=>units.every(u=>!moveProblem(origin.ctrl,u,dest)))) return;
+  }
+  uids.add(uid); el.classList.add('drag-grouped');
+  appendMoveDragPreview(ghost,el,uids.size);
+}
+function clearDraggedMoveMarks(){
+  _dragHover=null;
+  document.querySelectorAll('.card-mini.drag-grouped').forEach(el=>el.classList.remove('drag-grouped'));
+}
 function attachMouseMoveDrag(el,u){
   el.draggable=false;
   el.addEventListener('dragstart',e=>e.preventDefault());
@@ -1593,10 +1654,10 @@ function attachMouseMoveDrag(el,u){
     if(e.pointerType!=='mouse' || e.button!==0 || e.altKey || !canArrangeMove(u.ctrl)) return;
     const start={x:e.clientX,y:e.clientY}, rect=el.getBoundingClientRect();
     const events=new AbortController(), opts={capture:true,signal:events.signal};
-    let active=false, ghost=null;
+    let active=false, ghost=null, uids=initialDraggedMoveUids(u);
     const clear=()=>{
       events.abort(); ghost?.remove();
-      el.classList.remove('hand-dragging'); clearDropHints(); clearTimeout(_lpTimer);
+      el.classList.remove('hand-dragging'); clearDraggedMoveMarks(); clearDropHints(); clearTimeout(_lpTimer);
     };
     const suppressReleaseClick=()=>{
       const block=event=>{ event.preventDefault(); event.stopImmediatePropagation(); };
@@ -1611,24 +1672,26 @@ function attachMouseMoveDrag(el,u){
       event.preventDefault();
       if(!active){
         active=true; clearTimeout(_lpTimer); hideMenu(); UI.hideZoom();
-        ghost=el.cloneNode(true); ghost.removeAttribute('data-uid');
-        ghost.className='card-mini touch-drag-preview'; ghost.setAttribute('aria-hidden','true');
-        ghost.style.width=el.offsetWidth+'px'; ghost.style.height=el.offsetHeight+'px';
-        document.body.appendChild(ghost); el.classList.add('hand-dragging');
+        ghost=createMoveDragPreview(el,uids); el.classList.add('hand-dragging');
       }
       const pos=fixedLayoutSpace(event.clientX-(start.x-rect.left),event.clientY-(start.y-rect.top));
       ghost.style.left=pos.x+'px'; ghost.style.top=pos.y+'px';
       clearDropHints();
-      const zone=document.elementFromPoint(event.clientX,event.clientY)?.closest('.base-zone,.battlefield');
-      if(moveDropAllowed(u,zone)) zone.classList.add('drop-hint');
+      const hit=document.elementFromPoint(event.clientX,event.clientY);
+      collectDraggedMoveUnit(u,uids,hit,ghost);
+      const zone=hit?.closest('.base-zone,.battlefield');
+      if(moveDropAllowed(u,zone,uids)) zone.classList.add('drop-hint');
     },opts);
     window.addEventListener('pointerup',event=>{
       if(event.pointerId!==e.pointerId) return;
-      const zone=document.elementFromPoint(event.clientX,event.clientY)?.closest('.base-zone,.battlefield');
+      const hit=document.elementFromPoint(event.clientX,event.clientY);
+      if(active) collectDraggedMoveUnit(u,uids,hit,ghost);
+      const zone=hit?.closest('.base-zone,.battlefield');
+      const allowed=active && moveDropAllowed(u,zone,uids);
       clear();
       if(!active) return;
       event.preventDefault(); suppressReleaseClick();
-      if(moveDropAllowed(u,zone)) dropMove(u.uid,zone._dropDest);
+      if(allowed) dropMove(u.uid,zone._dropDest,uids);
     },opts);
     window.addEventListener('pointercancel',clear,opts);
     window.addEventListener('blur',clear,opts);
@@ -1675,25 +1738,31 @@ function attachHandDrag(el,p,idx,n,champZone=false){
 }
 
 // 보드 이동·손패 플레이 모두 터치 즉시 이동을 추적한다. 멈춰서 꾹 누르면 기존 확대를 사용한다.
-function attachTouchDrag(el,canStart,allowed,drop){
+function attachTouchDrag(el,canStart,allowed,drop,moveUnit=null){
   el.classList.add('touch-draggable');
   // 터치에서도 같은 플레이 경로를 사용하며, 짧은 탭과 꾹 누르기 확대는 유지한다.
   let touch=null;
   let ghost=null;
   const clear=()=>{
     touch=null; ghost?.remove(); ghost=null;
-    el.classList.remove('hand-dragging'); clearDropHints(); clearTimeout(_lpTimer);
+    el.classList.remove('hand-dragging');
+    if(moveUnit) clearDraggedMoveMarks();
+    clearDropHints(); clearTimeout(_lpTimer);
   };
   const finish=e=>{
     if(!touch) return;
     const point=[...e.changedTouches].find(t=>t.identifier===touch.id);
     if(!point) return;
     const active=touch.active;
-    const zone=document.elementFromPoint(point.clientX,point.clientY)?.closest('.base-zone,.battlefield,#center-info');
+    const hit=document.elementFromPoint(point.clientX,point.clientY);
+    if(active && e.type==='touchend' && moveUnit) collectDraggedMoveUnit(moveUnit,touch.uids,hit,ghost);
+    const zone=hit?.closest('.base-zone,.battlefield,#center-info');
+    const uids=touch.uids;
+    const canDrop=active && e.type==='touchend' && zone && canStart() && allowed(zone,uids);
     clear();
     if(active){
       e.preventDefault();
-      if(e.type==='touchend' && zone && canStart() && allowed(zone)) drop(zone);
+      if(canDrop) drop(zone,uids);
     }
   };
   el.addEventListener('touchstart',e=>{
@@ -1701,7 +1770,8 @@ function attachTouchDrag(el,canStart,allowed,drop){
     if(!canStart()) return;
     const point=e.touches[0];
     const rect=el.getBoundingClientRect();
-    touch={id:point.identifier,x:point.clientX,y:point.clientY,dx:point.clientX-rect.left,dy:point.clientY-rect.top,active:false};
+    touch={id:point.identifier,x:point.clientX,y:point.clientY,dx:point.clientX-rect.left,dy:point.clientY-rect.top,
+      active:false,uids:moveUnit?initialDraggedMoveUids(moveUnit):null};
   },{passive:true});
   el.addEventListener('touchmove',e=>{
     if(!touch) return;
@@ -1710,16 +1780,21 @@ function attachTouchDrag(el,canStart,allowed,drop){
     if(!canStart() || document.getElementById('card-zoom')?.style.display==='flex'){ clear(); return; }
     touch.active=true; clearTimeout(_lpTimer); hideMenu(); e.preventDefault();
     if(!ghost){
-      ghost=el.cloneNode(true); ghost.removeAttribute('data-uid'); ghost.removeAttribute('draggable');
-      ghost.className='card-mini touch-drag-preview'; ghost.setAttribute('aria-hidden','true');
-      ghost.style.width=el.offsetWidth+'px'; ghost.style.height=el.offsetHeight+'px';
-      document.body.appendChild(ghost);
+      if(moveUnit) ghost=createMoveDragPreview(el,touch.uids);
+      else {
+        ghost=el.cloneNode(true); ghost.removeAttribute('data-uid'); ghost.removeAttribute('draggable');
+        ghost.className='card-mini touch-drag-preview'; ghost.setAttribute('aria-hidden','true');
+        ghost.style.width=el.offsetWidth+'px'; ghost.style.height=el.offsetHeight+'px';
+        document.body.appendChild(ghost);
+      }
     }
     const pos=fixedLayoutSpace(point.clientX-touch.dx,point.clientY-touch.dy);
     ghost.style.left=pos.x+'px'; ghost.style.top=pos.y+'px';
     el.classList.add('hand-dragging'); clearDropHints();
-    const zone=document.elementFromPoint(point.clientX,point.clientY)?.closest('.base-zone,.battlefield,#center-info');
-    if(allowed(zone)) zone.classList.add('drop-hint');
+    const hit=document.elementFromPoint(point.clientX,point.clientY);
+    if(moveUnit) collectDraggedMoveUnit(moveUnit,touch.uids,hit,ghost);
+    const zone=hit?.closest('.base-zone,.battlefield,#center-info');
+    if(allowed(zone,touch.uids)) zone.classList.add('drop-hint');
   },{passive:false});
   el.addEventListener('touchend',finish,{passive:false});
   el.addEventListener('touchcancel',finish,{passive:false});
@@ -1740,7 +1815,7 @@ function attachDropZone(el, dest){
     if(_dragHand){ const hand=_dragHand; _dragHand=null; clearDropHints(); dropHandCard(hand,el); return; }
   };
 }
-function dropMove(uid, dest){
+function dropMove(uid, dest,dragUids=null){
   const u=everyUnit().find(x=>x.uid===uid);
   if(!u) return;
   const p=u.ctrl;
@@ -1748,16 +1823,15 @@ function dropMove(uid, dest){
   const pending=pendingCombatMove();
   if(pending){
     if(dest===pending.dest) prepareCombatMove(p,[u],dest);
-    else if(pending.uids.has(uid) && dest===u.loc) toggleCombatMover(u);
+    else if(pending.uids.has(uid) && dest===u.loc) returnCombatMovers(dragUids?draggedMoveUnits(dragUids):[u]);
     else UI.toast('대기 전장에 추가하거나 원래 위치로 빼는 이동만 가능합니다','warn');
     return;
   }
   // 드래그한 유닛이 다중 선택에 포함돼 있으면 선택된 유닛 전부 함께 이동
   let units=[u];
   const confirm=_moveArmed || (_moveSel.size && _moveSel.has(uid));
-  if(_moveSel.size && _moveSel.has(uid)){
-    units=everyUnit().filter(x=>_moveSel.has(x.uid));
-  }
+  if(dragUids) units=draggedMoveUnits(dragUids);
+  else if(_moveSel.size && _moveSel.has(uid)) units=draggedMoveUnits(_moveSel);
   _moveArmed=false; _moveSel.clear(); updateButtons();
   requestUnitMove(p,units,dest,confirm);
 }
@@ -2169,11 +2243,14 @@ function moveProblem(p,u,dest){
   if(u.loc!=='base' && dest==='base' && G.bfs[u.loc].n===BF_STATIC.NO_RETREAT) return '이 전장에선 후퇴 불가';
   return null;
 }
-function moveDropAllowed(u,zone){
+function moveDropAllowed(u,zone,uids=null){
   if(!u || !zone || !canArrangeMove(u.ctrl) || (zone._dropDest==='base' && zone.id!=='base-'+u.ctrl)) return false;
   const move=pendingCombatMove(), dest=zone._dropDest;
-  if(move?.uids.has(u.uid)) return dest===u.loc;
-  return (!move || dest===move.dest) && !moveProblem(u.ctrl,u,dest);
+  const units=uids?draggedMoveUnits(uids):[u];
+  if(move?.uids.has(u.uid)) return dest===u.loc && units.length===(uids?.size||1)
+    && units.every(unit=>move.uids.has(unit.uid) && unit.ctrl===u.ctrl && unit.loc===u.loc);
+  return (!move || dest===move.dest) && units.length===(uids?.size||1)
+    && units.every(unit=>!moveProblem(u.ctrl,unit,dest));
 }
 function moveDisplayLoc(u){
   const move=pendingCombatMove();
@@ -2203,8 +2280,14 @@ function toggleCombatMover(u){
   const move=pendingCombatMove();
   if(!move || !canArrangeMove(u.ctrl)) return;
   if(!move.uids.has(u.uid)){ prepareCombatMove(move.p,[u],move.dest); return; }
-  move.uids.delete(u.uid);
-  if(combatMoveWillFight(move.p,move.dest)) UI.playUnitCombatMovementSound?.('bench',1);
+  returnCombatMovers([u]);
+}
+function returnCombatMovers(units){
+  const move=pendingCombatMove();
+  if(!move || !canArrangeMove(move.p) || !units.length
+    || units.some(u=>u.ctrl!==move.p || !move.uids.has(u.uid) || u.loc!==units[0].loc)) return;
+  units.forEach(u=>move.uids.delete(u.uid));
+  if(combatMoveWillFight(move.p,move.dest)) UI.playUnitCombatMovementSound?.('bench',units.length);
   if(!move.uids.size) _combatMove=null;
   UI.render(); UI.promptForState();
 }

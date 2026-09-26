@@ -2252,6 +2252,12 @@ async function tagAlongFollow(units, origins, dest){
 // ---------- 이동 ----------
 async function moveUnits(p, units, dest){
   // dest: 'base' | bfIdx
+  // 외부 이동 명령도 들어오므로 유닛 상태를 바꾸기 전에 요청 전체를 확인한다.
+  if(!Array.isArray(units) || !units.length || new Set(units).size!==units.length
+    || !(dest==='base' || (Number.isInteger(dest) && G.bfs[dest]))
+    || units.some(u=>!u || u.ctrl!==p)){
+    UI.toast('잘못된 이동 요청입니다','warn'); return false;
+  }
   for(const u of units){
     if(u.ex){ UI.toast(`${unitName(u)}: 탈진된 유닛은 이동할 수 없습니다`,'warn'); return false; }
     if(u.loc===dest){ UI.toast('이미 그 위치에 있습니다','warn'); return false; }

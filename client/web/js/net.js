@@ -251,7 +251,14 @@ NET._authorized = function(a, seat){
       && G.turn === G.actingPlayer && !G._endingTurn;
     case 'pass':      return G.state === 'showdown' && seat === G.actingPlayer && G.showdown
       && !G.showdown.resolvingItem && !G.showdown.finalizingTriggers && !G.showdown.pendingTriggers?.length;
-    case 'move':      return seat === G.turn && G.turn === G.actingPlayer;
+    case 'move': {
+      if(seat!==G.turn || G.turn!==G.actingPlayer || G.winner!==null
+        || G.state!=='neutral' || G.phase!=='action' || a.p!==seat
+        || !Array.isArray(a.uids) || !a.uids.length || new Set(a.uids).size!==a.uids.length
+        || !(a.dest==='base' || (Number.isInteger(a.dest) && G.bfs[a.dest]))) return false;
+      const units=everyUnit();
+      return a.uids.every(uid=>Number.isInteger(uid) && units.some(u=>u.uid===uid && u.ctrl===seat));
+    }
     case 'play': case 'hide': case 'playHidden': case 'ability': case 'equip':
       // 자기 카드/능력만 (a.p 검증으로 이미 보장). 결전 중엔 acting 좌석만.
       if(G.state==='showdown') return seat === G.actingPlayer;
