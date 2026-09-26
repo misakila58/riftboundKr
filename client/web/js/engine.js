@@ -2022,6 +2022,14 @@ async function reactionWindow(caster, c, context={}){
     UI.render();
   }
 }
+// 본 비용을 낼 수 없어도, 추가 비용으로 본 비용을 무시할 수 있는 카드(영광의 부름 207: 버프 하나를 소모하면 비용 무시)는
+// 버프 있는 아군이 있으면 낼 수 있다 — 응수 창 후보 판정에 반영 (제보 2026-09-25: 룬 3개 미만일 때 응수 불가로 보이던 문제)
+function canPayOrAltCost(p, fx, cost, pips, spellOK){
+  if(canPay(p,cost,pips,spellOK)) return true;
+  const AC=fx && fx.addCost; if(!AC || !AC.ignoreCost) return false;
+  if(AC.kind==='spendBuff' || AC.kind==='spendBuffs') return everyUnit().some(u=>u.ctrl===p && u.buff>0);
+  return false;
+}
 async function reactionWindowChoices(caster, c, context, pending){
   // 다음 체인 항목의 통제자가 먼저 반응할 우선권을 받는다 (312.2.c).
   // 주문과 능력 모두 양측이 연속 패스한 뒤 해결하며, 반응하면 패스 수가 초기화된다.
@@ -2051,7 +2059,8 @@ async function reactionWindowChoices(caster, c, context, pending){
       // 아래 카운터 분기는 그대로 지나가고 정식 플레이 경로(배치 위치 선택 포함)를 탄다.
       const cc=card(hn); if(cc.type!=='Spell' && cc.type!=='Unit') return;
       const cost=applyCostMods(o, cc, cc.e||0), pips=powerPips(cc);   // 견습생(84) 등 할인 반영 — 실제 지불 비용으로 응수 가능 여부를 본다
-      if(!canPay(o,cost,pips,cc.type==='Spell')) return;
+      if(!canPayOrAltCost(o,fx,cost,pips,cc.type==='Spell')) return;
+      const altOnly=!canPay(o,cost,pips,cc.type==='Spell');   // 버프 소모(비용 무시)로만 낼 수 있는 경우 — 라벨에 표시
       if(fx.counter||fx.steal){
         if(context.ability || c.type!=='Spell' || result?.countered) return;   // 주문 카드에서 나온 격발/능력도 주문 카운터의 대상이 아니다
         if(fx.counter){
@@ -2062,7 +2071,7 @@ async function reactionWindowChoices(caster, c, context, pending){
       // card를 실어 보내면 응수 모달에서 마우스 오버로 그 카드의 효과를 볼 수 있다 (ui.js optionCard)
       // pendingSpell: 아직 해결되지 않은 상대 주문. 봇이 "이걸 맞고 나면 어떻게 되는가"를
       // 재어 볼 때 쓴다. 이미 무효화된 뒤(result)라면 대기 중인 주문이 없다.
-      opts.push({v:{hand:i}, label:`⚡ ${cc.ko} (비용 ${cost}${pips.length?' + 힘'+pips.length:''})`,
+      opts.push({v:{hand:i}, label:`⚡ ${cc.ko} (${altOnly?'버프 소모로 비용 무시':'비용 '+cost+(pips.length?' + 힘'+pips.length:'')})`,
         isCounter:!!(fx.counter||fx.steal), card:cc,
         payment:{energy:cost,pips,spellOK:cc.type==='Spell'}, pendingSpell, pendingAbility});   // 능력 응수 창엔 대기 주문이 없다
     });
