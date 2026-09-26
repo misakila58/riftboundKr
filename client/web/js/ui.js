@@ -3231,7 +3231,7 @@ UI.showVictory = function(p){
       <div class="result-scoreboard" aria-label="최종 점수">
         ${[left,right].map(seat=>`<div class="result-player ${seat===p?'is-winner':''}">
           <span class="result-player-label">${me===null?(seat===p?'승리':'패배'):(seat===me?'나':'상대')}</span>
-          <span class="result-player-name">${esc(pname(seat))}</span>
+          <span class="result-player-name">${typeof RANK!=='undefined'?RANK.nameHTML(pname(seat),RANK.rankOfSeat(seat)):esc(pname(seat))}</span>
           <strong class="result-points">${G.players[seat].points}<small>점</small></strong>
         </div>`).join('<span class="result-vs" aria-hidden="true">:</span>')}
       </div>
@@ -3273,6 +3273,7 @@ UI.showVictory = function(p){
     add('처음 화면으로', ()=>location.reload());
   }
   // 경기 종료 시 리플레이는 자동 저장됨 (튜토리얼 제외) — 바로 보러 갈 수 있게 안내
+  if(typeof RANK!=='undefined'){ try{ RANK.onGameEnd(p); RANK.decorateVictory(box); }catch(e){ console.warn('rank hook', e); } }
   const wasP2P = typeof P2P!=='undefined' && P2P.active;
   add(REPLAY.willSave ? '🎬 리플레이 보관함 (이 경기 저장됨)' : '🎬 리플레이 보관함', ()=>{
     closeModal();

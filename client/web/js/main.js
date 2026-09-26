@@ -5,7 +5,7 @@ const HOME_PANELS = {
   'offline-screen':{trigger:'btn-offline-play', close:'btn-offline-back', focus:'btn-goto-p2p'},
 };
 // 선택 창 뒤에 메인 화면도 보이므로 선택 창을 먼저 확인한다.
-const SCREENS = [...Object.keys(HOME_PANELS),'connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','p2p-screen','replay-screen','patch-screen','record-screen','setup-screen','game-screen'];
+const SCREENS = [...Object.keys(HOME_PANELS),'connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','ranked-screen','p2p-screen','replay-screen','patch-screen','record-screen','setup-screen','game-screen'];
 let homePanelCloseTimer;
 // 지금 보이는 화면 (패치 노트처럼 '왔던 곳으로' 돌아가야 하는 화면에 쓴다)
 function currentScreen(){
@@ -642,6 +642,7 @@ async function enterMenu(){
   document.getElementById('menu-welcome').textContent=`${NET.userId}님, 환영합니다!`;
   document.getElementById('deck-count').textContent=myDecks.length;
   showScreen('menu-screen');
+  if(typeof RANK!=='undefined') RANK.refresh().catch(()=>{});   // 메뉴의 등급 요약줄
 }
 
 // ---------- 메뉴 ----------
@@ -657,6 +658,7 @@ function initMenu(){
     }catch(e){ alert(e.message); }
   };
   document.getElementById('btn-goto-hotseat').onclick=()=>{ hsRefreshDecks(); showScreen('setup-screen'); };
+  if(typeof RANK!=='undefined') RANK.init();
   document.getElementById('btn-logout').onclick=()=>{
     localStorage.removeItem('rb_token'); localStorage.removeItem('rb_id');
     location.reload();
@@ -2168,6 +2170,7 @@ async function startOnlineGame(m){
   // 예전의 '시작 직후 사이드보딩(덱 교환 뒤 게임 생성)'은 없앴다 (2026-09-25).
   MATCH.pregame=false;
   MATCH.start(m);
+  if(typeof RANK!=='undefined') RANK.onStart();
   // 관전자는 통계·리플레이 제공 대상이 아니다 (좌석이 없어 리플레이 업로드 조건 seat===0에도 안 걸린다)
   if(typeof STATS!=='undefined' && !NET.catchingUp){ if(NET.spectating){ STATS.mode=null; STATS._ended=true; } else STATS.gameStart((typeof P2P!=='undefined' && P2P.active) ? 'p2p' : 'online'); }
   NET.online=true;
@@ -2213,7 +2216,8 @@ async function startOnlineGame(m){
       el.appendChild(sel);
       return;
     }
-    el.textContent=`🌐 온라인(${modeLabel}${m.banRule?' · 🚫밴':''}${MATCH.active()?' · '+MATCH.label():''}) — 나: ${m.players[NET.seat].id} (${G.phase==='setup'&&!G.turnOrderDone?'선후공 결정 중':(G.turn===NET.seat?'선공':'후공')})`;
+    const nm=i=>(typeof RANK!=='undefined')?RANK.nameHTML(m.players[i].id, m.players[i].rank):esc(m.players[i].id);
+    el.innerHTML=`${m.ranked?'🏆 등급전':'🌐 온라인'}(${modeLabel}${m.banRule?' · 🚫밴':''}${MATCH.active()?' · '+MATCH.label():''}) — 나: ${nm(NET.seat)} (${G.phase==='setup'&&!G.turnOrderDone?'선후공 결정 중':(G.turn===NET.seat?'선공':'후공')}) · 상대: ${nm(opp(NET.seat))}`;
   };
   UI.turnOrderDecided=()=>{ G.turnOrderDone=true; netInfo(); };
   netInfo();

@@ -129,6 +129,8 @@
     <h1><img class="logo-img" src="assets/logo.png" alt=""> 리프트바운드</h1>
     <p class="subtitle" id="menu-welcome"></p>
     <div class="menu-btns">
+      <button class="big-btn ranked-btn" id="btn-goto-ranked">🏆 등급전</button>
+      <div id="menu-rank-line" class="hint" style="font-size:12px;margin:-4px 0 6px"></div>
       <button class="big-btn" id="btn-goto-lobby">🌐 온라인 대전</button>
       <button class="mid-btn" id="btn-goto-decks">🗂 내 덱 관리 (<span id="deck-count">0</span>/20)</button>
       <button class="mid-btn" id="btn-goto-hotseat">💺 오프라인 핫시트 (2인)</button>
@@ -147,6 +149,7 @@
       <button class="mid-btn" id="btn-new-deck">＋ 새 덱</button>
       <button class="mid-btn" id="btn-deck-import" title="다른 곳에서 복사한 덱 코드를 붙여넣어 가져옵니다">📥 덱 코드로 가져오기</button>
       <button class="mid-btn" id="btn-tourney-decks">🏆 대회 우승 덱</button>
+      <button class="mid-btn" id="btn-deck-profile" title="등급·시즌 칭호를 보고 장착할 칭호를 고릅니다 (서버 계정)">👤 프로필 관리</button>
       <button class="mid-btn" id="btn-banlist-decks">🚫 밴 리스트</button>
       <button class="mid-btn" id="btn-decks-back">← 메뉴로</button>
     </div>
@@ -215,6 +218,32 @@
 </div>
 
 <!-- ══════════ 온라인 로비 ══════════ -->
+<!-- ══════════ 등급전 ══════════ -->
+<div id="ranked-screen" class="full-screen" style="display:none">
+  <div class="screen-head">
+    <h2>🏆 등급전</h2>
+    <div>
+      <button class="mid-btn" id="btn-ranked-profile">👤 프로필 관리</button>
+      <button class="mid-btn" id="btn-ranked-leaderboard">🏅 리더보드</button>
+      <button class="mid-btn" id="btn-ranked-back">← 메뉴로</button>
+    </div>
+  </div>
+  <div class="ranked-body">
+    <div id="ranked-summary" class="ranked-summary"></div>
+    <div class="ranked-form">
+      <label>덱 <select id="ranked-deck"></select></label>
+      <div class="ranked-formats">
+        <label class="mode-chk"><input type="radio" name="ranked-format" value="bo1" checked> 단판 (Bo1)</label>
+        <label class="mode-chk"><input type="radio" name="ranked-format" value="bo3"> 2선승 (Bo3 · 사이드보딩)</label>
+      </div>
+      <button class="mid-btn primary-btn" id="btn-ranked-queue">매칭 시작</button>
+      <button class="mid-btn" id="btn-ranked-cancel" hidden>매칭 취소</button>
+    </div>
+    <div id="ranked-status" class="hint" style="text-align:center;min-height:1.4em"></div>
+    <div class="hint" style="font-size:12px;text-align:center">Bo1과 Bo3의 MMR은 따로 계산됩니다. 상대는 MMR이 가까운 사람부터 찾고, 기다리는 시간에 따라 범위가 넓어집니다.</div>
+  </div>
+</div>
+
 <div id="lobby-screen" class="full-screen" style="display:none">
   <div class="screen-head">
     <h2>🌐 온라인 로비</h2>
@@ -604,6 +633,7 @@
 <script src="js/dice-audio.js"></script>
 <script src="js/tutorial.js"></script>
 <script src="js/main.js"></script>
+<script src="js/rank.js"></script>
 <script src="js/deckimage.js"></script>
 <script src="js/playmat.js"></script>
 <script src="js/home.js"></script>

@@ -79,6 +79,9 @@ NET.connect = function(){
         case 'rooms': NET.onRooms && NET.onRooms(m.rooms); break;
         case 'roomCreated': NET.onRoomCreated && NET.onRoomCreated(m.room); break;
         case 'spectating': NET.onSpectating && NET.onSpectating(m.room); break;
+        case 'rankQueued': NET.onRankQueued && NET.onRankQueued(m); break;
+        case 'rankCancelled': NET.onRankCancelled && NET.onRankCancelled(m); break;
+        case 'rankUpdate': NET.onRankUpdate && NET.onRankUpdate(m); break;
         case 'start':
           if(m.rejoin){ NET.catchingUp=true; NET.rejoined=true; NET.reconnecting=false; }   // 로그 재생 시작 — 끝은 rejoinDone
           NET.onStart && NET.onStart(m);
@@ -223,7 +226,8 @@ NET._pump = async function(){
     while(NET.startPending) await new Promise(r=>setTimeout(r,20));
     // 준비 단계(주사위·멀리건·시작 단계) 동안은 행동을 실행하지 않는다 — 재접속·관전 따라잡기에서 로그가 한꺼번에 오고,
     // 평소에도 상대 클라이언트가 먼저 행동 단계에 들어가 행동을 보낼 수 있다
-    while(typeof G!=='undefined' && G && G.winner===null && !['action','ending'].includes(G.phase) && !NET.startPending) await new Promise(r=>setTimeout(r,50));
+    // 항복만은 준비 단계에서도 바로 적용한다 — 등급전은 서버가 항복 즉시 패배로 확정하므로 화면도 같이 끝나야 한다
+    while(typeof G!=='undefined' && G && G.winner===null && !['action','ending'].includes(G.phase) && !NET.startPending && NET.actionQueue[0]?.a?.k!=='surrender') await new Promise(r=>setTimeout(r,50));
     // 턴 시작 연출이 끝날 때까지 큐를 멈추되, 연출이 어떤 이유로든 안 끝나도 3초 뒤엔 진행한다
     if(G?.phase==='turn-intro' && UI.turnIntroDone) await Promise.race([UI.turnIntroDone, new Promise(r=>setTimeout(r,3000))]);
     const { a, seat } = NET.actionQueue.shift();

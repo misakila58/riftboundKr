@@ -695,6 +695,25 @@ const server = http.createServer(async (req, res) => {
       saveDB();
       return json(res, 200, { ok: true });
     }
+    // ── 등급전 ──
+    if (p === '/api/rank' && req.method === 'GET') return json(res, 200, rankSummary(user));
+    if (p === '/api/rank/leaderboard' && req.method === 'GET') {
+      const f = (url.searchParams.get('format') === 'bo3') ? 'bo3' : 'bo1';
+      const rows = Object.values(db.users).map(u => { const rk = u.rank; if (!rk || rk.season !== RANK_SEASON || !rk[f] || rk[f].games < RANK_PLACEMENT) return null;
+          const t = rankTier(rk[f].mmr, rk[f].games); return { id: u.id, mmr: Math.round(rk[f].mmr), label: t.label, tier: t.key, games: rk[f].games, win: rk[f].win }; })
+        .filter(Boolean).sort((a, b) => b.mmr - a.mmr).slice(0, 50);
+      return json(res, 200, { format: f, season: RANK_SEASON, rows });
+    }
+    if (p === '/api/profile' && req.method === 'POST') {
+      const b = await readBody(req);
+      const rk = rankOf(user);
+      if (b && b.title === null) { rk.title = null; saveDB(); return json(res, 200, { ok: true, title: null }); }
+      if (!b || !b.title || typeof b.title.season !== 'string' || !['bo1', 'bo3'].includes(b.title.format)) return json(res, 400, { error: '칭호 형식 오류' });
+      const have = rk.titles.find(x => x.season === b.title.season && x.format === b.title.format);
+      if (!have) return json(res, 404, { error: '보유하지 않은 칭호입니다' });
+      rk.title = { season: have.season, format: have.format }; saveDB();
+      return json(res, 200, { ok: true, title: rk.title });
+    }
     if (p === '/api/record' && req.method === 'DELETE') {
       delete user.record; delete user.recordTotal; saveDB();
       return json(res, 200, { ok: true });
@@ -731,6 +750,7 @@ function persistRooms() {
   roomsSaveTimer = setTimeout(() => {
     const out = [...rooms.values()].filter(r => r.started).map(r => ({
       id: r.id, name: r.name, seed: r.seed, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
+      ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null,
       password: r.password, startedAt: r.startedAt, seq: r.seq, log: r.log || [],
       players: r.players.map(pl => ({ id: pl.id, deck: pl.deck, seat: pl.seat, ver: pl.ver })),
     }));
@@ -741,6 +761,8 @@ function persistRooms() {
 // 좌석이 비워진 채 유예가 끝나면 진짜 퇴장 처리
 function expireGone(r, pl) {
   if (!rooms.has(r.id) || pl.ws) return;
+  // 등급전: 유예가 끝나도 돌아오지 않은 쪽이 패배 (상대가 아직 있으면)
+  if (r.ranked && !r.rankSettled) { const other = r.players.find(q => q !== pl); if (other) rankSettle(r, other.seat, pl.id + ' 이탈'); }
   const i = r.players.indexOf(pl); if (i >= 0) r.players.splice(i, 1);
   if (!r.players.some(q => q.ws)) {           // 남은 접속자가 없으면 방 종료 (관전자에게만 알림)
     rooms.delete(r.id);
@@ -785,10 +807,147 @@ function lobbyRooms() { return [...rooms.values()].filter(r => !r.started || r.a
 // 게임 시작 메시지 — 플레이어는 자기 좌석, 관전자는 좌석 -1
 function startMsg(r, seat) {
   return { t: 'start', seed: r.seed, yourSeat: seat, spectate: seat < 0, manual: r.manual !== false, banRule: !!r.banRule, format: r.format || 'bo1',
-    // 사이드덱은 본인만 쓰는 비공개 정보 — 상대 클라이언트로 보내지 않는다
-    players: r.players.map(q => ({ id: q.id, deck: deckWithoutSide(q.deck) })) };
+    ranked: !!r.ranked, season: RANK_SEASON,
+    // 사이드덱은 본인만 쓰는 비공개 정보 — 상대 클라이언트로 보내지 않는다. 등급·칭호는 공개 정보(아이디 옆 표시)
+    players: r.players.map(q => ({ id: q.id, deck: deckWithoutSide(q.deck), rank: rankPublic(q.id, r.format) })) };
 }
 function roomEveryone(r) { return [...r.players, ...(r.spectators || [])]; }
+
+// ══════════ 등급전 (랭크) ══════════
+// 시즌: 바꾸면 이전 시즌 최종 등급이 칭호로 남고 MMR은 1200 쪽으로 절반 되돌린다 (소프트 리셋).
+const RANK_SEASON = '2026-S1';
+const RANK_START = 1200, RANK_PLACEMENT = 5, RANK_K_PLACE = 80, RANK_K = 40;
+const RANK_TIERS = [   // [최소 MMR, 키, 한글명] — 디비전 IV~I는 티어 폭을 4등분 (마스터 이상은 디비전 없음)
+  [0, 'iron', '아이언'], [1000, 'bronze', '브론즈'], [1200, 'silver', '실버'], [1400, 'gold', '골드'], [1600, 'platinum', '플래티넘'],
+  [1800, 'emerald', '에메랄드'], [2000, 'diamond', '다이아몬드'], [2200, 'master', '마스터'], [2400, 'grandmaster', '그랜드마스터'], [2600, 'challenger', '챌린저'],
+];
+function rankTier(mmr, games) {
+  if (!(games >= RANK_PLACEMENT)) return { key: 'unranked', name: '배치 중', div: 0, label: `배치 ${games || 0}/${RANK_PLACEMENT}` };
+  let t = RANK_TIERS[0];
+  for (const x of RANK_TIERS) if (mmr >= x[0]) t = x;
+  const i = RANK_TIERS.indexOf(t);
+  const noDiv = t[1] === 'master' || t[1] === 'grandmaster' || t[1] === 'challenger';
+  let div = 0;
+  if (!noDiv) { const width = 200, pos = Math.max(0, Math.min(width - 1, mmr - t[0])); div = 4 - Math.floor(pos / (width / 4)); }
+  const ROMAN = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV' };
+  return { key: t[1], name: t[2], div, label: t[2] + (div ? ' ' + ROMAN[div] : ''), idx: i };
+}
+function rankFresh() { return { mmr: RANK_START, games: 0, win: 0, lose: 0, peak: RANK_START, streak: 0 }; }
+// 사용자의 등급 레코드 (없으면 만들고, 시즌이 바뀌었으면 칭호 부여 + 소프트 리셋)
+function rankOf(user) {
+  if (!user.rank) user.rank = { season: RANK_SEASON, bo1: rankFresh(), bo3: rankFresh(), titles: [], title: null };
+  const rk = user.rank;
+  if (rk.season !== RANK_SEASON) {
+    for (const f of ['bo1', 'bo3']) {
+      const s = rk[f] || rankFresh(); const t = rankTier(s.mmr, s.games);
+      if (t.key !== 'unranked' && !rk.titles.some(x => x.season === rk.season && x.format === f))
+        rk.titles.push({ season: rk.season, format: f, tier: t.key, name: t.name, div: t.div, label: t.label, mmr: Math.round(s.mmr) });
+      rk[f] = { ...rankFresh(), mmr: Math.round((s.mmr + RANK_START) / 2) };
+    }
+    rk.season = RANK_SEASON; saveDB();
+  }
+  for (const f of ['bo1', 'bo3']) if (!rk[f]) rk[f] = rankFresh();
+  if (!Array.isArray(rk.titles)) rk.titles = [];
+  return rk;
+}
+// 상대에게 보여 주는 공개 등급 정보 (아이디 옆 표시용)
+function rankPublic(userId, format) {
+  const u = db.users[userId]; if (!u) return null;
+  const rk = rankOf(u), f = (format === 'bo3') ? 'bo3' : 'bo1', s = rk[f];
+  const t = rankTier(s.mmr, s.games);
+  const title = rk.title ? rk.titles.find(x => x.season === rk.title.season && x.format === rk.title.format) : null;
+  return { format: f, tier: t.key, label: t.label, div: t.div, mmr: Math.round(s.mmr), games: s.games,
+    title: title ? { season: title.season, format: title.format, tier: title.tier, label: title.label } : null };
+}
+function rankSummary(user) {
+  const rk = rankOf(user);
+  const one = f => { const s = rk[f], t = rankTier(s.mmr, s.games); return { mmr: Math.round(s.mmr), games: s.games, win: s.win, lose: s.lose, peak: Math.round(s.peak), streak: s.streak, tier: t.key, label: t.label, div: t.div }; };
+  return { season: RANK_SEASON, bo1: one('bo1'), bo3: one('bo3'), titles: rk.titles, title: rk.title, placement: RANK_PLACEMENT };
+}
+// Elo 적용. winnerId/loserId. 반환: 양쪽 변화
+function rankApply(format, winnerId, loserId) {
+  const W = db.users[winnerId], L = db.users[loserId]; if (!W || !L) return null;
+  const f = (format === 'bo3') ? 'bo3' : 'bo1';
+  const a = rankOf(W)[f], b = rankOf(L)[f];
+  const expW = 1 / (1 + Math.pow(10, (b.mmr - a.mmr) / 400));
+  const kW = a.games < RANK_PLACEMENT ? RANK_K_PLACE : RANK_K, kL = b.games < RANK_PLACEMENT ? RANK_K_PLACE : RANK_K;
+  const before = { w: rankTier(a.mmr, a.games), l: rankTier(b.mmr, b.games), wm: a.mmr, lm: b.mmr };
+  // 연승 보너스(하스스톤 별 보너스 참고): 3연승부터 +25% (최대 +50%)
+  const bonus = 1 + Math.min(0.5, Math.max(0, a.streak - 1) * 0.25);
+  a.mmr = Math.max(0, a.mmr + kW * (1 - expW) * bonus); b.mmr = Math.max(0, b.mmr - kL * (1 - expW));
+  a.games++; a.win++; a.streak = Math.max(1, (a.streak || 0) + 1); a.peak = Math.max(a.peak || 0, a.mmr);
+  b.games++; b.lose++; b.streak = 0;
+  saveDB();
+  return {
+    [winnerId]: { win: true, before: Math.round(before.wm), after: Math.round(a.mmr), tierBefore: before.w, tier: rankTier(a.mmr, a.games), opp: loserId },
+    [loserId]: { win: false, before: Math.round(before.lm), after: Math.round(b.mmr), tierBefore: before.l, tier: rankTier(b.mmr, b.games), opp: winnerId },
+  };
+}
+// 매치(방) 결과 확정 — 한 번만. 양쪽에 rankUpdate 전송
+function rankSettle(r, winnerSeat, how) {
+  if (!r.ranked || r.rankSettled) return;
+  const w = r.players.find(pl => pl.seat === winnerSeat), l = r.players.find(pl => pl.seat !== winnerSeat);
+  if (!w || !l) return;
+  r.rankSettled = true;
+  const res = rankApply(r.format, w.id, l.id);
+  if (!res) return;
+  console.log(`[등급전] ${r.format} ${w.id}(승) vs ${l.id} — ${how}`);
+  r.rankResultMsgs = {};   // 좌석별 결과 — 재접속(새로고침) 시 다시 보내 결과 창이 '반영 중'에 머물지 않게
+  for (const pl of r.players) { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', ...res[pl.id], format: r.format, how }; wsSend(pl.ws, r.rankResultMsgs[pl.seat]); }
+  persistRooms();
+}
+// 클라이언트 보고: 양쪽이 같은 승자를 말해야 반영 (락스텝이라 정상이면 항상 같다)
+function rankReport(ws, m) {
+  const r = ws._room; if (!r || !r.ranked || !r.started || r.rankSettled) return;
+  const me = r.players.find(pl => pl.ws === ws); if (!me) return;
+  if (!(m.winner === 0 || m.winner === 1)) return;
+  r.rankReports = r.rankReports || {};
+  r.rankReports[me.seat] = m.winner;
+  const a = r.rankReports[0], b = r.rankReports[1];
+  if (a !== undefined && b !== undefined) {
+    if (a === b) rankSettle(r, a, '양측 보고 일치');
+    else { console.log(`[등급전] 보고 불일치 ${r.id}: ${a} vs ${b} — 미반영`); r.rankSettled = true; r.rankResultMsgs = {}; r.players.forEach(pl => { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', void: true, format: r.format }; wsSend(pl.ws, r.rankResultMsgs[pl.seat]); }); persistRooms(); }
+  }
+}
+// 매칭 큐
+const rankQueue = { bo1: [], bo3: [] };
+function rankDequeue(ws) { for (const f of ['bo1', 'bo3']) rankQueue[f] = rankQueue[f].filter(q => q.ws !== ws); }
+function rankMatchmake() {
+  for (const f of ['bo1', 'bo3']) {
+    const q = rankQueue[f].filter(x => x.ws.readyState === WebSocket.OPEN && !x.ws._room);
+    rankQueue[f] = q;
+    q.sort((x, y) => x.mmr - y.mmr);
+    const used = new Set();
+    for (let i = 0; i < q.length; i++) {
+      if (used.has(i)) continue;
+      let best = -1, bestGap = Infinity;
+      for (let j = i + 1; j < q.length; j++) {
+        if (used.has(j) || q[j].id === q[i].id) continue;
+        const gap = Math.abs(q[i].mmr - q[j].mmr);
+        const allow = Math.min(600, 100 + 50 * Math.floor((Date.now() - Math.min(q[i].since, q[j].since)) / 10000));
+        if (gap <= allow && gap < bestGap) { best = j; bestGap = gap; }
+      }
+      if (best < 0) continue;
+      used.add(i); used.add(best);
+      rankStartMatch(f, q[i], q[best]);
+    }
+    rankQueue[f] = rankQueue[f].filter((_, i) => !used.has(i));
+  }
+}
+setInterval(rankMatchmake, 2000).unref?.();
+function rankStartMatch(format, a, b) {
+  if (rooms.size >= LIMITS.MAX_ROOMS) { [a, b].forEach(x => wsSend(x.ws, { t: 'err', msg: '서버 방이 가득 찼습니다.' })); return; }
+  const r = { id: 'r' + (roomSeq++), name: `등급전 ${format.toUpperCase()}`, players: [], started: true, seq: 0, manual: false, banRule: true,
+    allowSpectate: false, password: null, spectators: [], log: [], format, ranked: true, startedAt: Date.now() };
+  // 좌석은 무작위
+  const first = Math.random() < 0.5 ? a : b, second = first === a ? b : a;
+  r.players.push({ ws: first.ws, id: first.id, deck: first.deck, seat: 0, ver: first.ver });
+  r.players.push({ ws: second.ws, id: second.id, deck: second.deck, seat: 1, ver: second.ver });
+  r.seed = crypto.randomBytes(4).readUInt32LE(0);
+  rooms.set(r.id, r);
+  r.players.forEach(pl => { pl.ws._room = r; wsSend(pl.ws, startMsg(r, pl.seat)); });
+  persistRooms(); broadcastLobby();
+}
 // 밴 리스트 (한국 KR 기준 = 글로벌 공통, 2026-09-18 개정 확인) — client/web/js/banlist.js와 반드시 함께 갱신할 것
 // 168 투쟁 혹은 도피 · 177 은밀한 추적자 · 182 고철 더미 · 276 지망자의 등반
 // 284 힘의 오벨리스크 · 285 약탈자의 거리 · 290 투기장 최고의 강자 · 292 꿈꾸는 나무 · 110 에코 - 회귀자 · 183 조작된 덱
@@ -822,6 +981,7 @@ function leaveRoom(ws, notify = true) {
     return;
   }
   const i = r.players.findIndex(pl => pl.ws === ws);
+  if (i >= 0 && r.ranked && r.started && !r.rankSettled) { const other = r.players.find(q => q.ws !== ws); if (other) rankSettle(r, other.seat, ws._userId + ' 퇴장'); }
   if (i >= 0) r.players.splice(i, 1);
   if (r.players.length === 0) {
     rooms.delete(r.id);
@@ -925,6 +1085,21 @@ wss.on('connection', (ws, req) => {
         break;
       }
       case 'leaveRoom': leaveRoom(ws); break;
+      case 'rankQueue': {
+        if (ws._room) return wsSend(ws, { t: 'err', msg: '이미 방에 있습니다' });
+        const format = m.format === 'bo3' ? 'bo3' : 'bo1';
+        const deck = resolveDeck(ws, m);
+        if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요 (덱 형식 오류 포함)' });
+        if (deckBannedNs(deck).length) return wsSend(ws, { t: 'err', msg: '🚫 등급전은 밴 리스트가 적용됩니다 — 밴 카드가 없는 덱으로 참가하세요' });
+        rankDequeue(ws);
+        const s = rankOf(db.users[ws._userId])[format];
+        rankQueue[format].push({ ws, id: ws._userId, deck, mmr: s.mmr, since: Date.now(), ver: String(m.ver || '?').slice(0, 20) });
+        wsSend(ws, { t: 'rankQueued', format, mmr: Math.round(s.mmr), waiting: rankQueue[format].length });
+        rankMatchmake();
+        break;
+      }
+      case 'rankCancel': rankDequeue(ws); wsSend(ws, { t: 'rankCancelled' }); break;
+      case 'rankResult': rankReport(ws, m); break;
       case 'rejoin': {
         // 같은 계정의 빈 좌석이 있는 시작된 방을 찾아 소켓을 다시 붙이고, start + 그동안의 행동/선택 로그를 보내 따라잡게 한다
         if (ws._room) return;
@@ -935,6 +1110,7 @@ wss.on('connection', (ws, req) => {
         wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true });
         (found.log || []).forEach(o => wsSend(ws, o));
         wsSend(ws, { t: 'rejoinDone' });
+        if (found.rankResultMsgs && found.rankResultMsgs[seat.seat]) wsSend(ws, found.rankResultMsgs[seat.seat]);   // 이미 확정된 등급 결과
         roomEveryone(found).forEach(q => { if (q.ws !== ws) wsSend(q.ws, { t: 'opponentBack', id: ws._userId }); });
         broadcastLobby(); persistRooms();
         break;
@@ -947,6 +1123,9 @@ wss.on('connection', (ws, req) => {
         const out = { t: m.t, seq: ++r.seq, from: ws._userId, seat: me.seat };
         if (m.t === 'act') out.action = m.action;
         else { out.id = m.id; out.data = m.data; }
+        // 등급전: 항복은 서버가 직접 본다 (Bo3는 매치 승자가 정해질 때 클라이언트 보고로 확정하므로 단판만 즉시)
+        if (m.t === 'act' && r.ranked && !r.rankSettled && m.action && m.action.k === 'surrender' && r.format !== 'bo3')
+          rankSettle(r, 1 - me.seat, me.id + ' 항복');
         r.log = r.log || []; r.log.push(out); if (r.log.length > 20000) r.log.splice(0, r.log.length - 20000);   // 관전 따라잡기 + 재접속 재생용 (모든 방)
         persistRooms();
         roomEveryone(r).forEach(pl => wsSend(pl.ws, out));
@@ -961,7 +1140,7 @@ wss.on('connection', (ws, req) => {
       }
     }
   });
-  ws.on('close', () => { clearTimeout(ws._authTimer); if (!dropPlayer(ws)) leaveRoom(ws); });   // 시작된 방의 플레이어는 좌석을 유예로 남긴다
+  ws.on('close', () => { clearTimeout(ws._authTimer); rankDequeue(ws); if (!dropPlayer(ws)) leaveRoom(ws); });   // 시작된 방의 플레이어는 좌석을 유예로 남긴다
   ws.on('error', () => {});
 });
 

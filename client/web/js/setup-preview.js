@@ -40,7 +40,7 @@ UI.reviewSetup = async function(){
     section.className='setup-review-player '+(p===me?'is-self':'is-opponent'); section.dataset.seat=p;
     const heading=document.createElement('h3');
     const side=document.createElement('small'); side.textContent=spect?(p===0?'A':'B'):p===me?'나':'상대';
-    const name=document.createElement('span'); name.textContent=pname(p);
+    const name=document.createElement('span'); name.innerHTML=(typeof RANK!=='undefined')?RANK.nameHTML(pname(p),RANK.rankOfSeat(p)):esc(pname(p));
     const result=document.createElement('output'); result.className='setup-roll-result'; result.setAttribute('aria-label',pname(p)+' 주사위 결과');
     heading.append(side,name,result);
     section.appendChild(heading);
