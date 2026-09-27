@@ -563,6 +563,22 @@ const server = http.createServer(async (req, res) => {
     persistRooms();
     return json(res, 200, { room: r.id, voided: true, players: r.players.map(q => q.id) });
   }
+  // 운영: 무효 처리 취소(루프백 전용) — 다시 정상 경기로 돌려 매치가 끝나면 양쪽 보고로 반영된다
+  //   curl -X POST "http://127.0.0.1:8321/api/admin/rank-unvoid?room=r142"
+  if (p === '/api/admin/rank-unvoid' && req.method === 'POST') {
+    const sock = String(req.socket && req.socket.remoteAddress || '');
+    if (!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(sock)) return json(res, 403, { error: 'loopback only' });
+    const id = (req.url.match(/[?&]room=([^&]+)/) || [])[1];
+    const r = id && rooms.get(id);
+    if (!r) return json(res, 404, { error: 'no such room' });
+    if (!r.ranked) return json(res, 400, { error: 'not ranked' });
+    const wasVoid = !!(r.rankResultMsgs && Object.values(r.rankResultMsgs).some(m => m && m.void));
+    if (r.rankSettled && !wasVoid) return json(res, 400, { error: 'already settled with a result' });   // 실제 반영된 결과는 되돌리지 않는다
+    r.rankSettled = false; r.rankResultMsgs = null; r.rankReports = {}; r.rankLeftAfterReport = false;
+    console.log(`[등급전] ${r.id} ${r.players.map(q => q.id).join(' vs ')} — 무효 처리 취소(정상 경기로 복귀)`);
+    persistRooms();
+    return json(res, 200, { room: r.id, unvoided: true, players: r.players.map(q => q.id) });
+  }
   if (p === '/api/status' && req.method === 'GET') {
     const now = new Date();
     const s = stats24h(now);
