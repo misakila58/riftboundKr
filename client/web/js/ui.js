@@ -824,7 +824,14 @@ UI.pickOption = function(p, title, options, boardPick=false){
       return unit ? options.findIndex(o=>o.movement?.uid===unit.uid) : null;
     },
     v=>v, v=>v
-  ).then(idx=>idx===null?null:options[idx].v);
+  ).then(idx=>{
+    if(idx===null || idx===undefined) return null;
+    const o=options[idx];
+    // 서버 에코로 받은 선택 번호가 이 선택지에 없으면(선택 순번이 어긋났거나 다른 창의 응답이 섞임) 예외로 게임을 멈추지 않고
+    // '선택 안 함'으로 처리한다 — 양쪽이 같은 에코를 받으므로 두 화면이 같은 값으로 이어진다. (제보 2026-09-28: Bo3 선후공 선택에서 options[idx].v 오류)
+    if(!o){ console.warn('pickOption: 선택지에 없는 응답', idx, title, options.length); UI.toast('동기화 주의: 선택 응답이 이 선택지와 맞지 않아 "선택 안 함"으로 처리했습니다 — 이상하면 제보해 주세요','warn'); return null; }
+    return o.v;
+  });
 };
 // 위치 선택도 기존 옵션 인덱스로 동기화한다. 보드 위 버튼은 표시와 입력만 담당한다.
 UI.placementPending=false;
