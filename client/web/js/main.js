@@ -1486,7 +1486,7 @@ function renderRooms(roomsArr){
         if(!pay){ UI.toast('덱을 선택하세요','warn'); return; }
         // 밴 적용 여부는 방장이 정한다 — 밴 방이면 내 덱에 밴 카드가 없어야 입장할 수 있다
         if(!banSelfCheck(r.banRule, lobbySelectedDeck())) return;
-        MATCH.myDeck=lobbySelectedDeck();   // Bo3 사이드보딩은 등록 덱(사이드 포함)에서 — 서버는 사이드를 돌려주지 않는다
+        MATCH.rememberDeck(lobbySelectedDeck());   // Bo3 사이드보딩은 등록 덱(사이드 포함)에서 — 서버는 사이드를 돌려주지 않는다
         UI.chatReset?.();
         withPw(password=>NET.send({t:'joinRoom', roomId:r.id, ...pay, password, banRule:document.getElementById('lobby-ban').checked, ver:NET.clientVersion()}));
       };
@@ -1517,7 +1517,7 @@ function initLobby(){
     const allowSpectate=!!document.getElementById('lobby-spectate')?.checked;
     const password=(document.getElementById('lobby-password')?.value||'').trim();
     const format=document.getElementById('lobby-format')?.value==='bo3'?'bo3':'bo1';
-    MATCH.myDeck=lobbySelectedDeck();
+    MATCH.rememberDeck(lobbySelectedDeck());
     UI.chatReset?.();
     NET.send({t:'createRoom', ...pay, manual, banRule:ban, allowSpectate, password, format, name:document.getElementById('lobby-room-name').value.trim(), ver:NET.clientVersion()});
   };
@@ -1965,6 +1965,29 @@ const MATCH = {
     else { MATCH.format=(m.format==='bo3')?'bo3':'bo1'; MATCH.wins=[0,0]; MATCH.game=1; MATCH.used=[[],[]]; MATCH.chooser=null; }
     MATCH._lastGame=null; MATCH._sent=false; MATCH._continue=false;
   },
+  // 사이드보딩용 내 등록 덱(사이드 포함)은 클라이언트에만 있다(서버는 사이드를 돌려주지 않는다). 새로고침·재접속 뒤에도 쓸 수 있게 기기에 남겨 둔다.
+  // (제보 2026-09-28: 등급전 Bo3에서 재접속 뒤 사이드보딩이 사라짐 — 새로고침으로 MATCH.myDeck이 비어 서버 덱(사이드 없음)으로 대체됐다)
+  rememberDeck(d){
+    MATCH.myDeck=d;
+    try{ if(d) localStorage.setItem('rb_match_deck', JSON.stringify({server:NET.base, deck:d, at:Date.now()})); else localStorage.removeItem('rb_match_deck'); }catch(e){}
+  },
+  // start 메시지의 내 덱과 같은 덱(전설·선발·메인 40장)일 때만 복원한다
+  restoreDeck(ls){
+    if(MATCH.myDeck || !ls || NET.spectating || !ls.players || !ls.players[NET.seat]) return;
+    try{
+      const saved=JSON.parse(localStorage.getItem('rb_match_deck')||'null'); if(!saved || !saved.deck) return;
+      if(Date.now()-(saved.at||0) > 6*60*60*1000) return;
+      const mine=ls.players[NET.seat].deck, d=saved.deck;
+      const same=(a,b)=>{ const x=[...(a||[])].sort((p,q)=>p-q), y=[...(b||[])].sort((p,q)=>p-q); return x.length===y.length && x.every((v,i)=>v===y[i]); };
+      // 게임 사이 사이드보딩 뒤에는 서버 덱의 메인이 바뀌어 있을 수 있다 — 전설이 같고 메인 카드가 사이드까지 합친 집합 안에 있으면 같은 덱으로 본다
+      const pool=[...(d.main||[]), ...(d.side||[])];
+      if(d.legendN!==mine.legendN || !(mine.main||[]).every(n=>pool.includes(n))) return;
+      if(same(d.main, mine.main)){ MATCH.myDeck=d; return; }
+      // 서버 덱이 사이드보딩된 구성이면 사이드는 '전체 풀 − 현재 메인'
+      const rest=[...pool]; (mine.main||[]).forEach(n=>{ const i=rest.indexOf(n); if(i>=0) rest.splice(i,1); });
+      MATCH.myDeck={...d, main:[...mine.main], champN:mine.champN, side:rest};
+    }catch(e){}
+  },
   // 게임 결과 기록 (게임당 한 번). 이긴 게임의 전장 둘은 매치에서 제외된다.
   recordResult(winner){
     if(!MATCH.active() || MATCH._lastGame===G) return;
@@ -1985,7 +2008,7 @@ const MATCH = {
     MATCH._continue=true;
     const base=MATCH.myDeck || ls.players[NET.seat].deck;
     const ban=!!ls.banRule;
-    const send=d=>{ MATCH._sent=true; NET.sendAction({k:'rematch', p:NET.seat, deck:deckForMatch(d)});
+    const send=d=>{ MATCH._sent=true; MATCH.rememberDeck(d); NET.sendAction({k:'rematch', p:NET.seat, deck:deckForMatch(d)});
       UI.prompt(`▶ ${MATCH.game+1}게임 준비 완료 — 상대의 사이드보딩을 기다리는 중...`); };
     if(base.side && base.side.length) RM.openSideboard(base, ban, send); else send(base);
   },
@@ -2023,6 +2046,7 @@ const MATCH = {
 // ---------- ESC 시스템 메뉴 & 게임 나가기 ----------
 function gameLeave(){
   NET.leaving=true; NET.reconnecting=false; NET.clearRejoinFlag?.();   // 내가 나가는 것 — 소켓 종료를 끊김으로 보지 않고, 새로고침 복귀도 끈다
+  try{ localStorage.removeItem('rb_match_deck'); }catch(e){}
   UI.chatReset?.();   // 방을 나가면 그 방의 대화도 지운다
   if(NET.online){
     if(typeof P2P!=='undefined' && P2P.active){
@@ -2179,6 +2203,7 @@ async function startOnlineGame(m){
   NET.online=true;
   NET.seat=NET.spectating ? -1 : m.yourSeat;
   NET.lastStart=m;    // 재대결용: 모드/밴/플레이어 이름 보존
+  MATCH.restoreDeck(m);   // 새로고침·재접속 뒤 사이드보딩용 덱 복원
   RM.reset();
   NET.resetGameSync();
   // 결정론: 시드 → 전장 선택(각자 3개 중 1개 무작위)도 rng 사용

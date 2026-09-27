@@ -83,7 +83,7 @@ const RANK = {
     if(!deck){ UI.toast('덱을 선택하세요','warn'); return; }
     if(deckBannedCards(deck).length){ UI.toast('🚫 등급전은 밴 카드가 든 덱으로 참가할 수 없습니다: '+deckBannedCards(deck).map(n=>card(n).ko).join(', '),'warn'); return; }
     const format=document.querySelector('input[name="ranked-format"]:checked')?.value==='bo3'?'bo3':'bo1';
-    MATCH.myDeck=deck;
+    MATCH.rememberDeck(deck);   // Bo3 사이드보딩용(사이드 포함) — 새로고침 뒤에도 복원
     const v=document.getElementById('ranked-deck').value;
     const pay = v[0]==='l' ? {deck:deckForMatch(deck)} : {deckIdx:+String(v).replace(/^s/,'')};
     NET.send({t:'rankQueue', format, ...pay, ver:NET.clientVersion()});
