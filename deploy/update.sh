@@ -14,7 +14,7 @@ fi
 ( cd /tmp/rbsrc && node tools/fetch-card-images.js --quiet ) || echo "⚠ 카드 이미지 받기 실패 — CDN 폴백으로 동작합니다"
 # esbuild가 서버 의존성(ws)을 번들에 넣으려면 먼저 설치돼 있어야 한다
 ( cd /tmp/rbsrc/server && npm install --omit=dev --no-audit --no-fund && node build-dist.js )
-sudo rsync -a --delete --exclude 'data' --exclude 'access-count.txt' --exclude 'access-code.txt' /tmp/rbsrc/server/dist/ "$APP"/
+sudo rsync -a --delete --exclude 'data' --exclude 'access-code.txt' /tmp/rbsrc/server/dist/ "$APP"/
 sudo chown -R riftbound:riftbound "$APP"
 # 재시작 직전에 접속자에게 알린다(루프백 전용 엔드포인트, 옛 서버면 무시). 기다리지 않는다 —
 # 진행 중인 경기는 방이 파일로 보존되고 클라이언트가 몇 초 안에 자동 재접속해 이어지며(2분 유예), 끝난 뒤 새로고침 안내를 받는다.
