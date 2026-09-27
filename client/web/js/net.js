@@ -239,6 +239,10 @@ NET._enqueueAction = function(m){
 NET._pump = async function(){
   if(NET.processing) return;
   NET.processing = true;
+  try{ await NET._pumpLoop(); }
+  finally{ NET.processing = false; }   // 어떤 예외에도 펌프 잠금은 반드시 푼다 — 잠기면 이후 행동이 영원히 실행되지 않는다
+};
+NET._pumpLoop = async function(){
   while(NET.actionQueue.length){
     // 재대결 신호로 새 게임 시작이 예약됐으면 newGame이 만들어질 때까지 기다린다 (그 전에 다음 행동을 실행하면 옛 게임에 적용된다)
     while(NET.startPending) await new Promise(r=>setTimeout(r,20));
@@ -248,7 +252,9 @@ NET._pump = async function(){
     while(typeof G!=='undefined' && G && G.winner===null && !['action','ending'].includes(G.phase) && !NET.startPending && NET.actionQueue[0]?.a?.k!=='surrender') await new Promise(r=>setTimeout(r,50));
     // 턴 시작 연출이 끝날 때까지 큐를 멈추되, 연출이 어떤 이유로든 안 끝나도 3초 뒤엔 진행한다
     if(G?.phase==='turn-intro' && UI.turnIntroDone) await Promise.race([UI.turnIntroDone, new Promise(r=>setTimeout(r,3000))]);
-    const { a, seat } = NET.actionQueue.shift();
+    const item = NET.actionQueue.shift();
+    if(!item) break;   // 기다리는 사이 큐가 비워짐(방 나가기·새 게임 초기화) — 제보 2026-09-28 "Cannot destructure property 'a'"
+    const { a, seat } = item;
     if(a && a.k==='_rejoinDone'){ NET.finishCatchUp(); continue; }   // 로그 재생 완료 표식 (서버 rejoinDone)
     try {
       if(!NET._authorized(a, seat)){ console.warn('rejected unauthorized action', a, 'seat', seat); updateButtons(); continue; }
@@ -260,7 +266,6 @@ NET._pump = async function(){
       try{ UI.render(); UI.promptForState(); }catch(e2){}
     }
   }
-  NET.processing = false;
 };
 // 발신 좌석이 해당 행동을 할 권한이 있는지 검증 (상대 명의 조작·턴 훔치기 차단)
 NET._authorized = function(a, seat){
