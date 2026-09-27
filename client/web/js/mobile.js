@@ -59,6 +59,8 @@
     // 4) 효과/선택 처리 대기 중(프롬프트 등)이면 안내
     if(typeof UI!=='undefined' && UI.isPicking && UI.isPicking()){
       const nm=currentTaskName();
+      // 고를 유닛이 화면 밖에 있으면(좁은 화면에서 상대 기지 등) 강조된 첫 후보를 보이게 스크롤한다 (제보 2026-09-27: 일등 항해사 대상 선택에서 진행 불가)
+      try{ document.querySelector('#board .targetable')?.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){}
       UI.toast(nm?`「${nm}」 효과 처리 진행 중입니다 — 선택을 먼저 완료해 주세요`:'효과 처리 진행 중입니다 — 선택을 먼저 완료해 주세요','warn');
       return;
     }

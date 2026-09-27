@@ -695,6 +695,14 @@ POLICY.unit = async function(p, candidates, promptText, optional, selection){
   const foes = candidates.filter(u=>u.ctrl!==p);
   const mine = candidates.filter(u=>u.ctrl===p);
 
+  // ⓪ '유닛 준비'(일등 항해사 132 등 — 플레이 시점 대상 프롬프트 「…」 대상 선택 — 유닛 준비): 탈진한 아군에게. 준비된 아군은 무의미하고
+  //   적을 준비시키면 자해다 (예전엔 문구가 POL_BENEFIT에 안 잡혀 '해로운 효과 → 적 최강'으로 상대 유닛을 준비시켜 줬다)
+  if(selection?.op?.op==='ready' || /유닛 준비|준비시킬/.test(txt)){
+    const tired=mine.filter(u=>u.ex);
+    if(tired.length){ const u=polStrongest(tired); polSay('unit', u&&unitName(u), '유닛 준비 → 탈진한 아군 최강', {txt}); return u; }
+    if(optional){ polSay('unit', null, '준비시킬 탈진 아군 없음 — 선택 안 함', {txt}); return null; }
+    if(mine.length){ const u=polStrongest(mine); polSay('unit', u&&unitName(u), '유닛 준비 → 아군(효과 없음, 적에게 주지 않음)', {txt}); return u; }
+  }
   // ① 비용·희생 (후보가 전부 아군인 파괴류) — 가장 약한 것, 선택 가능하면 지불하지 않는다
   if(!foes.length && POL_SACRI.test(txt)){
     if(optional){ polSay('unit', null, '선택적 아군 희생 거절', {txt}); return null; }
