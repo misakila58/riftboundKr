@@ -137,7 +137,8 @@ NET._serverVersionCheck = function(){
 NET.reconnect = async function(){
   if(NET.reconnecting) return;
   NET.reconnecting=true;
-  UI.prompt('⚠ 서버 연결이 끊어졌습니다 — 재접속 시도 중… (최대 2분, 그동안 상대는 기다립니다)');
+  UI.prompt(NET.draining ? '🔄 서버 업데이트 중 — 몇 초 뒤 자동으로 다시 연결됩니다 (경기는 그대로 이어집니다)'
+                         : '⚠ 서버 연결이 끊어졌습니다 — 재접속 시도 중… (최대 2분, 그동안 상대는 기다립니다)');
   const delays=[1000,2000,3000,5000], t0=Date.now(); let n=0;
   while(Date.now()-t0 < 2*60*1000+15000){   // 서버 유예(2분)보다 조금 더 — 만료 뒤엔 rejoinNone으로 정리된다
     await new Promise(r=>setTimeout(r, delays[Math.min(n++, delays.length-1)]));

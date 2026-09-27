@@ -1057,7 +1057,7 @@ wss.on('connection', (ws, req) => {
     if (!ws._authed) return;
 
     if (draining && ['createRoom', 'joinRoom', 'spectate', 'rankQueue'].includes(m.t))
-      return wsSend(ws, { t: 'err', msg: '🔄 서버 업데이트가 곧 적용됩니다 — 진행 중인 경기가 끝나면 재시작됩니다. 잠시 후 새로고침한 뒤 다시 시도해 주세요.' });
+      return wsSend(ws, { t: 'err', msg: '🔄 서버가 잠시 후 업데이트로 재시작됩니다 — 재시작 뒤 새로고침하고 다시 시도해 주세요.' });
     switch (m.t) {
       case 'listRooms':
         wsSend(ws, { t: 'rooms', rooms: lobbyRooms() });
