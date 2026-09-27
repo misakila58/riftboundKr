@@ -1997,6 +1997,8 @@ const MATCH = {
       if(rem.length<=1) return Promise.resolve(rem[0] ?? m.players[p].deck.bfs[0]);
       return NET.choice(p, ()=>MATCH._pickLocal(p, rem, m), v=>v, v=>v);
     }));
+    // 답이 로그·에코로 먼저 도착해 창이 열린 채 남았으면 닫는다 (거기서 다시 누르면 중복 응답이 된다)
+    if(document.body.classList.contains('modal-open') && /전장 선택/.test(document.querySelector('#modal-box h3')?.textContent||'')) closeModal();
     if(G!==gameBefore && G && G.winner===null && !G.reviewSetup) return null;
     UI.log(`전장 공개 — ${m.players[0].id}: 「${card(picks[0]).ko}」 / ${m.players[1].id}: 「${card(picks[1]).ko}」`, 'sys');
     return picks;

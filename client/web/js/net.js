@@ -84,11 +84,19 @@ NET.connect = function(){
         case 'rankCancelled': NET.onRankCancelled && NET.onRankCancelled(m); break;
         case 'rankUpdate': NET.onRankUpdate && NET.onRankUpdate(m); break;
         case 'start':
-          if(m.rejoin){ NET.catchingUp=true; NET.rejoined=true; NET.reconnecting=false; }   // 로그 재생 시작 — 끝은 rejoinDone
+          if(m.rejoin){
+            // 복귀: 서버가 start → 행동/선택 로그 → rejoinDone 순으로 보낸다. 로그의 선택 응답이 다 도착한 뒤(rejoinDone) 게임을 시작해야
+            // 시작 전 선택창(Bo3 전장 선택 등)이 로그의 답으로 조용히 채워진다 — 예전엔 start 즉시 시작해 답이 오기 전에 창이 다시 떴고,
+            // 거기서 누르면 중복 응답이 다음 게임의 선택 순번을 어긋나게 했다 (제보 2026-09-28)
+            NET.catchingUp=true; NET.rejoined=true; NET.reconnecting=false; NET.startPending=true; NET._rejoinStart=m;
+            break;
+          }
           NET.onStart && NET.onStart(m);
-          if(!m.spectate && !m.rejoin) NET._verSendCheck();   // 서버를 못 믿는 경로 대비: 채팅 채널로 클라끼리 버전 검증 (관전자·재접속은 제외)
+          if(!m.spectate) NET._verSendCheck();   // 서버를 못 믿는 경로 대비: 채팅 채널로 클라끼리 버전 검증 (관전자·재접속은 제외)
           break;
-        case 'rejoinDone': NET._enqueueAction({ action:{k:'_rejoinDone'}, seat:-1 }); break;   // 로그 뒤에 줄을 서서, 다 재생된 뒤 복귀 처리
+        case 'rejoinDone':
+          if(NET._rejoinStart){ const s=NET._rejoinStart; NET._rejoinStart=null; NET.onStart && NET.onStart(s); }   // 로그가 다 왔다 — 이제 시작(선택은 로그의 답으로 채워짐)
+          NET._enqueueAction({ action:{k:'_rejoinDone'}, seat:-1 }); break;   // 로그 뒤에 줄을 서서, 다 재생된 뒤 복귀 처리
         case 'rejoinNone': NET._onRejoinNone(); break;
         case 'opponentAway': NET.oppAway=true; UI.toast('상대 연결이 끊겼습니다 — 재접속을 기다립니다 (최대 1분)','warn'); UI.promptForState?.(); break;
         case 'opponentBack': NET.oppAway=false; UI.toast('상대가 다시 접속했습니다'); UI.promptForState?.(); break;

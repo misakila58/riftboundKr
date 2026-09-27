@@ -541,6 +541,28 @@ const server = http.createServer(async (req, res) => {
     wss.clients.forEach(c => { if (c._authed) wsSend(c, { t: 'serverUpdate', draining }); });
     return json(res, 200, { draining, playing });
   }
+  // 운영: 등급전 방 결과 무효 처리(루프백 전용) — 동기화 사고로 이어갈 수 없게 된 방. 두 플레이어 모두 등급 변동 없이 나갈 수 있다.
+  //   ssh VM → curl -X POST "http://127.0.0.1:8321/api/admin/rank-void?room=r142"
+  if (p === '/api/admin/rank-void' && req.method === 'POST') {
+    const sock = String(req.socket && req.socket.remoteAddress || '');
+    if (!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(sock)) return json(res, 403, { error: 'loopback only' });
+    const id = (req.url.match(/[?&]room=([^&]+)/) || [])[1];
+    const r = id && rooms.get(id);
+    if (!r) return json(res, 404, { error: 'no such room' });
+    if (!r.ranked) return json(res, 400, { error: 'not ranked' });
+    if (r.rankSettled) return json(res, 200, { room: r.id, already: true });
+    r.rankSettled = true; r.rankResultMsgs = {};
+    const seats = r.rankSeats || {};
+    for (const seat of [0, 1]) {
+      const pl = r.players.find(q => q.seat === seat) || (seats[seat] ? { id: seats[seat], seat, ws: null } : null);
+      if (!pl) continue;
+      r.rankResultMsgs[seat] = { t: 'rankUpdate', void: true, format: r.format, how: '운영자 무효 처리(동기화 오류)' };
+      const c = pl.ws || [...wss.clients].find(x => x._authed && x._userId === pl.id); if (c) wsSend(c, r.rankResultMsgs[seat]);
+    }
+    console.log(`[등급전] ${r.id} ${r.players.map(q => q.id).join(' vs ')} — 운영자 무효 처리`);
+    persistRooms();
+    return json(res, 200, { room: r.id, voided: true, players: r.players.map(q => q.id) });
+  }
   if (p === '/api/status' && req.method === 'GET') {
     const now = new Date();
     const s = stats24h(now);
