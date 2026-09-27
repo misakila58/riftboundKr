@@ -34,9 +34,10 @@ const PLAYMAT = {
     return this.available() && typeof BOT!=='undefined' && BOT.active;
   },
   // CSS 변수의 상대 URL은 style.css 위치에서 해석되므로 문서 기준 절대 URL을 사용한다.
-  url(name){ return new URL('assets/playmat/'+encodeURIComponent(name)+'.png', document.baseURI).href; },
-  // 시작 화면 배경용 JPEG 축약본 (assets/playmat/home/*.jpg, 원본 PNG의 약 1/10) — 보드에는 원본 PNG를 그대로 쓴다
+  url(name){ return new URL('assets/playmat/'+encodeURIComponent(name)+'.webp', document.baseURI).href; },
+  // 시작 화면에는 JPEG 축약본을, 선택창에는 작은 WebP 이미지를 사용한다.
   homeUrl(name){ return new URL('assets/playmat/home/'+encodeURIComponent(name)+'.jpg', document.baseURI).href; },
+  thumbUrl(name){ return new URL('assets/playmat/thumb/'+encodeURIComponent(name)+'.webp', document.baseURI).href; },
   apply(){
     const seat = (typeof BOT!=='undefined' && BOT.active) ? 1-BOT.seat : 0;
     const replay=typeof REPLAY!=='undefined' && REPLAY.viewing;
@@ -85,7 +86,7 @@ const PLAYMAT = {
       button.type='button'; button.className='playmat-option';
       button.setAttribute('aria-pressed', String(name===this[field]));
       if(name){
-        const img=document.createElement('img'); img.src=this.url(name); img.alt='';
+        const img=document.createElement('img'); img.src=this.thumbUrl(name); img.alt='';
         img.loading='lazy'; img.decoding='async'; button.appendChild(img);
       }else{
         const preview=document.createElement('span'); preview.className='playmat-default';

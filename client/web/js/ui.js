@@ -493,6 +493,7 @@ UI.renderSelectedTargets=function(){
     badge.setAttribute('aria-label',`대상으로 ${count}회 선택됨`);
     el.appendChild(badge);
   }
+  UI.fx.selectedTargets?.(counts);
 };
 async function routedPick(p, interactiveFn, serialize, deserialize){
   const pick={game:G,p,at:Date.now()};
@@ -1617,17 +1618,19 @@ function createMoveDragPreview(el,uids){
   return ghost;
 }
 let _dragHover=null;   // 드래그 중 지금 위에 있는 유닛과 머문 시각
-function collectDraggedMoveUnit(origin,uids,hit,ghost){
+function collectDraggedMoveUnit(origin,uids,hit,ghost,immediate){
   const pending=pendingCombatMove();
   if(pending && !pending.uids.has(origin.uid)) return;
   const el=hit?.closest('.card-mini[data-uid]');
   if(!el){ _dragHover=null; return; }
   const uid=Number(el.dataset.uid);
   if(uids.has(uid)) return;
-  // 스쳐 지나가는 유닛은 묶지 않는다 — 같은 유닛 위에 160ms 이상 머물렀을 때만 (의도치 않은 다중 이동 방지)
-  const now=performance.now();
-  if(!_dragHover || _dragHover.uid!==uid){ _dragHover={uid,at:now}; return; }
-  if(now-_dragHover.at<160) return;
+  // 터치 드래그: 스쳐 지나가는 유닛은 묶지 않는다 — 같은 유닛 위에 160ms 이상 머물렀을 때만 (마우스는 호출 전에 중앙 50%·180ms 판정을 이미 거쳤다: immediate)
+  if(!immediate){
+    const now=performance.now();
+    if(!_dragHover || _dragHover.uid!==uid){ _dragHover={uid,at:now}; return; }
+    if(now-_dragHover.at<160) return;
+  }
   const candidate=everyUnit().find(u=>u.uid===uid);
   if(!candidate || candidate.ctrl!==origin.ctrl || candidate.ex) return;
   const current=draggedMoveUnits(uids);
@@ -1643,6 +1646,14 @@ function collectDraggedMoveUnit(origin,uids,hit,ghost){
   uids.add(uid); el.classList.add('drag-grouped');
   appendMoveDragPreview(ghost,el,uids.size);
 }
+function preciseMoveHover(hit,x,y){
+  const el=hit?.closest('.card-mini[data-uid]');
+  if(!el) return null;
+  // Use viewport coordinates on both sides so game/browser zoom stays aligned.
+  const r=el.getBoundingClientRect();
+  return x>=r.left+r.width*.25 && x<=r.right-r.width*.25
+    && y>=r.top+r.height*.25 && y<=r.bottom-r.height*.25 ? el : null;
+}
 function clearDraggedMoveMarks(){
   _dragHover=null;
   document.querySelectorAll('.card-mini.drag-grouped').forEach(el=>el.classList.remove('drag-grouped'));
@@ -1655,7 +1666,10 @@ function attachMouseMoveDrag(el,u){
     const start={x:e.clientX,y:e.clientY}, rect=el.getBoundingClientRect();
     const events=new AbortController(), opts={capture:true,signal:events.signal};
     let active=false, ghost=null, uids=initialDraggedMoveUids(u);
+    let hover=null, hoverTimer=null, pointer=start;
+    const resetHover=()=>{ clearTimeout(hoverTimer); hoverTimer=null; hover=null; };
     const clear=()=>{
+      resetHover();
       events.abort(); ghost?.remove();
       el.classList.remove('hand-dragging'); clearDraggedMoveMarks(); clearDropHints(); clearTimeout(_lpTimer);
     };
@@ -1678,14 +1692,23 @@ function attachMouseMoveDrag(el,u){
       ghost.style.left=pos.x+'px'; ghost.style.top=pos.y+'px';
       clearDropHints();
       const hit=document.elementFromPoint(event.clientX,event.clientY);
-      collectDraggedMoveUnit(u,uids,hit,ghost);
+      pointer={x:event.clientX,y:event.clientY};
+      const candidate=preciseMoveHover(hit,pointer.x,pointer.y);
+      if(candidate!==hover){
+        resetHover(); hover=candidate;
+        if(hover && !uids.has(Number(hover.dataset.uid))) hoverTimer=setTimeout(()=>{
+          const live=preciseMoveHover(document.elementFromPoint(pointer.x,pointer.y),pointer.x,pointer.y);
+          if(live===hover && el.isConnected && canArrangeMove(u.ctrl)){
+            collectDraggedMoveUnit(u,uids,live,ghost,true);
+          }
+        },180);
+      }
       const zone=hit?.closest('.base-zone,.battlefield');
       if(moveDropAllowed(u,zone,uids)) zone.classList.add('drop-hint');
     },opts);
     window.addEventListener('pointerup',event=>{
       if(event.pointerId!==e.pointerId) return;
       const hit=document.elementFromPoint(event.clientX,event.clientY);
-      if(active) collectDraggedMoveUnit(u,uids,hit,ghost);
       const zone=hit?.closest('.base-zone,.battlefield');
       const allowed=active && moveDropAllowed(u,zone,uids);
       clear();
@@ -2729,6 +2752,7 @@ function updateTurnGlow(){
   if(el.dataset.side!==side) el.dataset.side=side;
 }
 UI.render = function(){
+  UI.fx.beforeRender?.();
   updateTurnGlow();
   UI.updateChainView();
   if(!G) return;
@@ -3014,6 +3038,7 @@ UI.render = function(){
   UI.renderSelectedTargets();
   attachDropZone(document.getElementById('center-info'),'spell');
   UI.fx.check();          // 행동 차례가 바뀌었으면 연출
+  UI.fx.renderMoves?.();
 };
 
 // 리플레이 관전 중에는 모든 조작을 잠근다 (상태 변경은 NET.dispatch에서도 한 번 더 차단)
@@ -3281,6 +3306,7 @@ UI.showVictory = function(p){
     else REPLAY.openLibrary();
   });
   openModal();
+  if(!lost && !replayLock()) UI.fx.victory?.();
 };
 
 // ---------- 버튼 바인딩 ----------

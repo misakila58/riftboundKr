@@ -10,7 +10,7 @@ var UI = { log(){}, render(){}, toast(){}, fx:{ unit(){}, cast(){}, chainAdd(){}
   revealAurora:()=>Promise.resolve(), pickBoardOrder:(p,t,o)=>Promise.resolve(o.map((_,i)=>i)),
   pickUnitFrom:(p,c)=>Promise.resolve(c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0]),
   pickOption:(p,t,o)=>Promise.resolve(o[0].v),
-  pickReaction:(p,t,opts)=>{ RW++; const w=RQ.shift();
+  pickReaction:(p,t,opts)=>{ if(!globalThis.REACT_SELF && String(t||'').startsWith(pname(p)+'이(가) ')) return Promise.resolve(null); RW++; const w=RQ.shift();
     if(w==='hidden'){ const h=opts.find(o=>o.v&&o.v.hidden); return Promise.resolve(h?h.v:null); }
     if(w==='ability'){ const a=opts.find(o=>o.v&&o.v.ab); return Promise.resolve(a?a.v:null); }
     return Promise.resolve(null); },

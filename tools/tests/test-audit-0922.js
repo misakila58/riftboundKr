@@ -18,7 +18,7 @@ var UI = { log(){}, render(){}, toast(){}, fx:{ unit(){}, cast(){}, chainAdd(){}
   revealAurora:()=>Promise.resolve(), pickBoardOrder:(p,t,o)=>Promise.resolve(o.map((_,i)=>i)),
   pickUnitFrom:(p,c,t,o,x)=>{ if(x&&x.costConfirmation){ const ct=String(x.costConfirmation.text||''); CONFIRMS.push(ct); if(!CONFIRM(ct)) return Promise.resolve(null); } PICKS.push(String(t||'')); return Promise.resolve(PICK ? (c.find(u=>PICK(u,p))||c[0]) : (c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0])); },
   pickOption:(p,t,o)=>{ OPTS.push(String(t||'')); OPTLIST.push({t:String(t||''),o,p,state:G.state}); return Promise.resolve(OPT ? OPT(String(t||''),o,p) : o[0].v); },
-  pickReaction:(p,t,o)=>{ REACTS.push(String(t||'')); return Promise.resolve(REACT && o.length ? REACT(p,String(t||''),o) : null); },   // 응수 창은 후보가 없어도 열린다(정보 노출 방지) — 후보 없으면 패스,
+  pickReaction:(p,t,o)=>{ if(!globalThis.REACT_SELF && String(t||'').startsWith(pname(p)+'이(가) ')) return Promise.resolve(null); REACTS.push(String(t||'')); return Promise.resolve(REACT && o.length ? REACT(p,String(t||''),o) : null); },   // 응수 창은 후보가 없어도 열린다(정보 노출 방지) — 후보 없으면 패스,
   pickNumber:(p,t,mn,mx)=>{ NUMS.push(String(t||'')); return Promise.resolve(NUM ? NUM(mn,mx) : mx); },
   pickBuffs:(p,t,c)=>{ const total=c.reduce((s,u)=>s+u.buff,0); let n=NUM?NUM(0,total):total; return Promise.resolve(c.map(u=>{ const k=Math.min(n,u.buff); n-=k; return {uid:u.uid,count:k}; }).filter(x=>x.count>0)); },
   pickHandCard:()=>Promise.resolve(0), pickMulligan:()=>Promise.resolve([]),
@@ -80,12 +80,13 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('④ 코그모: 전장 사망 → 그 전장 전원 4', a5.dmg===4 && b5.dmg===4 && c5.dmg===0, [a5.dmg,b5.dmg,c5.dmg].join(','));
 
   // ══ ⑤ 산봉우리 수호자(223) — 등장 격발 응수로 죽으면 '내가 전장에 있다면' 거짓(359.3.f) ══
-  fresh(); G.bfs[0].controller=0; const ally=unit(219,0,0); G.bfs[0].hiddenCards.push({n:213,by:1,turn:0});   // 숨김 카드의 대상은 그 전장 안(737)
+  // (예전엔 상대가 통제하지 않는 전장의 숨김 카드로 응수했지만, 숨김 카드는 그 전장을 통제할 때만 공개할 수 있다 — 손패의 [반응] 갈취(33, 피해 6)로 응수)
+  fresh(); G.bfs[0].controller=0; const ally=unit(219,0,0); G.players[1].hand=[33];
   OPT=(t,o)=>{ if(/배치|위치/.test(t)){ const x=o.find(x=>x.v===0); return x?x.v:o[0].v; } return o[0].v; };
-  REACT=(p,t,o)=>{ const h=o.find(x=>x.v&&x.v.hidden); return h?h.v:null; };
+  REACT=(p,t,o)=>{ const h=o.find(x=>x.v&&x.v.hand!==undefined); return h?h.v:null; };
   PICK=(u,p)=>p===1 ? u.n===223 : true;
   await play(223);
-  ok('⑤ 수호자: 숨겨진 칼날 응수로 처치됨', !find(0,223), 'units='+allUnits(0).map(u=>u.n).join(','));
+  ok('⑤ 수호자: 갈취 응수로 처치됨', !find(0,223), 'units='+allUnits(0).map(u=>u.n).join(','));
   ok('⑤ 수호자: 다른 아군 버프 없음', ally.buff===0, 'buff='+ally.buff);
 
   // ══ ⑥ 시간선 역전(201) — 손패의 고철 더미(182)는 '버려질 때' 드로우(#11607) ══

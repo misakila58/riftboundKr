@@ -4,7 +4,7 @@
 //
 // 안전 원칙 (여기가 깨지면 실제 게임이 오염된다):
 //  1) 온라인 대전 중에는 절대 진입하지 않는다 (락스텝 결정론이 한 바이트라도 어긋나면 desync)
-//  2) G와 엔진 전역 8개를 저장했다가 반드시 복원한다 (finally)
+//  2) G와 엔진 전역 문맥을 저장했다가 반드시 복원한다 (finally)
 //  3) UI는 함수를 감싸는 게 아니라 슬롯 자체를 교체한다 — replay.js가 UI.log/render에 래퍼를
 //     얹어 두었으므로, 슬롯을 덮어야 시뮬레이션 중 리플레이 프레임이 기록되지 않는다
 //  4) 선택 프롬프트 스텁은 반드시 즉시 resolve한다 (미해결 Promise 하나로 엔진이 영구 정지한다)
@@ -20,11 +20,20 @@ const SIM = {
   stats: { runs: 0, aborted: 0, errors: 0 },
 };
 
-// FX/CARDS는 불변 참조이므로 복제하지 않고 공유한다 (복제하면 느리고, 함수가 섞이면 깨진다)
-let SIM_FXSET = null;
+// FX 정의 전체는 불변 참조로 공유한다. 최상위 fx만 공유하고 하위 op를 복제하면
+// 체인의 pre Map(op → 대상) 키가 원본 op와 달라져, 이미 고른 대상을 다시 고르게 된다.
+// 컴파일/스크립트 확장이 뒤늦게 FX에 op를 추가할 수도 있으므로 매 복제 때 현재 그래프를 수집한다.
 function simFxSet(){
-  if(!SIM_FXSET) SIM_FXSET = new Set(Object.values(typeof FX!=='undefined' ? FX : {}));
-  return SIM_FXSET;
+  const shared = new Set();
+  function visit(v){
+    if(v===null || (typeof v!=='object' && typeof v!=='function') || shared.has(v)) return;
+    shared.add(v);
+    if(v instanceof Map) for(const [k,x] of v){ visit(k); visit(x); }
+    else if(v instanceof Set) for(const x of v) visit(x);
+    for(const k of Object.keys(v)) visit(v[k]);
+  }
+  visit(typeof FX!=='undefined' ? FX : null);
+  return shared;
 }
 
 // 아이덴티티 보존 딥클론.
@@ -43,11 +52,13 @@ function cloneG(g){
     if(v instanceof Map){
       const m=new Map();seen.set(v,m);
       for(const [k,x] of v) m.set(cl(k),cl(x));
+      for(const k of Object.keys(v)) m[k]=cl(v[k]); // pre._units 같은 대상 선택 메타데이터
       return m;
     }
     if(v instanceof Set){
       const s=new Set();seen.set(v,s);
       for(const x of v) s.add(cl(x));
+      for(const k of Object.keys(v)) s[k]=cl(v[k]);
       return s;
     }
     if(Array.isArray(v)){
@@ -56,6 +67,7 @@ function cloneG(g){
       return a;
     }
     const o = {}; seen.set(v, o);
+    if(typeof polCopySourceIdentity==='function') polCopySourceIdentity(v,o);
     for(const k of Object.keys(v)) o[k] = cl(v[k]);
     return o;
   }
@@ -118,12 +130,13 @@ function simEnter(policy, movementProbe){
     simActive:SIM.active, simLock:SIM.lock, picks:SIM.picks,
     movementDepth:SIM.movementDepth||0, returned:SIM.returned,
     perspective:SIM.perspective, policy:SIM.policy, settling:SIM.settling,
-    policyState:Object.fromEntries(['_mfEmergency','_mfBulletPlan','_mfGankTarget','_sdSeen','_sdKey','_sdTried','_playScore','turnPlan','think'].map(k=>[k,{exists:Object.hasOwn(policy,k),value:policy[k]}])),
+    policyState:Object.fromEntries(['_mfEmergency','_mfBulletPlan','_mfGankTarget','_kaisaSpellTarget','_sdSeen','_sdKey','_sdTried','_playScore','turnPlan','think'].map(k=>[k,{exists:Object.hasOwn(policy,k),value:policy[k]}])),
     ownerPolicy:policy,
     G, UID: (typeof UID!=='undefined'?UID:1),
     rng: (typeof _rngState!=='undefined'?_rngState:1),
     ctxBf: (typeof _ctxBf!=='undefined'?_ctxBf:null),
     ctxUnit: (typeof _ctxUnit!=='undefined'?_ctxUnit:null),
+    sourceGone: (typeof _sourceGone!=='undefined'?_sourceGone:false),
     hiddenBf: (typeof _hiddenBf!=='undefined'?_hiddenBf:null),
     preTarget: (typeof _preTarget!=='undefined'?_preTarget:undefined),
     curKind: (typeof _curKind!=='undefined'?_curKind:'effect'),
@@ -140,7 +153,7 @@ function simEnter(policy, movementProbe){
     UI = simUI(policy);                     // 슬롯 자체를 교체 (래퍼를 얹지 않는다)
     G = cloneG(saved.G);
     SIM.policy=policy; SIM.settling=false;
-    for(const k of ['_mfBulletPlan','_mfGankTarget','_sdSeen','_sdKey']) policy[k]=null;
+    for(const k of ['_mfBulletPlan','_mfGankTarget','_kaisaSpellTarget','_sdSeen','_sdKey']) policy[k]=null;
     policy._sdTried=new Set();
     policy.turnPlan=cloneG(policy.turnPlan);
 
@@ -159,6 +172,7 @@ function simExit(saved){
   if(typeof _rngState!=='undefined') _rngState = saved.rng;
   if(typeof _ctxBf!=='undefined') _ctxBf = saved.ctxBf;
   if(typeof _ctxUnit!=='undefined') _ctxUnit = saved.ctxUnit;
+  if(typeof _sourceGone!=='undefined') _sourceGone = saved.sourceGone;
   _hiddenBf = saved.hiddenBf;
   _preTarget = saved.preTarget;
   if(typeof _curKind!=='undefined') _curKind = saved.curKind;
@@ -195,7 +209,10 @@ async function simTry(p, act, policy, movementProbe, ownActions=true){
     const savedDepth=_execDepth; _execDepth=0;   // 샌드박스 안에서는 격발 대기열이 제때 비워지도록 실행 깊이를 0에서 시작
     try{ await act(); await simSettle(); }          // 결전을 끝까지 진행한 뒤 평가 (안 하면 공격이 공짜로 보인다)
     finally{ _execDepth=savedDepth; }
-    return evalState(G, p) + simReturnedHandValue(p);
+    // 승패가 확정되면 손패 재사용 같은 부가 가치는 더하지 않는다.
+    // 같은 패배를 -999 + 회수 카드 가치로 채점하면 무관한 후퇴를 승률 개선으로 오인한다.
+    const value=evalState(G,p);
+    return G.winner!==null ? value : value+simReturnedHandValue(p);
   } catch(e){
     if(e instanceof SimBudget) SIM.stats.aborted++; else SIM.stats.errors++;
     return null;

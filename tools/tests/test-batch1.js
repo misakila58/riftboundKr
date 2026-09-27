@@ -17,7 +17,7 @@ var UI = { log(){}, render(){}, toast(){}, fx:{ unit(){}, cast(){}, chainAdd(){}
   revealAurora:()=>Promise.resolve(), pickBoardOrder:(p,t,o)=>Promise.resolve(o.map((_,i)=>i)),
   pickUnitFrom:(p,c,t)=>Promise.resolve(PICK ? (c.find(u=>PICK(u))||c[0]) : (c.find(u=>u.ctrl===1&&u.loc!=='base')||c[0])),
   pickOption:(p,t,o)=>Promise.resolve(o[0].v),
-  pickReaction:(p,t,opts)=>{ const w=RQ.shift();
+  pickReaction:(p,t,opts)=>{ if(!globalThis.REACT_SELF && String(t||'').startsWith(pname(p)+'이(가) ')) return Promise.resolve(null); const w=RQ.shift();
     if(w==='counter'){ const c=opts.find(o=>o.isCounter&&o.card&&FX[o.card.n].counter); return Promise.resolve(c?c.v:null); }
     if(w==='steal'){ const c=opts.find(o=>o.isCounter&&o.card&&FX[o.card.n].steal); return Promise.resolve(c?c.v:null); }
     return Promise.resolve(null); },

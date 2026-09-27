@@ -31,7 +31,8 @@ const BOT_W = {
   playCost:     1.00,   // 손패 우선순위에서 비용을 얼마나 깎을지 (크면 값싼 카드 우선)
   moveNeed:     0.02,   // 이 값보다 이득이 커야 이동한다 (크면 소극적)
   finalRule:    1,      // 최종 점수 제한을 계산에 넣는가 (0이면 옛 동작 — 분리 측정용)
-  sdMargin:     2,      // 결전에서 이 차이 이상 앞서면 트릭을 아낀다  sdGain: 2,  // 정밀 결전 판단(sdx): 결과 클래스가 안 올라도 교환이 이만큼 좋아지면 트릭 (사람은 봇의 2배로 트릭을 씀 — 리플레이 2026-09-22)
+  sdMargin:     2,      // 결전에서 이 차이 이상 앞서면 트릭을 아낀다
+  sdGain:       2,      // 정복/저지 결과가 같아도 교환이 위력 2 이상 좋아지면 트릭을 사용한다
   peekTrick:    0.25,   // (열람 티어) 상대 트릭 1장당 공격 기준을 얼마나 높일지
   peekBold:    -0.12,   // (열람 티어) 상대에게 트릭이 없을 때 공격 기준을 얼마나 낮출지
 };
@@ -213,28 +214,85 @@ function evalState(G_, p){
 //  · 방어측이 남으면 공격 유닛은 기지로 귀환한다.
 // extraDef: 아직 그 전장에 없지만 '보낸다면' 방어에 합류할 유닛들.
 // 수비 보강의 값을 매기려면 "보강한 뒤에도 상대가 이길까"를 물어야 하는데,
-// G를 실제로 건드리지 않고 물어보려면 이 인자가 필요하다.
+// 실제 유닛을 옮기지 않고 평가용 보드에서 위치와 소속을 함께 바꿔 계산한다.
+// 실제 UID를 가진 다음 턴 복사본은 같은 유닛이며, 음수 임시 UID는 여러 가상 카드가 공유할 수 있다.
+function evalCombatUnitKey(u){ return Number.isInteger(u.uid)&&u.uid>0 ? 'uid:'+u.uid : u; }
+function evalCombatUnits(units){
+  const unique=new Map();
+  for(const u of units) unique.set(evalCombatUnitKey(u),u);
+  return [...unique.values()];
+}
+function evalCombatFormation(p,bfIdx,units,extraDef){
+  const atk=evalCombatUnits(units),def=evalCombatUnits([
+    ...G.bfs[bfIdx].units.filter(u=>u.ctrl===opp(p)),...(extraDef||[])]);
+  const sources=[...atk,...def],keys=new Set(sources.map(evalCombatUnitKey)),originals=new Map();
+  const project=u=>{const copy={...u,loc:bfIdx};originals.set(copy,u);return copy;};
+  const projectedAtk=atk.map(project),projectedDef=def.map(project);
+  // loc만 바꾸면 aloneAt/전장 병력 수가 틀리고, 배열만 바꾸면 위치 오라가 틀린다.
+  // 원본 객체·배열을 수정하지 않고 둘을 일치시키며, 오라 제공자 자신도 평가 보드에 정확히 한 번 존재한다.
+  const game={...G,
+    players:G.players.map(P=>({...P,base:P.base.filter(u=>!keys.has(evalCombatUnitKey(u)))})),
+    bfs:G.bfs.map((bf,i)=>({...bf,units:[
+      ...bf.units.filter(u=>!keys.has(evalCombatUnitKey(u))),...(i===bfIdx?[...projectedAtk,...projectedDef]:[])]}))};
+  return {game,atk:projectedAtk,def:projectedDef,originals};
+}
 // 엔진 피해 후보 순서: 피해 면역 제외 → 마지막 배분 제외 → 탱커 → 치사량.
 function evalDamageOrder(entries){
   return entries.filter(x=>!x.immune).slice().sort((a,b)=>
     Number(a.last)-Number(b.last) || Number(b.tank)-Number(a.tank) || a.lethal-b.lethal);
 }
+// Within each mandatory priority group, choose the affordable kill set with
+// the greatest aggregate removal value. A one-point body and a champion are
+// not interchangeable merely because both count as one casualty.
+function evalCombatAllocation(total,entries){
+  const order=evalDamageOrder(entries),dead=[],chosenOrder=[];
+  let remaining=Math.max(0,total);
+  const rank=x=>Number(!!x.last)*2+(x.tank?0:1);
+  for(let at=0;at<order.length;){
+    const tier=rank(order[at]),group=[];
+    while(at<order.length&&rank(order[at])===tier)group.push(order[at++]);
+    const cost=group.reduce((s,x)=>s+x.lethal,0);
+    if(remaining>=cost){
+      dead.push(...group);chosenOrder.push(...group);remaining-=cost;continue;
+    }
+    let states=new Map([[0,{value:0,items:[]}]]);
+    for(const entry of group){
+      const next=new Map(states);
+      const value=entry.value??Math.max(1,entry.might??entry.lethal);
+      for(const [spent,state] of states){
+        const n=spent+entry.lethal;if(n>remaining)continue;
+        const candidate={value:state.value+value,items:[...state.items,entry]},prior=next.get(n);
+        if(!prior||candidate.value>prior.value+1e-9||
+          Math.abs(candidate.value-prior.value)<1e-9&&candidate.items.length>prior.items.length)next.set(n,candidate);
+      }
+      states=next;
+    }
+    let best={spent:0,value:0,items:[]};
+    for(const [spent,state] of states){
+      if(state.value>best.value+1e-9||Math.abs(state.value-best.value)<1e-9&&
+        (state.items.length>best.items.length||state.items.length===best.items.length&&spent<best.spent))
+        best={spent,...state};
+    }
+    dead.push(...best.items);chosenOrder.push(...best.items,
+      ...group.filter(x=>!best.items.includes(x)),...order.slice(at));
+    return {dead,order:chosenOrder};
+  }
+  return {dead,order:chosenOrder};
+}
 function evalCombat(p, bfIdx, units, extraDef){
-  const bf = G.bfs[bfIdx];
-  const o = opp(p);
-  const def = bf.units.filter(u=>u.ctrl===o).concat(extraDef||[]);
-  const atk = units;
+  const original=G,formation=evalCombatFormation(p,bfIdx,units,extraDef);
+  try{
+  G=formation.game;
+  const {atk,def}=formation;
   const atkM = atk.reduce((s,u)=>s+might(u,'attacker'),0);
   const defM = def.reduce((s,u)=>s+might(u,'defender'),0);
 
-  // 처치: 치사량이 작은 것부터 채우면 수가 최대가 된다. 어떤 유닛이 죽는지도 함께 반환해
-  // 교환 손익 계산이 실제 처치 대상과 어긋나지 않게 한다 (예전엔 정렬 전 목록의 앞 N개를 합산했다)
+  // Mandatory priority groups and the selected kill set match actual assignment.
+  // Return those exact casualties for exchange and battlefield-control estimates.
   const kills = (total, targets, role) => {
-    const order = evalDamageOrder(targets.map(u=>({u, lethal:Math.max(1,might(u,role,{forKill:true})-u.dmg),
-      tank:!!effKw(u).tank,last:!!unitFx(u).combatLast,immune:!canTakeCombatDamage(u)})));
-    let rest = total; const dead=[];
-    for(const t of order){ if(rest >= t.lethal){ rest -= t.lethal; dead.push(t.u); } else break; }
-    return dead;
+    const entries=targets.map(u=>({u,lethal:Math.max(1,might(u,role,{forKill:true})-u.dmg),
+      value:evalCombatRemovalValue(u),tank:!!effKw(u).tank,last:!!unitFx(u).combatLast,immune:!canTakeCombatDamage(u)}));
+    return evalCombatAllocation(total,entries).dead.map(x=>x.u);
   };
   const defDead = kills(atkM, def, 'defender');
   const atkDead = kills(defM, atk, 'attacker');
@@ -250,8 +308,22 @@ function evalCombat(p, bfIdx, units, extraDef){
   const reward=result==='conquer'?evalConquestReward(p,bfIdx):{point:false,draw:false,value:0};
   const scoresPoint=reward.point, drawsCard=reward.draw;
   return { result, atkM, defM, defKilled, atkKilled, defLeft, atkLeft, scoresPoint, drawsCard,
-           defDead, atkDead,
+           defDead:defDead.map(u=>formation.originals.get(u)),atkDead:atkDead.map(u=>formation.originals.get(u)),
+           defLostMaterial:defDead.reduce((s,u)=>s+evalMaterialMight(u),0),
+           atkLostMaterial:atkDead.reduce((s,u)=>s+evalMaterialMight(u),0),
            lostMight: atkDead.reduce((s,u)=>s+might(u),0) };
+  }finally{G=original;}
+}
+
+// Combat damage still uses current might. Material lost in an exchange uses
+// the body that would survive after this turn's temporary modifiers expire.
+function evalMaterialMight(u){ return Math.max(0,might(u,undefined,{lasting:true})); }
+function evalCombatRemovalValue(u){
+  const kw=unitFx(u).kw||{};
+  // Printed Assault/Shield continue to matter in later combats; granted
+  // turn-only keywords do not become permanent material in this estimate.
+  return 1+evalMaterialMight(u)+0.5*((Number(kw.assault)||0)+(Number(kw.shield)||0))+
+    Math.max(0,unitCard(u).e||0)*0.08;
 }
 
 // 공격 후보의 가치 — 얻는 것(정복·통제·처치) 대비 잃는 것(내 유닛)
@@ -268,15 +340,16 @@ function evalAttackValue(p, bfIdx, units, extraDef){
     v -= 0.05;                                                // 상호 전멸 — 득점 없음
   }
   // 교환 손익 (내 잃은 위력 vs 상대 잃은 위력) — 실제 처치 대상 기준
-  const defLost = c.defDead.reduce((s,u)=>s+might(u),0);
-  v += (defLost * BOT_W.unitBf) - (c.lostMight * BOT_W.unitBf);
+  const defLost = c.defLostMaterial;
+  const atkLost = c.atkLostMaterial;
+  v += (defLost - atkLost) * BOT_W.unitBf;
   // 전장을 빼앗지 못하는 희생 공격도 유지 승리 조건을 깨면 살아남는 수다.
   // 출격으로 비워지는 원래 전장과 살아남은 유닛까지 함께 비교한다.
-  const moving=new Set(units.map(u=>u.uid)), dead=new Set(c.defDead);
+  const moving=new Set([...units,...(extraDef||[])].map(evalCombatUnitKey)),dead=new Set(c.defDead.map(evalCombatUnitKey));
   const projected=G.bfs.map((b,i)=>{
-    if(i!==bfIdx) return {...b,units:b.units.filter(u=>!moving.has(u.uid))};
-    const survivors=b.units.filter(u=>!moving.has(u.uid)&&!dead.has(u));
-    survivors.push(...(extraDef||[]).filter(u=>!dead.has(u)));
+    if(i!==bfIdx) return {...b,units:b.units.filter(u=>!moving.has(evalCombatUnitKey(u)))};
+    const survivors=evalCombatUnits([...b.units.filter(u=>!moving.has(evalCombatUnitKey(u))),...(extraDef||[])])
+      .filter(u=>!dead.has(evalCombatUnitKey(u)));
     if(c.result==='conquer') survivors.push(...units.filter(u=>!c.atkDead.includes(u)));
     return {...b,units:survivors,controller:c.result==='conquer'?p:c.result==='mutual'?null:b.controller};
   });

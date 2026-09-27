@@ -1574,6 +1574,10 @@ body.replay-mode #legal-footer { display:none; }
 /* ══════════ 연출(이펙트) — 표시 전용, 클릭을 가로채지 않는다 ══════════ */
 #fx-layer { position:fixed; inset:0; pointer-events:none; z-index:95; overflow:hidden; }
 #fx-layer > * { position:absolute; pointer-events:none; }
+.fx-card-flight { background:#141c30 center/cover no-repeat; border:1px solid #cfbb80; border-radius:5px; box-shadow:0 5px 18px #0009; transform-origin:top left; will-change:transform,opacity; }
+body.fx-disabled .fx-card-flight { display:none; }
+[data-fx-arrival] { visibility:hidden !important; }
+.fx-card-flight.fx-unit-flight { background:none; border:0; box-shadow:none; }
 
 /* 유닛 반응 */
 .fx-unit { border-radius:6px; display:flex; align-items:center; justify-content:center; }
