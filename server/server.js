@@ -175,8 +175,8 @@ const LIMITS = {
   REG_MAX: 5,
   WS_MSG_WINDOW_MS: 10 * 1000,
   WS_MSG_MAX: 120,
-  REJOIN_GRACE_MS: +process.env.RB_REJOIN_GRACE_MS || 2 * 60 * 1000,    // 소켓이 끊긴 좌석을 이만큼 비워 둔다 — 그 안에 같은 계정이 rejoin 하면 이어서 둔다
-  REJOIN_GRACE_RESTART_MS: 2 * 60 * 1000,   // 서버 재시작 뒤 복원된 방도 같은 유예 (클라이언트는 몇 초 안에 재접속을 시도한다)
+  REJOIN_GRACE_MS: +process.env.RB_REJOIN_GRACE_MS || 60 * 1000,    // 소켓이 끊긴 좌석을 이만큼 비워 둔다 — 그 안에 같은 계정이 rejoin 하면 이어서 둔다 (2026-09-28: 2분 → 1분)
+  REJOIN_GRACE_RESTART_MS: 60 * 1000,   // 서버 재시작 뒤 복원된 방도 같은 유예 (클라이언트는 몇 초 안에 재접속을 시도한다)
   CONCURRENT_HASH: 4,
   AUTH_DEADLINE_MS: 15000,
 };

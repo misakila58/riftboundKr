@@ -90,7 +90,7 @@ NET.connect = function(){
           break;
         case 'rejoinDone': NET._enqueueAction({ action:{k:'_rejoinDone'}, seat:-1 }); break;   // 로그 뒤에 줄을 서서, 다 재생된 뒤 복귀 처리
         case 'rejoinNone': NET._onRejoinNone(); break;
-        case 'opponentAway': NET.oppAway=true; UI.toast('상대 연결이 끊겼습니다 — 재접속을 기다립니다 (최대 2분)','warn'); UI.promptForState?.(); break;
+        case 'opponentAway': NET.oppAway=true; UI.toast('상대 연결이 끊겼습니다 — 재접속을 기다립니다 (최대 1분)','warn'); UI.promptForState?.(); break;
         case 'opponentBack': NET.oppAway=false; UI.toast('상대가 다시 접속했습니다'); UI.promptForState?.(); break;
         case 'err': NET.onErr && NET.onErr(m.msg); break;
         case 'opponentLeft': NET.oppAway=false; NET.clearRejoinFlag(); NET.onOppLeft && NET.onOppLeft(); break;
@@ -107,7 +107,7 @@ NET.connect = function(){
       if(NET.ws!==ws) return;              // 이미 새 소켓으로 바뀐 옛 소켓
       if(!NET.online) return;
       const inGame = typeof G!=='undefined' && G && G.winner===null;
-      // 대전 중 끊김: 로비로 내보내지 않고 재접속을 시도한다 — 서버가 좌석을 2분 비워 두고(재시작 뒤 복원 포함) 로그를 다시 보내 준다
+      // 대전 중 끊김: 로비로 내보내지 않고 재접속을 시도한다 — 서버가 좌석을 1분 비워 두고(재시작 뒤 복원 포함) 로그를 다시 보내 준다
       if(inGame && !NET.spectating && !NET.leaving){ NET.reconnect(); return; }
       NET.online = false;
       if(NET.draining && !inGame){ NET.updateAvailable=true; NET.onServerUpdate && NET.onServerUpdate(); return; }   // 예약된 배포로 재시작됨 — 새로고침 안내
@@ -133,14 +133,14 @@ NET._serverVersionCheck = function(){
   NET.onServerUpdate && NET.onServerUpdate();
 };
 // ── 재접속 ──
-// 끊긴 뒤 2분까지 점점 간격을 늘려 다시 연결하고 rejoin을 보낸다. 서버는 start(rejoin)+행동/선택 로그+rejoinDone으로 답한다.
+// 끊긴 뒤 1분까지 점점 간격을 늘려 다시 연결하고 rejoin을 보낸다. 서버는 start(rejoin)+행동/선택 로그+rejoinDone으로 답한다.
 NET.reconnect = async function(){
   if(NET.reconnecting) return;
   NET.reconnecting=true;
   UI.prompt(NET.draining ? '🔄 서버 업데이트 중 — 몇 초 뒤 자동으로 다시 연결됩니다 (경기는 그대로 이어집니다)'
-                         : '⚠ 서버 연결이 끊어졌습니다 — 재접속 시도 중… (최대 2분, 그동안 상대는 기다립니다)');
+                         : '⚠ 서버 연결이 끊어졌습니다 — 재접속 시도 중… (최대 1분, 그동안 상대는 기다립니다)');
   const delays=[1000,2000,3000,5000], t0=Date.now(); let n=0;
-  while(Date.now()-t0 < 2*60*1000+15000){   // 서버 유예(2분)보다 조금 더 — 만료 뒤엔 rejoinNone으로 정리된다
+  while(Date.now()-t0 < 60*1000+15000){   // 서버 유예(1분)보다 조금 더 — 만료 뒤엔 rejoinNone으로 정리된다
     await new Promise(r=>setTimeout(r, delays[Math.min(n++, delays.length-1)]));
     if(!NET.reconnecting) return;                      // 그 사이 사용자가 나갔거나 복귀가 끝남
     try{
