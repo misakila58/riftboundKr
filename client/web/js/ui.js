@@ -3299,6 +3299,14 @@ UI.showVictory = function(p){
   }
   // 경기 종료 시 리플레이는 자동 저장됨 (튜토리얼 제외) — 바로 보러 갈 수 있게 안내
   if(typeof RANK!=='undefined'){ try{ RANK.onGameEnd(p); RANK.decorateVictory(box); }catch(e){ console.warn('rank hook', e); } }
+  // 경기 중에 서버 업데이트가 예약됐거나 적용됐으면 여기서 새로고침을 권한다 (경기는 끊지 않는다)
+  if(NET.online && (NET.draining || NET.updateAvailable) && !(typeof MATCH!=='undefined' && MATCH.active() && !MATCH.finished())){
+    const line=document.createElement('div'); line.className='rank-result-line';
+    line.textContent = window.desktop && NET.updateAvailable ? `🔄 서버가 새 버전(v${NET.serverVer||'?'})으로 업데이트되었습니다 — 새 앱을 받아 설치해 주세요`
+      : '🔄 서버 업데이트가 적용되었거나 곧 적용됩니다 — 새로고침하면 최신 버전으로 이어집니다';
+    btns.insertAdjacentElement('beforebegin', line);
+    if(!window.desktop) add('🔄 새로고침 (서버 업데이트)', ()=>location.reload(), true);
+  }
   const wasP2P = typeof P2P!=='undefined' && P2P.active;
   add(REPLAY.willSave ? '🎬 리플레이 보관함 (이 경기 저장됨)' : '🎬 리플레이 보관함', ()=>{
     closeModal();

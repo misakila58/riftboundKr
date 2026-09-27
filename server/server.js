@@ -128,6 +128,7 @@ const WEB_ROOT = fs.existsSync(path.join(BASE, 'web', 'index.html'))
 const SERVE_WEB = fs.existsSync(path.join(WEB_ROOT, 'index.html'));
 // 지금 서비스 중인 웹 클라이언트의 버전. 데스크톱 exe와 이 값이 다르면 서로 방에 못 들어가므로
 // (입장 시 버전 검사) 배포가 밀렸는지 한눈에 보이도록 상태에 함께 싣는다.
+let draining = false;   // 배포 예약 중 (새 경기 시작 차단) — /api/admin/drain
 const WEB_VERSION = (() => {
   try {
     const m = fs.readFileSync(path.join(WEB_ROOT, 'js', 'buildinfo.js'), 'utf8').match(/version:"([^"]+)"/);
@@ -527,6 +528,19 @@ const server = http.createServer(async (req, res) => {
 
   // 서버 관리 도구가 읽는 한 줄 요약. 숫자와 커밋 해시뿐이라 민감하지 않다.
   // 배치 파일에서 그대로 출력할 수 있게 JSON이 아닌 평문으로 준다.
+  // 배포 예약(드레인): deploy/update.sh가 재시작 전에 같은 VM 안에서 호출한다 — 루프백에서만 받는다.
+  // 켜지면 모든 접속자에게 serverUpdate를 알리고 새 방 만들기·입장·관전·등급전 매칭을 막는다. 진행 중인 경기는 그대로 끝까지 둔다.
+  // update.sh는 /api/status의 PLAYING이 0이 될 때까지 기다렸다가 재시작한다. ?off=1 이면 해제.
+  if (p === '/api/admin/drain' && req.method === 'POST') {
+    const sock = String(req.socket && req.socket.remoteAddress || '');   // 프록시 헤더가 아니라 실제 소켓 주소로 판단 (X-Forwarded-For 위조 방지)
+    if (!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(sock)) return json(res, 403, { error: 'loopback only' });
+    const off = /(^|[?&])off=1(&|$)/.test(req.url);
+    draining = !off;
+    const playing = [...rooms.values()].filter(r => r.started).length;
+    console.log(`[배포] 드레인 ${draining ? '시작' : '해제'} — 진행 중 ${playing}판`);
+    wss.clients.forEach(c => { if (c._authed) wsSend(c, { t: 'serverUpdate', draining }); });
+    return json(res, 200, { draining, playing });
+  }
   if (p === '/api/status' && req.method === 'GET') {
     const now = new Date();
     const s = stats24h(now);
@@ -545,6 +559,7 @@ const server = http.createServer(async (req, res) => {
     const lines = [
       `PLAYING|${playing}`,
       `WAITING|${waiting}`,
+      `DRAINING|${draining ? 1 : 0}`,
       ...live.map(r => `GAME|${mins(r.startedAt)}분째|${r.players.map(pl => mask(pl.id)).join(' vs ')}|v${r.players[0]?.ver || '?'}`),
       `GAMES|${s.total}판${parts.length ? ' (' + parts.join(' · ') + ')' : ''}`,
       `REPLAYS|${REPLAYS.files}개 (${(REPLAYS.bytes / 1048576).toFixed(1)}MB)`,
@@ -941,6 +956,7 @@ function rankReport(ws, m) {
 const rankQueue = { bo1: [], bo3: [] };
 function rankDequeue(ws) { for (const f of ['bo1', 'bo3']) rankQueue[f] = rankQueue[f].filter(q => q.ws !== ws); }
 function rankMatchmake() {
+  if (draining) return;   // 배포 예약 중엔 새 매치를 만들지 않는다
   for (const f of ['bo1', 'bo3']) {
     const q = rankQueue[f].filter(x => x.ws.readyState === WebSocket.OPEN && !x.ws._room);
     rankQueue[f] = q;
@@ -1034,12 +1050,14 @@ wss.on('connection', (ws, req) => {
       clearTimeout(ws._authTimer);
       wss.clients.forEach(c => { if (c !== ws && c._userId === user.id) { if (!dropPlayer(c)) leaveRoom(c); c.close(); } });   // 같은 계정의 새 접속 — 옛 소켓의 좌석은 유예로 남겨 rejoin 가능
       ws._authed = true; ws._userId = user.id;
-      wsSend(ws, { t: 'authOk', id: user.id });
+      wsSend(ws, { t: 'authOk', id: user.id, ver: WEB_VERSION || null, draining });   // ver: 서버가 제공하는 웹 클라 버전 — 클라가 자기 버전과 비교해 새로고침 안내
       broadcastLobby();
       return;
     }
     if (!ws._authed) return;
 
+    if (draining && ['createRoom', 'joinRoom', 'spectate', 'rankQueue'].includes(m.t))
+      return wsSend(ws, { t: 'err', msg: '🔄 서버 업데이트가 곧 적용됩니다 — 진행 중인 경기가 끝나면 재시작됩니다. 잠시 후 새로고침한 뒤 다시 시도해 주세요.' });
     switch (m.t) {
       case 'listRooms':
         wsSend(ws, { t: 'rooms', rooms: lobbyRooms() });

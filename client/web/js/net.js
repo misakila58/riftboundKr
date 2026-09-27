@@ -74,7 +74,8 @@ NET.connect = function(){
     ws.onmessage = ev=>{
       const m = JSON.parse(ev.data);
       switch(m.t){
-        case 'authOk': authed=true; res(); break;
+        case 'authOk': authed=true; NET.serverVer=m.ver||null; NET.draining=!!m.draining; res(); NET._serverVersionCheck(); break;
+        case 'serverUpdate': NET.draining=!!m.draining; if(NET.draining) NET.onServerUpdate && NET.onServerUpdate(); break;   // 배포 예약 — 새 경기 시작이 막힘
         case 'authFail': rej(new Error('인증 실패 — 다시 로그인하세요')); break;
         case 'rooms': NET.onRooms && NET.onRooms(m.rooms); break;
         case 'roomCreated': NET.onRoomCreated && NET.onRoomCreated(m.room); break;
@@ -109,6 +110,7 @@ NET.connect = function(){
       // 대전 중 끊김: 로비로 내보내지 않고 재접속을 시도한다 — 서버가 좌석을 2분 비워 두고(재시작 뒤 복원 포함) 로그를 다시 보내 준다
       if(inGame && !NET.spectating && !NET.leaving){ NET.reconnect(); return; }
       NET.online = false;
+      if(NET.draining && !inGame){ NET.updateAvailable=true; NET.onServerUpdate && NET.onServerUpdate(); return; }   // 예약된 배포로 재시작됨 — 새로고침 안내
       if(inGame){
         UI.prompt('⚠ 서버 연결이 끊어졌습니다 — 이 대전은 이어서 진행할 수 없습니다');
         setTimeout(()=>{
@@ -122,6 +124,13 @@ NET.connect = function(){
       }
     };
   });
+};
+// 서버가 제공하는 웹 버전과 내 버전이 다르면(배포 직후) 새로고침 안내 — 경기 중이면 끝난 뒤에
+NET._serverVersionCheck = function(){
+  const mine = (typeof BUILDINFO!=='undefined' && BUILDINFO.version) || null;
+  if(!NET.serverVer || !mine || mine==='dev' || NET.serverVer===mine) return;
+  NET.updateAvailable=true;
+  NET.onServerUpdate && NET.onServerUpdate();
 };
 // ── 재접속 ──
 // 끊긴 뒤 2분까지 점점 간격을 늘려 다시 연결하고 rejoin을 보낸다. 서버는 start(rejoin)+행동/선택 로그+rejoinDone으로 답한다.

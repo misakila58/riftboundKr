@@ -1533,6 +1533,7 @@ function initLobby(){
     document.getElementById('room-list').innerHTML='';
   };
   NET.onErr=(msg)=>UI.toast(msg,'warn');
+  NET.onServerUpdate=()=>serverUpdateNotice();
   NET.onOppLeft=()=>{
     if(NET.spectating){ alert('플레이어가 나가서 게임이 끝났습니다. 로비로 돌아갑니다.'); location.reload(); return; }
     if(typeof STATS!=='undefined' && typeof NET!=='undefined') STATS.gameEnd(NET.seat, 'left');
@@ -2324,6 +2325,30 @@ function updateStatsNotice(){
   ].join(' · ')+' · 설정에서 변경';
 }
 // 첫 실행 안내(기기당 한 번): 기본으로 켜져 있는 익명 통계·리플레이 제공을 알리고 그 자리에서 끌 수 있게 한다.
+// ── 서버 업데이트 안내 ──
+// 배포 예약(NET.draining) 또는 서버 웹 버전이 내 버전과 다름(NET.updateAvailable). 경기 중이면 끝난 뒤 승리 창에서 안내한다.
+function serverUpdateNotice(){
+  const inGame = NET.online && typeof G!=='undefined' && G && G.winner===null && !NET.spectating;
+  if(inGame){
+    if(!NET._updateToasted){ NET._updateToasted=true; UI.toast('🔄 서버 업데이트가 예약되었습니다 — 이 경기는 끝까지 진행되고, 끝난 뒤 새로고침하면 됩니다'); }
+    return;
+  }
+  if(document.body.classList.contains('modal-open') && document.getElementById('server-update-box')) return;   // 이미 떠 있음
+  const box=document.getElementById('modal-box');
+  const exe=!!window.desktop;
+  box.innerHTML=`<h3 id="server-update-box">🔄 서버 업데이트</h3>`;
+  const t=document.createElement('div'); t.className='modal-copy';
+  t.textContent = NET.updateAvailable
+    ? (exe ? `서버가 새 버전(v${NET.serverVer||'?'})으로 업데이트되었습니다. 지금 앱(v${BUILDINFO.version})은 온라인 대전에 입장할 수 없으니 새 버전을 받아 설치해 주세요.`
+           : `서버가 새 버전(v${NET.serverVer||'?'})으로 업데이트되었습니다. 새로고침하면 바로 최신 버전으로 이어집니다.`)
+    : '서버 업데이트가 곧 적용됩니다. 진행 중인 경기가 모두 끝나면 재시작되며, 그 전까지 새 경기는 시작할 수 없습니다. 재시작 뒤 새로고침해 주세요.';
+  box.appendChild(t);
+  const btns=document.createElement('div'); btns.className='modal-btns';
+  if(!exe || !NET.updateAvailable){ const y=document.createElement('button'); y.className='primary'; y.textContent='🔄 지금 새로고침'; y.onclick=()=>location.reload(); btns.appendChild(y); }
+  const n=document.createElement('button'); n.textContent='닫기'; n.onclick=closeModal; btns.appendChild(n);
+  box.appendChild(btns);
+  openModal(); markModalDismissable();
+}
 function showFirstRunNotice(then){
   const box=document.getElementById('modal-box');
   box.innerHTML=`<h3>👋 시작하기 전에</h3>
