@@ -750,7 +750,7 @@ function persistRooms() {
   roomsSaveTimer = setTimeout(() => {
     const out = [...rooms.values()].filter(r => r.started).map(r => ({
       id: r.id, name: r.name, seed: r.seed, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
-      ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null,
+      ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null, rankSeats: r.rankSeats || null, rankLeftAfterReport: !!r.rankLeftAfterReport,
       password: r.password, startedAt: r.startedAt, seq: r.seq, log: r.log || [],
       players: r.players.map(pl => ({ id: pl.id, deck: pl.deck, seat: pl.seat, ver: pl.ver })),
     }));
@@ -758,11 +758,34 @@ function persistRooms() {
     try { fs.writeFileSync(tmp, JSON.stringify(out)); fs.renameSync(tmp, ROOMS_FILE); } catch (e) {}
   }, 500);
 }
+// 등급전에서 플레이어가 방을 떠날 때(명시 퇴장·유예 만료)의 처리. how: '퇴장' | '이탈'
+// - 떠나는 쪽이 이미 결과를 보고했으면(게임이 끝나 승리 창에서 나간 것) 패배가 아니다 — 상대 보고를 기다려 비교한다
+//   (예전엔 이긴 쪽이 먼저 로비로 나가면 '퇴장'으로 패배 처리됐다 — 제보 2026-09-28)
+// - 떠나는 쪽은 보고하지 않았는데 상대가 '떠나는 쪽이 이겼다'고 보고해 뒀으면 그 보고대로 (상대가 인정한 승리)
+// - 떠나는 쪽이 보고하지 않았고, 이미 떠난 상대의 보고만 남아 있으면 미반영(void) — 거짓 보고 뒤 이탈로 승리를 얻는 길을 막는다
+// - 그 외(게임 도중 이탈)는 떠나는 쪽 패배
+function rankLeave(r, pl, how) {
+  if (!r.ranked || !r.started || r.rankSettled) return;
+  const seats = r.rankSeats || {};
+  const other = r.players.find(q => q !== pl) || (seats[1 - pl.seat] ? { id: seats[1 - pl.seat], seat: 1 - pl.seat, ws: null } : null);   // 상대가 먼저 떠났어도 정산
+  if (!other) return;
+  const reports = r.rankReports || {};
+  const mine = reports[pl.seat], theirs = reports[other.seat];
+  if (mine !== undefined) { r.rankLeftAfterReport = true; return; }            // 보고를 마치고 나감 — 상대 보고를 기다린다(rankReport에서 비교)
+  if (theirs === pl.seat) { rankSettle(r, pl.seat, other.id + ' 보고(상대 승리 인정)'); return; }
+  if (theirs !== undefined && r.rankLeftAfterReport) {                           // 상대는 보고 뒤 이미 떠났고 나는 보고 없이 떠남 → 미반영
+    console.log(`[등급전] ${r.id}: ${other.id} 보고 뒤 퇴장, ${pl.id} 보고 없이 ${how} — 미반영`);
+    r.rankSettled = true; r.rankResultMsgs = {};
+    for (const q of [pl, other]) { r.rankResultMsgs[q.seat] = { t: 'rankUpdate', void: true, format: r.format, how: '상대 보고 없음' }; const c = q.ws || [...wss.clients].find(x => x._authed && x._userId === q.id); if (c) wsSend(c, r.rankResultMsgs[q.seat]); }
+    persistRooms(); return;
+  }
+  rankSettle(r, other.seat, pl.id + ' ' + how);
+}
 // 좌석이 비워진 채 유예가 끝나면 진짜 퇴장 처리
 function expireGone(r, pl) {
   if (!rooms.has(r.id) || pl.ws) return;
-  // 등급전: 유예가 끝나도 돌아오지 않은 쪽이 패배 (상대가 아직 있으면)
-  if (r.ranked && !r.rankSettled) { const other = r.players.find(q => q !== pl); if (other) rankSettle(r, other.seat, pl.id + ' 이탈'); }
+  // 등급전: 유예가 끝나도 돌아오지 않은 쪽이 패배 (상대가 아직 있으면) — 단 결과 보고를 마친 뒤라면 아니다
+  rankLeave(r, pl, '이탈');
   const i = r.players.indexOf(pl); if (i >= 0) r.players.splice(i, 1);
   if (!r.players.some(q => q.ws)) {           // 남은 접속자가 없으면 방 종료 (관전자에게만 알림)
     rooms.delete(r.id);
@@ -886,14 +909,19 @@ function rankApply(format, winnerId, loserId) {
 // 매치(방) 결과 확정 — 한 번만. 양쪽에 rankUpdate 전송
 function rankSettle(r, winnerSeat, how) {
   if (!r.ranked || r.rankSettled) return;
-  const w = r.players.find(pl => pl.seat === winnerSeat), l = r.players.find(pl => pl.seat !== winnerSeat);
+  // 보고를 마치고 이미 방을 떠난 쪽은 players에 없다 — 좌석별 아이디(rankSeats)로 찾는다
+  const seats = r.rankSeats || {};
+  const w = r.players.find(pl => pl.seat === winnerSeat) || (seats[winnerSeat] ? { id: seats[winnerSeat], seat: winnerSeat, ws: null } : null);
+  const l = r.players.find(pl => pl.seat === 1 - winnerSeat) || (seats[1 - winnerSeat] ? { id: seats[1 - winnerSeat], seat: 1 - winnerSeat, ws: null } : null);
   if (!w || !l) return;
   r.rankSettled = true;
   const res = rankApply(r.format, w.id, l.id);
   if (!res) return;
   console.log(`[등급전] ${r.format} ${w.id}(승) vs ${l.id} — ${how}`);
   r.rankResultMsgs = {};   // 좌석별 결과 — 재접속(새로고침) 시 다시 보내 결과 창이 '반영 중'에 머물지 않게
-  for (const pl of r.players) { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', ...res[pl.id], format: r.format, how }; wsSend(pl.ws, r.rankResultMsgs[pl.seat]); }
+  for (const pl of r.players) { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', ...res[pl.id], format: r.format, how }; if (pl.ws) wsSend(pl.ws, r.rankResultMsgs[pl.seat]); }
+  // 보고를 마치고 먼저 떠난 쪽에게도 결과를 보낸다 (아직 접속 중이면)
+  for (const [id, m] of Object.entries(res)) if (!r.players.some(pl => pl.id === id)) wss.clients.forEach(c => { if (c._authed && c._userId === id) wsSend(c, { t: 'rankUpdate', ...m, format: r.format, how }); });
   persistRooms();
 }
 // 클라이언트 보고: 양쪽이 같은 승자를 말해야 반영 (락스텝이라 정상이면 항상 같다)
@@ -943,6 +971,7 @@ function rankStartMatch(format, a, b) {
   const first = Math.random() < 0.5 ? a : b, second = first === a ? b : a;
   r.players.push({ ws: first.ws, id: first.id, deck: first.deck, seat: 0, ver: first.ver });
   r.players.push({ ws: second.ws, id: second.id, deck: second.deck, seat: 1, ver: second.ver });
+  r.rankSeats = { 0: first.id, 1: second.id };   // 결과 정산용(떠난 뒤에도 좌석→아이디)
   r.seed = crypto.randomBytes(4).readUInt32LE(0);
   rooms.set(r.id, r);
   r.players.forEach(pl => { pl.ws._room = r; wsSend(pl.ws, startMsg(r, pl.seat)); });
@@ -981,7 +1010,7 @@ function leaveRoom(ws, notify = true) {
     return;
   }
   const i = r.players.findIndex(pl => pl.ws === ws);
-  if (i >= 0 && r.ranked && r.started && !r.rankSettled) { const other = r.players.find(q => q.ws !== ws); if (other) rankSettle(r, other.seat, ws._userId + ' 퇴장'); }
+  if (i >= 0) rankLeave(r, r.players[i], '퇴장');
   if (i >= 0) r.players.splice(i, 1);
   if (r.players.length === 0) {
     rooms.delete(r.id);
