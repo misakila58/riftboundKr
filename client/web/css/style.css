@@ -1172,6 +1172,10 @@ body.modal-peeking #inspector { z-index:auto; }
 .ranked-form { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:center; background:#101a2b; border:1px solid #2e3d5e; border-radius:12px; padding:12px; }
 .ranked-form select { padding:6px 8px; border-radius:6px; border:1px solid #3a4a70; background:#0e1626; color:#e8e6e0; }
 .ranked-formats { display:flex; gap:12px; }
+.ranked-live { flex-basis:100%; text-align:center; font-size:12px; min-height:1.2em; }
+.ranked-live .cur { color:#e8e6e0; font-weight:700; }
+.ranked-live .live-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:#3ddc84; margin-right:4px; vertical-align:middle; }
+.ranked-live .live-dot.idle { background:#6b7280; }
 .rank-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:14px; }
 .rank-fmt { min-width:80px; color:#d8c27a; font-weight:bold; }
 .rank-mmr { color:#9aa4bd; font-size:12px; }

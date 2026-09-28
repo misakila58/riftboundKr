@@ -6,6 +6,7 @@
 //  · 시즌이 끝나면 최종 등급이 칭호로 남고, 프로필 관리에서 장착한 칭호는 상대에게도 보인다
 const RANK = {
   me: null,          // /api/rank 요약
+  live: null,        // /api/rank/live — {bo1:{queue,games}, bo3:{queue,games}} 형식별 매칭 대기 인원·진행 중 판 수
   queued: null,      // {format, since} 매칭 대기 중
   TIERS: {
     unranked:   { ko:'배치 중',     c1:'#6b7280', c2:'#374151' },
@@ -53,7 +54,26 @@ const RANK = {
     try{ if(!NET.ws || NET.ws.readyState!==1) await NET.connect(); }catch(e){ alert(e.message); return; }
     RANK.fillDeckSelect();
     showScreen('ranked-screen');
+    RANK.startLive();
     await RANK.refresh();
+  },
+  // ── 매칭 현황 (형식별 대기 인원·진행 중 판 수) — 등급전 화면에 있는 동안 5초마다, Bo1/Bo3를 고를 때 즉시 갱신 ──
+  startLive(){
+    clearInterval(RANK._liveTimer);
+    RANK.refreshLive();
+    RANK._liveTimer=setInterval(()=>{ if(document.getElementById('ranked-screen').style.display==='none'){ RANK.stopLive(); return; } RANK.refreshLive(); }, 5000);
+  },
+  stopLive(){ clearInterval(RANK._liveTimer); RANK._liveTimer=null; },
+  async refreshLive(){
+    try{ RANK.live=await NET.api('/api/rank/live'); }catch(e){ return; }
+    RANK.renderLive();
+  },
+  renderLive(){
+    const el=document.getElementById('ranked-live'); const lv=RANK.live; if(!el||!lv) return;
+    const cur=document.querySelector('input[name="ranked-format"]:checked')?.value==='bo3'?'bo3':'bo1';
+    const one=f=>{ const x=lv[f]||{queue:0,games:0}; const on=x.queue>0||x.games>0; return `<span class="${f===cur?'cur':''}"><span class="live-dot${on?'':' idle'}"></span>${f.toUpperCase()} 매칭 대기 ${x.queue}명 · 진행 중 ${x.games}판</span>`; };
+    el.innerHTML=one('bo1')+' &nbsp;|&nbsp; '+one('bo3');
+    RANK._tick();
   },
   fillDeckSelect(){
     const sel=document.getElementById('ranked-deck'); sel.innerHTML='';
@@ -91,6 +111,7 @@ const RANK = {
   cancel(){ NET.send({t:'rankCancel'}); },
   onQueued(m){
     RANK.queued={format:m.format, since:Date.now()};
+    if(m.live){ RANK.live=m.live; RANK.renderLive(); }
     document.getElementById('btn-ranked-queue').hidden=true; document.getElementById('btn-ranked-cancel').hidden=false;
     RANK._tick();
     clearInterval(RANK._timer); RANK._timer=setInterval(RANK._tick, 1000);
@@ -98,14 +119,15 @@ const RANK = {
   _tick(){
     const q=RANK.queued; if(!q) return;
     const s=Math.floor((Date.now()-q.since)/1000);
-    document.getElementById('ranked-status').textContent=`⏳ ${q.format.toUpperCase()} 매칭 중… ${s}초 (MMR이 비슷한 상대부터, 기다릴수록 범위가 넓어집니다)`;
+    const lv=RANK.live&&RANK.live[q.format]; const others=lv?Math.max(0,lv.queue-1):null;   // 나를 뺀 대기 인원
+    document.getElementById('ranked-status').textContent=`⏳ ${q.format.toUpperCase()} 매칭 중… ${s}초${others!=null?` · 나 말고 ${others}명 대기 중`:''} (MMR이 비슷한 상대부터, 기다릴수록 범위가 넓어집니다)`;
   },
   onCancelled(){
     RANK.queued=null; clearInterval(RANK._timer);
     document.getElementById('btn-ranked-queue').hidden=false; document.getElementById('btn-ranked-cancel').hidden=true;
     document.getElementById('ranked-status').textContent='매칭을 취소했습니다.';
   },
-  onStart(){ RANK.queued=null; clearInterval(RANK._timer); const b=document.getElementById('btn-ranked-queue'); if(b){ b.hidden=false; document.getElementById('btn-ranked-cancel').hidden=true; document.getElementById('ranked-status').textContent=''; } },
+  onStart(){ RANK.queued=null; clearInterval(RANK._timer); RANK.stopLive(); const b=document.getElementById('btn-ranked-queue'); if(b){ b.hidden=false; document.getElementById('btn-ranked-cancel').hidden=true; document.getElementById('ranked-status').textContent=''; } },
 
   // ── 결과 보고 (승리 창에서) ──
   // 단판: 게임 승자. Bo3: 매치가 끝났을 때(2승) 매치 승자. 양쪽 클라이언트가 같은 값을 보내야 서버가 반영한다.
@@ -189,7 +211,8 @@ const RANK = {
   },
   init(){
     document.getElementById('btn-goto-ranked').onclick=()=>RANK.open();
-    document.getElementById('btn-ranked-back').onclick=()=>{ if(RANK.queued) RANK.cancel(); showScreen('menu-screen'); };
+    document.getElementById('btn-ranked-back').onclick=()=>{ if(RANK.queued) RANK.cancel(); RANK.stopLive(); showScreen('menu-screen'); };
+    document.querySelectorAll('input[name="ranked-format"]').forEach(r=>r.addEventListener('change',()=>{ RANK.renderLive(); RANK.refreshLive(); }));   // Bo1/Bo3를 고르면 그 형식 현황을 바로 강조·갱신
     document.getElementById('btn-ranked-queue').onclick=()=>RANK.queue();
     document.getElementById('btn-ranked-cancel').onclick=()=>RANK.cancel();
     document.getElementById('btn-ranked-profile').onclick=()=>RANK.openProfile();

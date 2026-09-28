@@ -750,6 +750,7 @@ const server = http.createServer(async (req, res) => {
     }
     // ── 등급전 ──
     if (p === '/api/rank' && req.method === 'GET') return json(res, 200, rankSummary(user));
+    if (p === '/api/rank/live' && req.method === 'GET') return json(res, 200, rankLive());   // 형식별 매칭 대기 인원·진행 중 판 수 (등급전 화면에서 5초마다 조회)
     if (p === '/api/rank/leaderboard' && req.method === 'GET') {
       const f = (url.searchParams.get('format') === 'bo3') ? 'bo3' : 'bo1';
       const rows = Object.values(db.users).map(u => { const rk = u.rank; if (!rk || rk.season !== RANK_SEASON || !rk[f] || rk[f].games < RANK_PLACEMENT) return null;
@@ -992,6 +993,17 @@ function rankReport(ws, m) {
 }
 // 매칭 큐
 const rankQueue = { bo1: [], bo3: [] };
+// 지금 형식별로 매칭을 기다리는 인원과 진행 중인 등급전 판 수 — 참가 전에 사람이 있는지 보고 돌릴지 정할 수 있게 (2026-09-28)
+function rankLive() {
+  const out = {};
+  for (const f of ['bo1', 'bo3']) {
+    const queue = rankQueue[f].filter(x => x.ws.readyState === WebSocket.OPEN && !x.ws._room).length;
+    let games = 0;
+    for (const r of rooms.values()) if (r.ranked && r.started && r.format === f && !r.rankSettled && r.players.length === 2) games++;
+    out[f] = { queue, games };
+  }
+  return out;
+}
 function rankDequeue(ws) { for (const f of ['bo1', 'bo3']) rankQueue[f] = rankQueue[f].filter(q => q.ws !== ws); }
 function rankMatchmake() {
   if (draining) return;   // 배포 예약 중엔 새 매치를 만들지 않는다
@@ -1179,7 +1191,7 @@ wss.on('connection', (ws, req) => {
         rankDequeue(ws);
         const s = rankOf(db.users[ws._userId])[format];
         rankQueue[format].push({ ws, id: ws._userId, deck, mmr: s.mmr, since: Date.now(), ver: String(m.ver || '?').slice(0, 20) });
-        wsSend(ws, { t: 'rankQueued', format, mmr: Math.round(s.mmr), waiting: rankQueue[format].length });
+        wsSend(ws, { t: 'rankQueued', format, mmr: Math.round(s.mmr), waiting: rankQueue[format].length, live: rankLive() });
         rankMatchmake();
         break;
       }
