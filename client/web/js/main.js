@@ -1024,6 +1024,25 @@ function edArtPicker(c){
 }
 
 const ED_SORT_KEY='rb_ed_sort';
+const ED_IMGVIEW_KEY='rb_ed_imgview';   // 덱 목록을 그림으로 보기 (기억해 둔다)
+// 덱 목록 한 항목 — 이름 줄(기본) 또는 카드 그림(이미지로 보기). 클릭=제거, 우클릭/Alt+클릭=카드 상세, 마우스 올리면 오른쪽 상세
+function edListItem(c, cnt, remove, art, imgView){
+  if(imgView){
+    const el=cardMiniEl(c);
+    if(cnt>1 || c.type!=='Battlefield'){ const b=document.createElement('div'); b.className='cm-cnt'; b.textContent='×'+cnt; el.appendChild(b); }
+    el.title=(c.type==='Battlefield'?'클릭: 제거':'클릭: 1장 제거')+' · 우클릭/Alt+클릭: 카드 상세';
+    el.onclick=e=>{ if(e.altKey){ art(); return; } remove(); };
+    el.oncontextmenu=e=>{ e.preventDefault(); art(); };
+    return el;
+  }
+  const row=document.createElement('div'); row.className='ed-row';
+  if(c.type==='Battlefield') row.textContent=c.ko; else row.innerHTML=`<span class="cnt">×${cnt}</span> [${c.e??0}] ${esc(c.ko)}`;
+  row.title=(c.type==='Battlefield'?'클릭: 제거':'클릭: 1장 제거')+' · 우클릭/Alt+클릭: 카드 상세';
+  row.onmouseenter=()=>UI.inspect(c);
+  row.onclick=e=>{ if(e.altKey){ art(); return; } remove(); };
+  row.oncontextmenu=e=>{ e.preventDefault(); art(); };
+  return row;
+}
 function edSortMode(){
   const el=document.getElementById('ed-sort');
   return (el && el.value) || localStorage.getItem(ED_SORT_KEY) || 'cost';
@@ -1187,7 +1206,9 @@ function renderEditor(){
     ED.selN!=null ? UI.cardInfoHTML(card(ED.selN))
                   : '<div class="insp-placeholder">카드를 클릭하면 여기에 자세한 내용이 표시됩니다</div>';
 
-  // 메인 덱 목록
+  // 메인 덱 목록 (이미지로 보기 체크 시 카드 그림 격자)
+  const imgView=!!document.getElementById('ed-img-view')?.checked;
+  ['ed-main','ed-side','ed-bfs'].forEach(id=>document.getElementById(id).classList.toggle('imgview', imgView));
   const mainEl=document.getElementById('ed-main');
   mainEl.innerHTML='';
   const grouped={};
@@ -1195,15 +1216,8 @@ function renderEditor(){
   // 덱 목록도 카드 풀과 같은 기준으로 정렬한다 (둘이 다른 순서면 찾기가 더 어렵다)
   edSortCards(Object.keys(grouped).map(n=>card(+n))).map(c=>[String(c.n), grouped[c.n]]).forEach(([n,cnt])=>{
     const c=card(+n);
-    const row=document.createElement('div'); row.className='ed-row';
-    row.innerHTML=`<span class="cnt">×${cnt}</span> [${c.e??0}] ${esc(c.ko)}`;
-    row.title='클릭: 1장 제거 · 우클릭/Alt+클릭: 카드 상세';
-    row.onmouseenter=()=>UI.inspect(c);
     // Alt+클릭·우클릭: 제거하지 않고 카드 상세(확대)만 보여준다
-    const openArt=()=>{ edArtPicker(c); UI.showZoom(c); };
-    row.onclick=e=>{ if(e.altKey){ openArt(); return; } ED.main.splice(ED.main.indexOf(+n),1); renderEditor(); };
-    row.oncontextmenu=e=>{ e.preventDefault(); openArt(); };
-    mainEl.appendChild(row);
+    mainEl.appendChild(edListItem(c, cnt, ()=>{ ED.main.splice(ED.main.indexOf(+n),1); renderEditor(); }, ()=>{ edArtPicker(c); UI.showZoom(c); }, imgView));
   });
   document.getElementById('ed-main-count').textContent=ED.main.length;
 
@@ -1214,14 +1228,7 @@ function renderEditor(){
   ED.side.forEach(n=>sideGrouped[n]=(sideGrouped[n]||0)+1);
   edSortCards(Object.keys(sideGrouped).map(n=>card(+n))).map(c=>[String(c.n), sideGrouped[c.n]]).forEach(([n,cnt])=>{
     const c=card(+n);
-    const row=document.createElement('div'); row.className='ed-row';
-    row.innerHTML=`<span class="cnt">×${cnt}</span> [${c.e??0}] ${esc(c.ko)}`;
-    row.title='클릭: 1장 제거 · 우클릭/Alt+클릭: 카드 상세';
-    row.onmouseenter=()=>UI.inspect(c);
-    const openArt=()=>{ edArtPicker(c); UI.showZoom(c); };
-    row.onclick=e=>{ if(e.altKey){ openArt(); return; } ED.side.splice(ED.side.indexOf(+n),1); renderEditor(); };
-    row.oncontextmenu=e=>{ e.preventDefault(); openArt(); };
-    sideEl.appendChild(row);
+    sideEl.appendChild(edListItem(c, cnt, ()=>{ ED.side.splice(ED.side.indexOf(+n),1); renderEditor(); }, ()=>{ edArtPicker(c); UI.showZoom(c); }, imgView));
   });
   const sc=document.getElementById('ed-side-count');
   sc.textContent=ED.side.length;
@@ -1251,13 +1258,7 @@ function renderEditor(){
   bfEl.innerHTML='';
   ED.bfs.forEach(n=>{
     const c=card(n);
-    const row=document.createElement('div'); row.className='ed-row';
-    row.textContent=c.ko;
-    row.title='클릭: 제거 · 우클릭/Alt+클릭: 카드 상세';
-    row.onmouseenter=()=>UI.inspect(c);
-    row.onclick=e=>{ if(e.altKey){ UI.showZoom(c); return; } ED.bfs.splice(ED.bfs.indexOf(n),1); renderEditor(); };
-    row.oncontextmenu=e=>{ e.preventDefault(); UI.showZoom(c); };
-    bfEl.appendChild(row);
+    bfEl.appendChild(edListItem(c, 1, ()=>{ ED.bfs.splice(ED.bfs.indexOf(n),1); renderEditor(); }, ()=>UI.showZoom(c), imgView));
   });
   document.getElementById('ed-bf-count').textContent=ED.bfs.length;
 
@@ -1336,6 +1337,10 @@ function initEditor(){
   ['ed-type-filter','ed-search','ed-dom-only','ed-sort'].forEach(id=>{
     document.getElementById(id).addEventListener('input',()=>renderEditor());
   });
+  // 이미지로 보기도 기억해 둔다
+  const imgChk=document.getElementById('ed-img-view');
+  try{ imgChk.checked = localStorage.getItem(ED_IMGVIEW_KEY)==='1'; }catch(e){}
+  imgChk.addEventListener('change', ()=>{ try{ localStorage.setItem(ED_IMGVIEW_KEY, imgChk.checked?'1':'0'); }catch(e){} renderEditor(); });
   // 정렬 기준은 기억해 둔다 (덱을 여러 개 만들 때 매번 다시 고르지 않게)
   const sortSel=document.getElementById('ed-sort');
   sortSel.value = localStorage.getItem(ED_SORT_KEY) || 'cost';
