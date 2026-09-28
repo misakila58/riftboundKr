@@ -136,7 +136,7 @@ const optUnit=u=>(t,o)=>{ const m=o.find(x=>x.returnHand&&x.returnHand.uid===u.u
 
   // ── 용의 분노(258): 이동 유닛은 플레이 시점, 소실이면 이동·피해 없음 ──
   fresh(); const v1=unit(210,1,0), v2=unit(219,1,1);
-  ok('용의 분노: 플레이 시점에 이동 유닛 선택', await play(258)===true && /이동시킬 적 유닛/.test(PICKS[0]||''), JSON.stringify(PICKS));
+  ok('용의 분노: 플레이 시점에 이동 유닛+목적지 선택(355.8)', await play(258)===true && OPTS.some(t=>/목적지/.test(t)), JSON.stringify(OPTS));
   fresh(); const w1=unit(210,1,0), w2=unit(219,1,1);
   const dop=FX[258].playOps[0].ops[0]; gone(w1);
   await resolveSpellEffects(0,258,FX[258],{pre:new Map([[dop,w1.uid]]),execAs:0});

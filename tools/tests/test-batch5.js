@@ -125,9 +125,13 @@ const A=()=>G.players[0], B=()=>G.players[1];
   fresh(); G.bfs[1].controller=0; unit(158,0,1); const vb2=unit(210,1,'base'); PICK=u=>u===vb2;
   await play(43);
   ok('볼리베어: 전장에 있고 적이 다른 전장으로 이동하면 드로우', vb2.loc===0 && A().hand.length===1, 'loc='+vb2.loc+' hand='+A().hand.length);
-  fresh(); const mv=unit(210,1,'base'); PICK=u=>u===mv; OPT=(t,o)=>{ if(/효과 이동/.test(t)) return null; return o[0].v; };
+  // 유닛+목적지는 플레이 시점 지정(355.8) — 거기서 취소하면 플레이 자체가 취소된다(손패 그대로). 해결 때의 강제 이동(#9277)은 즉석 선택 경로(격발 등)에만 남는다
+  fresh(); const mv=unit(210,1,'base'); PICK=u=>u===mv; OPT=(t,o)=>{ if(/효과 이동|목적지/.test(t)) return null; return o[0].v; };
   await play(43);
-  ok('매혹: 이동은 강제 — 취소해도 이동한다(#9277)', mv.loc!=='base' && OPTS.filter(t=>/효과 이동/.test(t)).length>=2, 'loc='+mv.loc+' asks='+OPTS.filter(t=>/효과 이동/.test(t)).length);
+  ok('매혹: 플레이 시점 이동 선택을 취소하면 플레이 취소 (손패 유지·이동 없음)', mv.loc==='base' && A().hand.length===1 && OPTS.filter(t=>/목적지/.test(t)).length===1, 'loc='+mv.loc+' hand='+A().hand.length+' asks='+OPTS.filter(t=>/목적지/.test(t)).length);
+  fresh(); const mv2=unit(210,1,'base'); PICK=u=>u===mv2; OPT=(t,o)=>{ if(/목적지/.test(t)){ const x=o.find(x=>x.movement&&x.movement.uid===mv2.uid); return x?x.v:o[0].v; } return o[0].v; };
+  await play(43);
+  ok('매혹: 고른 목적지로 이동', mv2.loc!=='base', 'loc='+mv2.loc);
   fresh(); G.bfs[0].controller=1; const tt=unit(210,1,0); G.bfs[0].hiddenCards.push({n:77,by:1,turn:1});
   PICK=u=>u===tt; REACT=(t,o)=>{ const h=o.find(x=>x.v&&x.v.hidden); return h?h.v:null; };
   await play(43);

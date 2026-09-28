@@ -120,7 +120,7 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('⑩ 유망한 미래: B의 열 광선이 A의 오로라 등장 뒤 해결 → 오로라 처치', !G.players[0].gear.some(g=>g.n===160) && G.players[0].trash.includes(160), 'gear='+G.players[0].gear.map(g=>g.n).join(',')+' trash='+G.players[0].trash.join(','));
 
   // ══ ⑪ 바람 타기(173) + 바일마우의 둥지(295) — 기지 지정은 적법, 이동만 생략·준비(#11771) ══
-  fresh([295,297]); const w=unit(210,0,0,{ex:true}); PICK=u=>u===w; OPT=(t,o)=>{ if(/효과 이동/.test(t)){ const x=o.find(x=>/기지/.test(x.label)); return x?x.v:o[0].v; } return o[0].v; };
+  fresh([295,297]); const w=unit(210,0,0,{ex:true}); PICK=u=>u===w; OPT=(t,o)=>{ if(/효과 이동|목적지/.test(t)){ const x=o.find(x=>x.movement&&x.movement.uid===w.uid&&/기지/.test(x.label)); return x?x.v:o[0].v; } return o[0].v; };   // 유닛+목적지는 플레이 시점(355.8)
   await play(173);
   ok('⑪ 둥지: 이동 없이 제자리에서 준비', w.loc===0 && w.ex===false, 'loc='+w.loc+' ex='+w.ex);
 

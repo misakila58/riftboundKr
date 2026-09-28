@@ -347,8 +347,8 @@ const EXTRA_OPS = {
     await chooseEffectMove(ctx.p, {side:'friendly',where:'base'}, 'bf', {storm:true}); },
   async dragonRage(op, ctx, h){
     // 원문은 "이동시킨 뒤 도착지의 다른 적 유닛을 고른다" — 도착지가 적 기지여도 성립한다
-    // (기존에는 전장으로 보냈을 때만 상호 피해를 처리했다). 이동시킬 유닛은 플레이 시점 지정(352.8.a),
-    // 목적지는 절충 ④(해결 시점), '도착지의 다른 적'은 반사 격발이라 해결 시점(#7880)
+    // (기존에는 전장으로 보냈을 때만 상호 피해를 처리했다). 이동시킬 유닛과 목적지는 플레이 시점 지정(355.8·engine preMoveParams),
+    // '도착지의 다른 적'은 반사 격발이라 해결 시점(#7880)
     await chooseEffectMove(ctx.p, {side:'enemy',_prompt:'이동시킬 적 유닛'}, 'any', {dragon:true}); },
   async whirlwind(op, ctx, h){
     // 원문 "each player may return a unit" — 진영 무관 어느 유닛이든(적 바론 나쉬르 포함) 고를 수 있다. 대상 지정이 아니라
@@ -1265,6 +1265,7 @@ const PRE_TARGET_EXTRA = {
   retreatOp: [RETREAT_SPEC],
   possess: [{side:'enemy',where:'bf',count:1,_prompt:'통제권을 뺏을 적 유닛'}],
   dragonRage: [{side:'enemy',_prompt:'이동시킬 적 유닛'}],
+  buffAndMove: [{side:'friendly',where:'base',count:1,_prompt:'버프하고 이동시킬 기지의 아군'}],   // 축복받은 진군 — 유닛+목적지는 engine preMoveParams가 함께 고른다
   gunsBlazing: [{battlefield:true,_prompt:'피해를 줄 전장'}],
   tideTurner: [(p)=>({side:'friendly',optional:true,other:true,
     _uids:everyUnit().filter(u=>u.ctrl===p && _ctxUnit && u.loc!==_ctxUnit.loc).map(u=>u.uid),

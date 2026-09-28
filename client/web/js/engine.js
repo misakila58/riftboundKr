@@ -1114,13 +1114,9 @@ async function effectMove(p, u, dest){
 // 봇은 이득 없는 이동을 고른다. 두 축을 한 선택지로 묶어 양쪽이 같은 후보를 본다.
 //
 // to: 'base' | 'bf' | 'any'(전장+기지) | 'baseLink'(기지↔전장 왕복) | 전장 번호
-async function chooseEffectMove(p, spec, to, extra={}, boardPick=false){
-  // 플레이 시점에 고른 유닛(352.8.a)이 있으면 그 유닛의 목적지만 고른다(목적지는 절충 ④ — 해결 시점).
-  // 부적법해졌으면(사라짐·조건 불충족) 이동도 그에 딸린 피해도 없다(356.3.e). 굴절은 플레이 때 냈다.
-  const preU = takePreTarget(p, spec);
-  if(preU===null) return null;
-  if(preU) extra={...extra, alreadyPicked:true};
-  const units = preU ? [preU] : unitsBySpec(spec, p), options=[];
+// 이동 후보(유닛 × 목적지) — 플레이 시점 지정(preTargetMove)과 해결 시점(chooseEffectMove)이 같은 후보·같은 선택지 모양을 쓴다
+function effectMoveOptions(units, to, extra={}){
+  const options=[];
   for(const u of units){
     // 목적지가 정해진 주문(「점멸」 → 기지)은 이미 그곳에 있는 유닛도 대상으로 고를 수 있다 — 이동만 생략 (RiftJudge #10257)
     if(extra.stayOK && to==='base' && u.loc==='base'){
@@ -1149,6 +1145,33 @@ async function chooseEffectMove(p, spec, to, extra={}, boardPick=false){
         card:unitCard(u), movement:{ uid:u.uid, dest, ...extra } });
     }
   }
+  return options;
+}
+// 플레이 시점에 고른 이동 {uid,dest,…}를 해결한다. 유닛이 부적법해졌으면 지시 전체 생략, 목적지만 부적법해졌으면 이동만 생략하고
+// 연결 지시(준비·버프)는 실행한다 (359.3.e.8~10 — 바람 타기 예시: 둥지의 유닛을 기지로 골랐다면 이동 지시만 무시).
+async function resolvePreMove(p, spec, mv, extra){
+  if(!mv) return null;                                                   // 플레이 때 '이동하지 않음'
+  const u=everyUnit().find(x=>x.uid===mv.uid);
+  if(!u || u._dead || (spec && !spec._uids && !unitsBySpec(spec, p).includes(u))){
+    UI.log(`대상${u?' 「'+unitName(u)+'」':''}이(가) 더 이상 유효하지 않아 이동 지시는 생략됩니다 (룰 359.3.e)`, 'sys');
+    return null;
+  }
+  const choice={...extra, ...mv, alreadyPicked:true};
+  if(!choice.stay && !choice.negated && !choice.swapUid && !canEffectMove(u, choice.dest)){
+    UI.log(`${unitName(u)} → ${choice.dest==='base'?'기지':card(G.bfs[choice.dest].n).ko}: 지금은 이동할 수 없어 이동만 생략 (연결 지시는 실행 · 룰 359.3.e)`, 'sys');
+    return await resolveEffectMove(p, {...choice, negated:true, noLog:true});
+  }
+  return await resolveEffectMove(p, choice);
+}
+async function chooseEffectMove(p, spec, to, extra={}, boardPick=false){
+  // 플레이 시점에 고른 것이 있으면: {move:{uid,dest,…}}(유닛+목적지 — 355.8, 2026-09-28) 또는 유닛만(격발 등 — 목적지는 여기서 고른다).
+  // 부적법해졌으면(사라짐·조건 불충족) 이동도 그에 딸린 피해도 없다(359.3.e). 굴절은 플레이 때 냈다.
+  const preU = takePreTarget(p, spec);
+  if(preU===null) return null;
+  if(preU && preU.move!==undefined) return await resolvePreMove(p, spec, preU.move, extra);
+  if(preU) extra={...extra, alreadyPicked:true};
+  const units = preU ? [preU] : unitsBySpec(spec, p);
+  const options = effectMoveOptions(units, to, extra);
   if(!options.length) return null;
   if(spec.optional) options.push({ v:null, label:'이동하지 않음', movement:null });
   // 'may'가 없는 이동은 강제다 — 적법한 목적지가 있으면 이동하지 않을 수 없다(룰 100 · 425 Move는 제한 행동, RiftJudge #9277).
@@ -1174,7 +1197,7 @@ async function resolveEffectMove(p, choice){
   }
   if(choice.negated){   // 둥지의 유닛을 기지로: 대상 지정·굴절은 그대로, 이동만 생략하고 연결 지시는 실행
     if(!choice.alreadyPicked){ noteSpellPick(p, u); if(!(await payDeflect(p, u))) return null; }
-    UI.log(`${unitName(u)} — 「바일마우의 둥지」에서 기지로 이동할 수 없어 이동만 생략 (연결 지시는 실행 · #11771)`, 'sys');
+    if(!choice.noLog) UI.log(`${unitName(u)} — 「바일마우의 둥지」에서 기지로 이동할 수 없어 이동만 생략 (연결 지시는 실행 · #11771)`, 'sys');
     if(choice.buff) await buffUnit(u, p);
     if(choice.ready) await readyUnit(u, p);
     return u;
@@ -3538,6 +3561,11 @@ function describeCastTargets(pre, preAb){
     if(v.t==='g') return `${pname(v.pi)}의 도구 「${card(v.g.n).ko}」${G.players[v.pi].gear.includes(v.g)?'':' (이미 보드에서 이탈)'}`;
     if(v.t==='unit' && v.u) return describeCastTargets(new Map([[null,v.u.uid]]));   // 발동 시점 선택(preAb)의 여러 모양
     if(v.t==='gear' && v.g) return `도구 「${card(v.g.n).ko}」`;
+    if(v.move!==undefined){   // 플레이 시점에 고른 이동(유닛 → 목적지)
+      if(!v.move) return '이동하지 않음';
+      const d=v.move.dest, where = d==='base' ? '기지' : (G.bfs[d] ? card(G.bfs[d].n).ko : '?');
+      return describeCastTargets(new Map([[null,v.move.uid]]))+' → '+where+(v.move.stay?' (이동 없음)':'');
+    }
     if(v.uid!==undefined) return (v.mode?`[${v.mode}] `:'')+describeCastTargets(new Map([[null,v.uid]]));
     if(v.pi===undefined || v.n===undefined) return v.label || v.mode || '선택';
     return `${pname(v.pi)} 폐기장의 「${card(v.n).ko}」`;
@@ -3561,6 +3589,7 @@ function snapshotCastTargets(pre, preAb){
     if(v.t==='u'){ const u=everyUnit().find(x=>x.uid===v.uid); return {kind:'unit', uid:v.uid, n:u?.n, p:u?.ctrl, name:u?unitName(u):`유닛 #${v.uid}`, tokenMight:u?.isToken?u.tokenMight:undefined, label}; }
     if(v.t==='g') return {kind:'gear', n:v.g.n, p:v.pi, index:G.players[v.pi].gear.indexOf(v.g), label};
     if(v.t==='unit' && v.u) return {kind:'unit', uid:v.u.uid, n:v.u.n, p:v.u.ctrl, name:unitName(v.u), label};
+    if(v.move!==undefined){ if(!v.move) return {kind:'none', label}; const u=everyUnit().find(x=>x.uid===v.move.uid); return {kind:'unit', uid:v.move.uid, n:u?.n, p:u?.ctrl, name:u?unitName(u):`유닛 #${v.move.uid}`, dest:v.move.dest, label}; }
     if(v.uid!==undefined){ const u=everyUnit().find(x=>x.uid===v.uid); return {kind:'unit', uid:v.uid, n:u?.n, p:u?.ctrl, name:u?unitName(u):`유닛 #${v.uid}`, label}; }
     if(v.pi===undefined || v.n===undefined) return {kind:'other', label};
     return {kind:'trash', n:v.n, p:v.pi, index:v.i, label};
@@ -3676,6 +3705,12 @@ async function preTargetOps(p, ops, o){
       pre.set(op,{split});
       continue;
     }
+    const mv=preMoveParams(op, prev);
+    if(mv){                                                  // 이동 지시: 유닛과 목적지를 함께 플레이 시점에 고른다(355.8)
+      const r=await preTargetMove(p, op, mv, o, prev, pre);
+      if(r===PRE_CANCEL) return PRE_CANCEL;
+      continue;
+    }
     const ents=preTargetSpecs(op);
     if(!ents.length) continue;
     const vals=[];
@@ -3721,6 +3756,45 @@ async function preTargetOps(p, ops, o){
     pre.set(op, vals.length===1 ? vals[0] : vals);
   }
   return pre.size?pre:null;
+}
+// 유닛과 목적지를 함께 플레이 시점에 고르는 이동 지시(355.8) — 해결 때 chooseEffectMove를 부르는 op와 같은 spec·목적지·부가 정보.
+// (트리거의 즉석 선택은 fireTriggeredAbility가 따로 다룬다 — 목적지가 고정된 191·285는 잃는 것이 없다)
+function preMoveParams(op, prev){
+  if(!op) return null;
+  const excl=[...(op.spec?._exclude||[]), ...(prev||[]).filter(Boolean)];   // 같은 주문의 앞 대상은 제외 — 점멸 311 'up to 2' 서로 다른 유닛(355.13)
+  switch(op.op){
+    case 'moveSpec': return { spec:{...op.spec, _exclude:excl, _prompt:op.spec._prompt||'이동시킬 유닛과 목적지 선택'},
+      to: op.to==='chooseAny' ? 'any' : op.to==='base' ? 'base' : 'bf', extra:{ready:!!op.ready, stayOK:!!op.spec.stayOK} };
+    case 'moveUnit': { const to = op.to==='here' ? _ctxBf : op.to==='its base' ? 'base' : 'bf'; if(to===null || to===undefined || !op.spec) return null;
+      return { spec:{...op.spec, _exclude:excl, _prompt:op.spec._prompt||'이동시킬 유닛과 목적지 선택'}, to, extra:{} }; }
+    case 'stormbringer': return { spec:{side:'friendly',where:'base',count:1,_prompt:'폭풍을 부르는 자: 이동시킬 기지의 아군과 목적지'}, to:'bf', extra:{storm:true} };
+    case 'dragonRage': return { spec:{side:'enemy',_prompt:'이동시킬 적 유닛과 목적지'}, to:'any', extra:{dragon:true} };
+    case 'buffAndMove': return { spec:{side:'friendly',where:'base',_prompt:'버프하고 이동시킬 기지의 아군과 목적지'}, to:'bf', extra:{buff:true} };
+  }
+  return null;
+}
+// 이동 지시의 플레이 시점 선택 — 유닛 × 목적지 후보(effectMoveOptions)를 해결 때와 같은 모양('movement')으로 묻고, 굴절(809)은 본 비용과
+// 함께 낼 수 있는 유닛만 후보. 거부하면 그 유닛을 빼고 다시(#6944). 결과는 pre(op → {move:{uid,dest,…}|null})에 남긴다.
+async function preTargetMove(p, op, mv, o, prev, pre){
+  const free=!!(o.cost && o.cost.noDeflect), excl=[];
+  const done=(choice,u)=>{ pre.set(op,{move:choice}); prev.push(u||null); UI.previewCastTargets?.(p,snapshotCastTargets(pre)); };
+  while(true){
+    const spec = excl.length ? {...mv.spec, _exclude:[...(mv.spec._exclude||[]), ...excl]} : mv.spec;
+    const units = unitsBySpec(spec, p).filter(u=>free || canPayDeflect(p, u, o.cost));
+    const options = effectMoveOptions(units, mv.to, mv.extra);
+    if(!options.length){ if(spec.optional || o.byEffect){ done(null,null); return; } return PRE_CANCEL; }
+    if(spec.optional) options.push({ v:null, label:'이동하지 않음', movement:null });
+    const sel=await UI.pickOption(p, spec._prompt||`「${o.label}」 이동시킬 유닛과 목적지 선택`, options, 'movement');
+    const choice=(options.find(x=>x.v===sel)||{}).movement;
+    if(!choice){
+      if((spec.optional && sel===null) || o.byEffect){ done(null,null); return; }   // '이동하지 않음' / 효과로 내는 플레이는 그 지시만 비운다
+      return PRE_CANCEL;                                                            // 손패에서 취소 → 플레이 취소(355.8·352.8)
+    }
+    const u=everyUnit().find(x=>x.uid===choice.uid);
+    if(!u) return PRE_CANCEL;
+    if(!free && !(await payDeflect(p, u, o.cost))){ excl.push(u); continue; }
+    done(choice,u); return;
+  }
 }
 async function preTargetSpell(p, c, fx, o){
   if(G.manual || !fx.playOps.length || fx.reflexive) return null;   // 반사 격발 주문은 격발이 고른다(352.8.b · 383)
