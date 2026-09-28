@@ -71,7 +71,8 @@ const RANK = {
   renderLive(){
     const el=document.getElementById('ranked-live'); const lv=RANK.live; if(!el||!lv) return;
     const cur=document.querySelector('input[name="ranked-format"]:checked')?.value==='bo3'?'bo3':'bo1';
-    const one=f=>{ const x=lv[f]||{queue:0,games:0}; const on=x.queue>0||x.games>0; return `<span class="${f===cur?'cur':''}"><span class="live-dot${on?'':' idle'}"></span>${f.toUpperCase()} 매칭 대기 ${x.queue}명 · 진행 중 ${x.games}판</span>`; };
+    const my=NET.clientVersion();
+    const one=f=>{ const x=lv[f]||{queue:0,games:0}; const on=x.queue>0||x.games>0; const same=x.vers?(x.vers[my]||0):x.queue; const q=same!==x.queue?`${x.queue}명(같은 버전 ${same}명)`:`${x.queue}명`; return `<span class="${f===cur?'cur':''}"><span class="live-dot${on?'':' idle'}"></span>${f.toUpperCase()} 매칭 대기 ${q} · 진행 중 ${x.games}판</span>`; };
     el.innerHTML=one('bo1')+' &nbsp;|&nbsp; '+one('bo3');
     RANK._tick();
   },
@@ -112,6 +113,9 @@ const RANK = {
   onQueued(m){
     RANK.queued={format:m.format, since:Date.now()};
     if(m.live){ RANK.live=m.live; RANK.renderLive(); }
+    // 서버 최신 버전과 다르면 같은 버전끼리만 매칭되므로 오래 기다릴 수 있다 — 업데이트 안내
+    RANK._verWarn = (m.webVer && m.webVer!==NET.clientVersion()) ? `⚠ 내 앱 v${NET.clientVersion()} / 서버 최신 v${m.webVer} — 같은 버전끼리만 매칭됩니다. 최신 버전으로 업데이트해 주세요. ` : '';
+    if(RANK._verWarn) UI.toast(RANK._verWarn.trim(),'warn');
     document.getElementById('btn-ranked-queue').hidden=true; document.getElementById('btn-ranked-cancel').hidden=false;
     RANK._tick();
     clearInterval(RANK._timer); RANK._timer=setInterval(RANK._tick, 1000);
@@ -119,8 +123,8 @@ const RANK = {
   _tick(){
     const q=RANK.queued; if(!q) return;
     const s=Math.floor((Date.now()-q.since)/1000);
-    const lv=RANK.live&&RANK.live[q.format]; const others=lv?Math.max(0,lv.queue-1):null;   // 나를 뺀 대기 인원
-    document.getElementById('ranked-status').textContent=`⏳ ${q.format.toUpperCase()} 매칭 중… ${s}초${others!=null?` · 나 말고 ${others}명 대기 중`:''} (MMR이 비슷한 상대부터, 기다릴수록 범위가 넓어집니다)`;
+    const lv=RANK.live&&RANK.live[q.format]; const others=lv?Math.max(0,(lv.vers?(lv.vers[NET.clientVersion()]||0):lv.queue)-1):null;   // 나를 뺀 같은 버전 대기 인원
+    document.getElementById('ranked-status').textContent=(RANK._verWarn||'')+`⏳ ${q.format.toUpperCase()} 매칭 중… ${s}초${others!=null?` · 나 말고 ${others}명 대기 중`:''} (같은 버전·MMR이 비슷한 상대부터, 기다릴수록 범위가 넓어집니다)`;
   },
   onCancelled(){
     RANK.queued=null; clearInterval(RANK._timer);

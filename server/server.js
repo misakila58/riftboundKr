@@ -866,15 +866,28 @@ function dropPlayer(ws) {
 try {
   if (fs.existsSync(ROOMS_FILE)) {
     const saved = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8'));
+    let restored = 0;
     for (const sr of saved) {
       const r = { ...sr, started: true, spectators: [], log: sr.log || [], players: (sr.players || []).map(pl => ({ ...pl, ws: null, gone: Date.now() })) };
-      rooms.set(r.id, r);
+      if (roomVerMismatch(r)) { console.log(`[버전 불일치] 복원하지 않음 ${r.id} (${r.players.map(pl => pl.id + ' v' + pl.ver).join(' / ')})`); continue; }
+      rooms.set(r.id, r); restored++;
       const n = parseInt(String(r.id).replace(/^r/, ''), 10); if (Number.isFinite(n) && n >= roomSeq) roomSeq = n + 1;
       r.players.forEach(pl => scheduleExpire(r, pl, LIMITS.REJOIN_GRACE_RESTART_MS));
     }
-    if (saved.length) console.log(`진행 중이던 방 ${saved.length}개 복원 — 플레이어 재접속 대기`);
+    if (restored) console.log(`진행 중이던 방 ${restored}개 복원 — 플레이어 재접속 대기`);
+    if (restored < saved.length) persistRooms();   // 버린 방은 파일에서도 지운다
   }
 } catch (e) { console.log('방 복원 실패:', e.message); }
+// 두 플레이어의 앱 버전이 다른 방은 락스텝이 어긋나 진행할 수 없다 (이 검사 이전 서버가 만든 등급전 방만 해당 — 일반 방은 joinRoom, 등급전은 rankMatchmake가 막는다)
+function roomVerMismatch(r) { return r.players.length === 2 && String(r.players[0].ver) !== String(r.players[1].ver); }
+function closeMismatchRoom(r, how) {
+  if (r.ranked && !r.rankSettled) { r.rankSettled = true; r.rankResultMsgs = {}; r.players.forEach(pl => { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', void: true, format: r.format, how }; }); }
+  rooms.delete(r.id);
+  r.players.forEach(pl => { clearTimeout(pl.timer); if (pl.ws) { pl.ws._room = null; if (r.rankResultMsgs && r.rankResultMsgs[pl.seat]) wsSend(pl.ws, r.rankResultMsgs[pl.seat]); wsSend(pl.ws, { t: 'opponentLeft' }); } });
+  (r.spectators || []).forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); });
+  console.log(`[버전 불일치] 방 ${r.id} 닫음 (${r.players.map(pl => pl.id + ' v' + pl.ver).join(' / ')}) — ${how}`);
+  broadcastLobby(); persistRooms();
+}
 function roomInfo(r) {
   return { id: r.id, name: r.name, host: r.players[0]?.id, count: r.players.length, started: r.started, banRule: !!r.banRule,
     allowSpectate: !!r.allowSpectate, spectators: (r.spectators || []).length, locked: !!r.password, format: r.format || 'bo1' };
@@ -997,10 +1010,11 @@ const rankQueue = { bo1: [], bo3: [] };
 function rankLive() {
   const out = {};
   for (const f of ['bo1', 'bo3']) {
-    const queue = rankQueue[f].filter(x => x.ws.readyState === WebSocket.OPEN && !x.ws._room).length;
+    const alive = rankQueue[f].filter(x => x.ws.readyState === WebSocket.OPEN && !x.ws._room);
+    const vers = {}; for (const x of alive) vers[x.ver] = (vers[x.ver] || 0) + 1;
     let games = 0;
     for (const r of rooms.values()) if (r.ranked && r.started && r.format === f && !r.rankSettled && r.players.length === 2) games++;
-    out[f] = { queue, games };
+    out[f] = { queue: alive.length, games, vers };
   }
   return out;
 }
@@ -1017,6 +1031,7 @@ function rankMatchmake() {
       let best = -1, bestGap = Infinity;
       for (let j = i + 1; j < q.length; j++) {
         if (used.has(j) || q[j].id === q[i].id) continue;
+        if (q[j].ver !== q[i].ver) continue;   // 버전이 다르면 짝짓지 않는다 (제보 2026-09-28: 주사위 전에 멈추고 재접속해도 그대로)
         const gap = Math.abs(q[i].mmr - q[j].mmr);
         const allow = Math.min(600, 100 + 50 * Math.floor((Date.now() - Math.min(q[i].since, q[j].since)) / 10000));
         if (gap <= allow && gap < bestGap) { best = j; bestGap = gap; }
@@ -1191,7 +1206,7 @@ wss.on('connection', (ws, req) => {
         rankDequeue(ws);
         const s = rankOf(db.users[ws._userId])[format];
         rankQueue[format].push({ ws, id: ws._userId, deck, mmr: s.mmr, since: Date.now(), ver: String(m.ver || '?').slice(0, 20) });
-        wsSend(ws, { t: 'rankQueued', format, mmr: Math.round(s.mmr), waiting: rankQueue[format].length, live: rankLive() });
+        wsSend(ws, { t: 'rankQueued', format, mmr: Math.round(s.mmr), waiting: rankQueue[format].length, live: rankLive(), webVer: WEB_VERSION || null });
         rankMatchmake();
         break;
       }
@@ -1203,6 +1218,7 @@ wss.on('connection', (ws, req) => {
         let found = null, seat = null;
         for (const r of rooms.values()) { const pl = r.started && r.players.find(q => q.id === ws._userId && !q.ws); if (pl) { found = r; seat = pl; break; } }
         if (!found) return wsSend(ws, { t: 'rejoinNone' });
+        if (roomVerMismatch(found)) { closeMismatchRoom(found, '앱 버전 불일치(진행 불가)'); return wsSend(ws, { t: 'rejoinNone' }); }
         clearTimeout(seat.timer); seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false;
         wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true });
         (found.log || []).forEach(o => wsSend(ws, o));
