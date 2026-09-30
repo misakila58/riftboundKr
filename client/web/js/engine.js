@@ -760,7 +760,7 @@ async function decideFirstPlayer(){
     return;
   }
   let d0, d1, tries=0, instant=false;
-  const animated=G.reviewSetup && typeof UI.rollSetupDice==='function';
+  const animated=G.reviewSetup && typeof UI.rollSetupDice==='function' && typeof UI.pickSetupOrder==='function';
   if(G.orderChooser===0||G.orderChooser===1){
     const w=G.orderChooser;
     UI.log(`이전 게임의 패자 ${pname(w)}이(가) 선후공을 선택합니다 (대회 규정 — 전장 공개 뒤, 드로우 전)`, 'sys');
@@ -815,7 +815,8 @@ async function mulliganPhase(){
   const setupStage=!!G.reviewSetup;
   if(setupStage && UI.setSetupStage) UI.setSetupStage(true);
   try{
-  if(G.reviewSetup && !await UI.reviewSetup()) return;
+  // setup-preview.js가 로드되지 않은 환경(모바일 네트워크 끊김)이면 확인 화면 없이 바로 진행한다 — 멈추지 않게
+  if(G.reviewSetup && typeof UI.reviewSetup==='function' && !await UI.reviewSetup()) return;
   await decideFirstPlayer();
   if(UI.finishSetup) UI.finishSetup();
   if(setupStage && UI.setSetupStage) UI.setSetupStage(false);

@@ -26,7 +26,7 @@
     return buffer;
   }
   UI.prepareDiceAudio=()=>{
-    if(!SFX.on) return null;
+    if(typeof SFX==='undefined' || !SFX.on) return null;   // sfx.js가 로드되지 않았으면 소리 없이 진행
     const ctx=SFX.ctx(); if(!ctx) return null;
     if(context!==ctx){
       context=ctx; banks.clear();
@@ -42,10 +42,12 @@
   UI.stopDiceAudio=()=>{
     for(const voice of [...voices]) voice.stop();
   };
-  const setSoundOn=SFX.setOn;
-  SFX.setOn=function(on){setSoundOn.call(SFX,on);if(!on) UI.stopDiceAudio();};
+  if(typeof SFX!=='undefined'){
+    const setSoundOn=SFX.setOn;
+    SFX.setOn=function(on){setSoundOn.call(SFX,on);if(!on) UI.stopDiceAudio();};
+  }
   UI.playDiceImpact=hit=>{
-    if(!SFX.on || document.hidden) return;
+    if(typeof SFX==='undefined' || !SFX.on || document.hidden) return;
     const ctx=UI.prepareDiceAudio(); if(!ctx || ctx.state!=='running') return;
     const bank=banks.get(hit.surface); if(!bank) return;
     // Gentle late bounces remain audible; strong simultaneous impacts are limited by the bus.
@@ -63,7 +65,7 @@
     source.onended=cleanup; voices.add(voice); source.start();
   };
   // Unlock on a real gesture, including mobile and the first setup hold/click.
-  const unlock=()=>{if(SFX.on) UI.prepareDiceAudio();};
+  const unlock=()=>{if(typeof SFX!=='undefined' && SFX.on) UI.prepareDiceAudio();};
   window.addEventListener('pointerdown',unlock,{passive:true});
   window.addEventListener('keydown',unlock);
   document.addEventListener('visibilitychange',()=>{if(document.hidden) UI.stopDiceAudio();});
