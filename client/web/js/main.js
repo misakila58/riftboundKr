@@ -2251,7 +2251,7 @@ async function startOnlineGame(m){
       el.appendChild(sel);
       return;
     }
-    const nm=i=>(typeof RANK!=='undefined')?RANK.nameHTML(m.players[i].id, m.players[i].rank):esc(m.players[i].id);
+    const nm=i=>{ const p=m.players[i]; if(!p) return '(퇴장)'; return (typeof RANK!=='undefined')?RANK.nameHTML(p.id, p.rank):esc(p.id); };
     el.innerHTML=`${m.ranked?'🏆 등급전':'🌐 온라인'}(${modeLabel}${m.banRule?' · 🚫밴':''}${MATCH.active()?' · '+MATCH.label():''}) — 나: ${nm(NET.seat)} (${G.phase==='setup'&&!G.turnOrderDone?'선후공 결정 중':(G.turn===NET.seat?'선공':'후공')}) · 상대: ${nm(opp(NET.seat))}`;
   };
   UI.turnOrderDecided=()=>{ G.turnOrderDone=true; netInfo(); };

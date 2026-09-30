@@ -1186,6 +1186,7 @@ wss.on('connection', (ws, req) => {
         if (ws._room) return;
         const r = rooms.get(m.roomId);
         if (!r || !r.allowSpectate) return wsSend(ws, { t: 'err', msg: '관전을 허용하지 않는 방입니다' });
+        if (r.started && r.players.length < 2) return wsSend(ws, { t: 'err', msg: '이미 끝난 대전입니다' });
         if (r.password && String(m.password || '') !== r.password) return wsSend(ws, { t: 'err', msg: '🔒 비밀번호가 틀렸습니다' });
         r.spectators = r.spectators || [];
         if (r.spectators.length >= 10) return wsSend(ws, { t: 'err', msg: '관전 인원이 가득 찼습니다 (10명)' });
@@ -1219,6 +1220,14 @@ wss.on('connection', (ws, req) => {
         for (const r of rooms.values()) { const pl = r.started && r.players.find(q => q.id === ws._userId && !q.ws); if (pl) { found = r; seat = pl; break; } }
         if (!found) return wsSend(ws, { t: 'rejoinNone' });
         if (roomVerMismatch(found)) { closeMismatchRoom(found, '앱 버전 불일치(진행 불가)'); return wsSend(ws, { t: 'rejoinNone' }); }
+        if (found.players.length < 2) {   // 내가 끊긴 사이 상대가 이미 나감(판 종료 뒤 퇴장 등) — 혼자 남은 방엔 복귀시키지 않는다(클라이언트가 상대 정보 없이 시작하다 멈춤)
+          clearTimeout(seat.timer);
+          if (found.rankResultMsgs && found.rankResultMsgs[seat.seat]) wsSend(ws, found.rankResultMsgs[seat.seat]);   // 이미 확정된 등급 결과는 알려 준다
+          found.players.splice(found.players.indexOf(seat), 1);
+          if (!found.players.length) { rooms.delete(found.id); (found.spectators || []).forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); }); }
+          broadcastLobby(); persistRooms();
+          return wsSend(ws, { t: 'rejoinNone' });
+        }
         clearTimeout(seat.timer); seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false;
         wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true });
         (found.log || []).forEach(o => wsSend(ws, o));
