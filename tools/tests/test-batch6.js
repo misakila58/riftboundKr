@@ -198,7 +198,7 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await play(187,0);
   ok('회오리바람: 상대가 내 포식자를 되돌림, 굴절 프롬프트 없음', G.players[0].hand.includes(161) && !onBoard(myPred) && !CONFIRMS.some(t=>/굴절/.test(t)), 'hand='+JSON.stringify(G.players[0].hand));
 
-  // ══ ⑨ 해로윙(198) + 애니 - 고집쟁이(310): 밤이 먼저 폐기장에 → 애니가 회수 가능 (#6899) ══
+  // ══ ⑨ 해로윙(198) + 애니 - 고집불통(310): 밤이 먼저 폐기장에 → 애니가 회수 가능 (#6899) ══
   fresh(); G.players[0].trash=[310]; OPT=(t,o)=>{ if(/손패로 가져올/.test(t)){ const x=o.find(x=>x.v===198); return x?x.v:o[0].v; } return o[0].v; };
   await play(198,0);
   ok('해로윙+애니: 밤을 손패로 회수, 폐기장에 이중 사본 없음', find(0,310) && G.players[0].hand.includes(198) && !G.players[0].trash.includes(198), 'hand='+JSON.stringify(G.players[0].hand)+' trash='+JSON.stringify(G.players[0].trash));

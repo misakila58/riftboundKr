@@ -1,0 +1,8 @@
+{
+  "name": "riftbound-tools",
+  "private": true,
+  "description": "tools/ 스크립트 의존성 — fetch-card-images.js가 한글판 카드 이미지(PNG)를 webp로 바꿀 때 sharp를 쓴다",
+  "dependencies": {
+    "sharp": "^0.33.5"
+  }
+}

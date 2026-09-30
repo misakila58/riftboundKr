@@ -27,6 +27,12 @@ if (fs.existsSync(pn)) spawnSync(process.execPath, [pn], { stdio: 'inherit' });
 // 카드 이미지: 앱에 포함해 오프라인·즉시 로딩이 되게 한다. 네트워크가 없으면 건너뛰고 CDN을 쓴다.
 const fetcher = path.join(__dirname, '..', 'tools', 'fetch-card-images.js');
 if (fs.existsSync(fetcher)) {
+  // 한글판 카드 이미지 변환용 sharp (tools/package.json) — 없으면 설치. 실패해도 영문판으로 빌드된다
+  const toolsDir = path.join(__dirname, '..', 'tools');
+  if (fs.existsSync(path.join(toolsDir, 'package.json')) && !fs.existsSync(path.join(toolsDir, 'node_modules', 'sharp'))) {
+    const n = spawnSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: toolsDir, stdio: 'inherit', shell: true });
+    if (n.status !== 0) console.warn('⚠ tools 의존성(sharp) 설치 실패 — 한글판 카드 이미지 없이 빌드합니다');
+  }
   const r = spawnSync(process.execPath, [fetcher, '--quiet'], { stdio: 'inherit' });
   if (r.status !== 0) console.warn('⚠ 카드 이미지 준비 실패 — 이번 빌드는 Riot CDN에서 이미지를 불러옵니다');
 }

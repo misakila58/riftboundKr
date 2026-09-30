@@ -11,6 +11,8 @@ sudo rm -rf /tmp/rbsrc && git clone --depth 1 "$REPO" /tmp/rbsrc
 if [ -d "$APP/web/assets/cards" ]; then
   mkdir -p /tmp/rbsrc/client/web/assets/cards && cp -r "$APP/web/assets/cards/." /tmp/rbsrc/client/web/assets/cards/
 fi
+# 한글판 카드 이미지(롤딱닷컴 카드 DB PNG → webp)는 sharp로 변환한다 — 받아 둔 ko/ 파일도 위에서 함께 재사용된다
+( cd /tmp/rbsrc/tools && npm install --omit=dev --no-audit --no-fund ) || echo "⚠ sharp 설치 실패 — 한글판 카드 이미지 없이 진행합니다"
 ( cd /tmp/rbsrc && node tools/fetch-card-images.js --quiet ) || echo "⚠ 카드 이미지 받기 실패 — CDN 폴백으로 동작합니다"
 # esbuild가 서버 의존성(ws)을 번들에 넣으려면 먼저 설치돼 있어야 한다
 ( cd /tmp/rbsrc/server && npm install --omit=dev --no-audit --no-fund && node build-dist.js )

@@ -885,7 +885,7 @@ Object.assign(SCRIPTS, {
       ops:[OPX('might',{n:3,self:true,dur:'turn'})]}]; return fx; },
   // 신사의 결투: 아군 +3 후 적과 서로 위력만큼 피해 (동시 계산)
   308: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('gentlemenDuel')]}]; return fx; },
-  // 애니 - 고집쟁이: 폐기장에서 주문 회수
+  // 애니 - 고집불통: 폐기장에서 주문 회수
   310: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[OPX('trashToHand',{type:'Spell'})]}]; return fx; },
   // 점멸: 아군 유닛 최대 2기를 기지로 — 목적지를 고르지 않는 주문이라 기지의 유닛도 대상이 될 수 있다(이동은 생략,
   // 「꿈꾸는 나무」 등 '고를 때' 효과만) — RiftJudge #10257 (355.4). 예전엔 where:'bf'로 전장 유닛만 골랐다.

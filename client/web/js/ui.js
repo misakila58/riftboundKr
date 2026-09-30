@@ -1456,6 +1456,10 @@ function imgKey(url){
   const m = String(url).match(/\/([0-9a-f]{20,}-\d+x\d+)\.(?:png|jpe?g|webp)/i);
   return m ? m[1] : null;
 }
+// 카드 그림 언어 — 기본 한글판(롤딱닷컴 카드 DB의 한글판 이미지, 2026-09-30). 설정 '한글판 카드 이미지'로 끄면 영문판. 기기 저장 rb_card_img_lang
+let CARD_IMG_LANG = (()=>{ try{ return localStorage.getItem('rb_card_img_lang')==='en' ? 'en' : 'ko'; }catch(e){ return 'ko'; } })();
+function setCardImgLang(lang){ CARD_IMG_LANG = lang==='en' ? 'en' : 'ko'; try{ localStorage.setItem('rb_card_img_lang', CARD_IMG_LANG); }catch(e){} }
+function hasKoCardImages(){ return typeof IMG_LOCAL!=='undefined' && !!IMG_LOCAL.ko && Object.keys(IMG_LOCAL.ko).length>0; }
 // w를 생략하거나 480 이상이면 확대용(원본 해상도) 파일을, 그 외에는 보드용 작은 파일을 쓴다.
 function cardImgUrl(url, w){
   if(!url) return url;
@@ -1463,6 +1467,9 @@ function cardImgUrl(url, w){
     const k = imgKey(url);
     if(k){
       const wantFull = (w===undefined || w===null || w>=480);
+      // 한글판: 받아 둔 카드만 (없는 카드·대체 일러스트는 아래 영문판으로)
+      const ko = CARD_IMG_LANG==='ko' && IMG_LOCAL.ko && IMG_LOCAL.ko[k];
+      if(ko) return IMG_LOCAL.dir + 'ko/' + ko + (wantFull ? '.full.webp' : '.webp');
       if(wantFull && IMG_LOCAL.full && IMG_LOCAL.full[k]) return IMG_LOCAL.dir + k + '.full.webp';
       if(IMG_LOCAL.files && IMG_LOCAL.files[k]) return IMG_LOCAL.dir + k + '.webp';
       if(IMG_LOCAL.full && IMG_LOCAL.full[k]) return IMG_LOCAL.dir + k + '.full.webp';

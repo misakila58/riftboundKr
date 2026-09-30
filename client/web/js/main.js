@@ -1541,9 +1541,11 @@ function initLobby(){
   };
   NET.onErr=(msg)=>UI.toast(msg,'warn');
   NET.onServerUpdate=()=>serverUpdateNotice();
-  NET.onOppLeft=()=>{
+  NET.onOppLeft=async()=>{
     if(NET.spectating){ alert('플레이어가 나가서 게임이 끝났습니다. 로비로 돌아갑니다.'); location.reload(); return; }
     if(typeof STATS!=='undefined' && typeof NET!=='undefined') STATS.gameEnd(NET.seat, 'left');
+    // 진행 중이던 판의 리플레이를 남은 쪽 승리로 저장하고 나서 새로고침 (예전엔 승리 화면에서만 저장돼 퇴장 판이 사라졌다 — 제보 2026-09-30)
+    if(typeof REPLAY!=='undefined' && REPLAY.finishOnLeave){ try{ await Promise.race([REPLAY.finishOnLeave(NET.seat), new Promise(r=>setTimeout(r,4000))]); }catch(e){ console.error(e); } }
     alert('상대가 나갔습니다. 로비로 돌아갑니다.');
     location.reload();
   };
@@ -2152,6 +2154,9 @@ function openSystemMenu(){
     value=>{ UI.setChatMuted(!value); UI.render(); });
 
   const display=section('화면 설정');
+  if(typeof hasKoCardImages==='function' && hasKoCardImages()) toggle(display,'setting-card-img-ko','한글판 카드 이미지',
+    '카드 그림을 한글판으로 표시합니다 (롤딱닷컴 카드 DB의 한글판 이미지). 끄면 영문판으로 표시합니다.',
+    CARD_IMG_LANG==='ko', value=>{ setCardImgLang(value?'ko':'en'); try{ if(typeof G!=='undefined' && G) UI.render(); }catch(e){} });
   toggle(display,'setting-effects','게임 이펙트','카드 사용과 전투 연출을 표시합니다.',
     UI.fx.on, value=>UI.fx.setOn(value));
   if(typeof SFX!=='undefined') toggle(display,'setting-sound','효과음','턴이 바뀌거나 카드·능력을 쓸 때, 내 차례가 올 때 짧은 소리를 냅니다.',

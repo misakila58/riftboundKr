@@ -329,6 +329,19 @@ REPLAY._onVictory = function(p){
   REPLAY.share(REPLAY.rec);                        // 봇 개선용 제공 (설정에서 끌 수 있음 · 실패해도 무시)
 };
 
+// 상대가 대전 중 나가 끝난 판 — 승리 화면 없이 바로 로비로 가므로 여기서 남은 쪽 승리로 마감해 저장한다 (제보 2026-09-30).
+// 미완 경기라 봇 개선용 제공(share)은 하지 않는다. 저장이 끝날 때까지 기다려야 새로고침에 잘리지 않는다.
+REPLAY.finishOnLeave = async function(winner){
+  if(REPLAY.viewing || !REPLAY.recording || !REPLAY.rec || typeof G==='undefined' || !G || G.winner!==null) return;
+  REPLAY.capture('🚪 상대가 나가 대전이 끝났습니다', 'sys');
+  REPLAY.rec.meta.modeText = REPLAY._modeText();
+  REPLAY.rec.meta.modeKey = rpModeKey();
+  REPLAY.rec.result = { winner, points:G.players.map(P=>P.points), turns:Math.ceil(G.turnCount/2), reason:'left' };
+  REPLAY.recording = false;
+  if(REPLAY.rec.meta.tutorial) return;
+  await REPLAY.save(true);
+};
+
 // ══════════ 봇 개선용 리플레이 제공 ══════════
 // 경기가 끝나면 리플레이 파일(.rbr)을 서버(/api/replay)로 보낸다. 봇이 진 판을 사람의 플레이와 비교해
 // 판단을 고치는 자료다(tools/replay-extract.js · replay-analyze.js). 기본 켜짐이며 설정에서 끌 수 있다.
@@ -363,7 +376,7 @@ function rpAnonymize(rec){
 }
 REPLAY.share = async function(rec){
   try{
-    if(!REPLAY.shareEnabled() || !rec || !rec.result || rec.meta.tutorial || rec.meta.manual) return;
+    if(!REPLAY.shareEnabled() || !rec || !rec.result || rec.result.reason==='left' || rec.meta.tutorial || rec.meta.manual) return;
     const mode = rec.meta.modeKey || 'hotseat';
     if((mode==='online' || mode==='p2p') && !(typeof NET!=='undefined' && NET.seat===0)) return;
     if(typeof NET!=='undefined' && NET.rejoined) return;   // 재접속으로 이어받은 판은 앞부분이 없는 부분 기록
@@ -471,7 +484,7 @@ function rpCardEl(row){
   if(h.result){
     const w = pl[h.result.winner];
     const pts = Array.isArray(h.result.points) ? h.result.points.join(' : ') : '';
-    res.textContent = `🏆 ${w?w.name:'?'} 승 (${pts}) · ${h.result.turns||'?'}턴`;
+    res.textContent = `🏆 ${w?w.name:'?'} 승${h.result.reason==='left'?' (상대 퇴장)':''} (${pts}) · ${h.result.turns||'?'}턴`;
     res.style.color = '#ffe07f';
   } else {
     res.textContent = '⏸ 진행 중 저장 (미완료 경기)';
