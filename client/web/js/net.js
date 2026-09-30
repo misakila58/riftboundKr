@@ -3,6 +3,7 @@ const NET = {
   online:false, token:null, userId:null, ws:null, seat:null,
   base:'',   // 서버 origin (예: https://my.ngrok-free.app 또는 http://192.168.0.5:8321). 데스크톱 클라이언트에서 설정.
   choiceSeq:0, pendingChoices:{}, actionQueue:[], processing:false,
+  syncGen:0,                // 동기화 세대 — 재접속으로 게임을 새로 따라잡을 때 올려, 옛 게임의 행동 펌프·선택 응답을 무효로 만든다
   earlyChoices:{},          // 엔진이 묻기 전에 도착한 선택 응답 (관전자가 진행 중 게임을 따라잡을 때)
   spectating:false,         // 관전자: 좌석 없이(-1) 액션·선택을 받아 같은 게임을 그린다
   spectView:'both',         // 관전자가 손패를 보는 쪽: 'both' | 0 | 1 | 'none'
@@ -88,6 +89,9 @@ NET.connect = function(){
             // 복귀: 서버가 start → 행동/선택 로그 → rejoinDone 순으로 보낸다. 로그의 선택 응답이 다 도착한 뒤(rejoinDone) 게임을 시작해야
             // 시작 전 선택창(Bo3 전장 선택 등)이 로그의 답으로 조용히 채워진다 — 예전엔 start 즉시 시작해 답이 오기 전에 창이 다시 떴고,
             // 거기서 누르면 중복 응답이 다음 게임의 선택 순번을 어긋나게 했다 (제보 2026-09-28)
+            // 같은 페이지에서 다시 붙는 경우 옛 게임의 행동 펌프가 상대 선택을 기다리며 잠금(processing)을 쥐고 있고, 큐·선택 대기도 남아 있다.
+            // 그대로 두면 로그가 재생되지 않아 새 게임이 1턴 상태로 멈춘다 (제보 2026-09-30 "서버 패치 뒤 첫 턴으로 돌아감") → 로그를 받기 전에 전부 버린다
+            NET._abandonSync();
             NET.catchingUp=true; NET.rejoined=true; NET.reconnecting=false; NET.startPending=true; NET._rejoinStart=m;
             break;
           }
@@ -239,11 +243,17 @@ NET._enqueueAction = function(m){
 NET._pump = async function(){
   if(NET.processing) return;
   NET.processing = true;
-  try{ await NET._pumpLoop(); }
-  finally{ NET.processing = false; }   // 어떤 예외에도 펌프 잠금은 반드시 푼다 — 잠기면 이후 행동이 영원히 실행되지 않는다
+  const gen = NET.syncGen;
+  try{ await NET._pumpLoop(gen); }
+  finally{ if(gen===NET.syncGen) NET.processing = false; }   // 어떤 예외에도 펌프 잠금은 반드시 푼다 — 잠기면 이후 행동이 영원히 실행되지 않는다 (버려진 세대의 펌프는 새 펌프의 잠금을 건드리지 않는다)
 };
-NET._pumpLoop = async function(){
-  while(NET.actionQueue.length){
+// 옛 게임의 동기화 상태를 버린다 — 멈춰 있던 펌프(상대 선택을 기다리던 행동)는 세대가 바뀌어 다시 깨어나도 아무것도 하지 않는다
+NET._abandonSync = function(){
+  NET.syncGen++;
+  NET.actionQueue=[]; NET.earlyChoices={}; NET.pendingChoices={}; NET.processing=false;
+};
+NET._pumpLoop = async function(gen){
+  while(NET.actionQueue.length && gen===NET.syncGen){
     // 재대결 신호로 새 게임 시작이 예약됐으면 newGame이 만들어질 때까지 기다린다 (그 전에 다음 행동을 실행하면 옛 게임에 적용된다)
     while(NET.startPending) await new Promise(r=>setTimeout(r,20));
     // 준비 단계(주사위·멀리건·시작 단계) 동안은 행동을 실행하지 않는다 — 재접속·관전 따라잡기에서 로그가 한꺼번에 오고,
@@ -252,6 +262,7 @@ NET._pumpLoop = async function(){
     while(typeof G!=='undefined' && G && G.winner===null && !['action','ending'].includes(G.phase) && !NET.startPending && NET.actionQueue[0]?.a?.k!=='surrender') await new Promise(r=>setTimeout(r,50));
     // 턴 시작 연출이 끝날 때까지 큐를 멈추되, 연출이 어떤 이유로든 안 끝나도 3초 뒤엔 진행한다
     if(G?.phase==='turn-intro' && UI.turnIntroDone) await Promise.race([UI.turnIntroDone, new Promise(r=>setTimeout(r,3000))]);
+    if(gen!==NET.syncGen) return;   // 기다리는 사이 재접속으로 버려진 세대
     const item = NET.actionQueue.shift();
     if(!item) break;   // 기다리는 사이 큐가 비워짐(방 나가기·새 게임 초기화) — 제보 2026-09-28 "Cannot destructure property 'a'"
     const { a, seat } = item;
@@ -384,7 +395,7 @@ NET.dispatch = function(action, localFn){
 //  - 내 좌석이면 인터랙티브 UI 실행 → 결과를 서버로 전송 (해결은 에코 수신 시)
 //  - 상대 좌석이면 "상대 선택 중..." 표시 후 대기
 NET.choice = function(p, interactiveFn, serialize, deserialize){
-  const id = ++NET.choiceSeq;
+  const id = ++NET.choiceSeq, gen = NET.syncGen;
   const label0=NET._nextChoiceLabel||null; NET._nextChoiceLabel=null;   // routedPick이 넘긴 라벨 — 이 선택 한 번만 쓴다
   const pr = new Promise(res=>{ NET.pendingChoices[id] = { res, deserialize, p }; });
   // 관전자가 진행 중인 게임을 따라잡을 때는 선택 응답이 엔진이 묻기 전에 먼저 와 있다 — 그걸 바로 쓴다
@@ -393,7 +404,7 @@ NET.choice = function(p, interactiveFn, serialize, deserialize){
   if(NET.catchingUp && !(earlyQ && earlyQ.length)) NET.finishCatchUp();
   if(earlyQ && earlyQ.length){ const early=earlyQ.shift(); if(!earlyQ.length) delete NET.earlyChoices[id]; queueMicrotask(()=>NET._resolveChoice(early)); return pr; }
   if(p===NET.seat){
-    interactiveFn().then(v=>{ NET.send({t:'choice', id, data:serialize(v)}); });
+    interactiveFn().then(v=>{ if(gen===NET.syncGen) NET.send({t:'choice', id, data:serialize(v)}); });   // 재접속 전 옛 게임의 선택창 응답은 보내지 않는다(새 게임 선택 순번을 어긋나게 함)
   } else {
     // 게임 시작 전(Bo3 전장 선택 등)에는 G가 없을 수 있다 — 시작 메시지의 이름으로 대신한다
     const nm=(typeof G!=='undefined'&&G&&G.players&&G.players[p])?pname(p):(NET.lastStart?.players?.[p]?.id||'상대');
@@ -427,5 +438,5 @@ NET.resetGameSync = function(full){
   UI.resetScorePresentation?.();
   UI.resetSpellStage?.();
   NET.choiceSeq=0; NET.pendingChoices={};
-  if(full){ NET.earlyChoices={}; NET.actionQueue=[]; NET.processing=false; NET.startPending=false; NET.catchingUp=false; NET.rejoined=false; NET.oppAway=false; }
+  if(full){ NET.syncGen++; NET.earlyChoices={}; NET.actionQueue=[]; NET.processing=false; NET.startPending=false; NET.catchingUp=false; NET.rejoined=false; NET.oppAway=false; }
 };
