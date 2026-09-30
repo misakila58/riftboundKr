@@ -266,21 +266,21 @@ function polCost(c){ return (c.e||0) + powerPips(c).length; }
 
 // 미스 포츈 오로라 컨트롤의 핵심 엔진.
 // 일반 카드 가치만으로 판단하면 9비용 오로라는 멀리건하고, 값싼 유닛/도구를 먼저 내느라
-// 동원 → 영겁의 촉매 → 눈부신 오로라의 3턴 가속선을 놓친다. 상대 패를 보지 않는
+// 동원 → 억겁의 카탈리스트 → 눈부신 오로라의 3턴 가속선을 놓친다. 상대 패를 보지 않는
 // master에서만 이 공개된 덱 플랜을 사용한다(다른 난이도와 덱의 기존 성향은 유지).
 const POL_MF = { legend:267, mobilize:134, catalyst:138, aurora:160, stacked:183, invert:201, bulletTime:268 };
 // 상대 손패를 본 뒤 제거할 카드의 미스 포츈 전용 위협도.
 // 오로라 제거는 실제 성공 가능성이 높은 순서(전부/직접 처치 → 지연·대칭 → 조건부)다.
 const POL_MF_HAND_ATTACK = new Map([
   [156,220],  // 파괴 공작: 2비용이라 오로라를 가장 먼저 끊을 수 있음
-  [192,200],  // 정신을 가르는 자: 7비용 유닛이라 대응까지 시간이 더 있음
+  [192,200],  // 정신 분쇄자: 7비용 유닛이라 대응까지 시간이 더 있음
 ]);
 const POL_MF_AURORA_HATE = new Map([
-  [22,600],   // 열 광선: 모든 도구 폐기
+  [22,600],   // 발열 광선: 모든 도구 폐기
   [224,560],  // 인양: 도구 하나 직접 폐기
-  [180,520],  // 희미해지는 기억: 도구에 [일시적]
-  [179,480],  // 감수할 만한 손실: 각자 도구 하나 폐기
-  [56,400],   // 어댑타트론: 정복해야 도구 폐기
+  [180,520],  // 바래지는 기억: 도구에 [일시적]
+  [179,480],  // 허용 손실: 각자 도구 하나 폐기
+  [56,400],   // 적응형 기기: 정복해야 도구 폐기
   [244,250],  // 신성한 심판: 도구가 2개를 넘을 때 재활용
 ]);
 function polMfAuroraDeck(p){
@@ -290,7 +290,7 @@ function polMfAuroraOnline(p){
   return G.players[p].gear.some(g => g.n === POL_MF.aurora);
 }
 
-// 희미해지는 기억: 아군 희생 조합은 아직 평가하지 않으므로 적 제거에만 쓴다.
+// 바래지는 기억: 아군 희생 조합은 아직 평가하지 않으므로 적 제거에만 쓴다.
 // 이미 일시적인 대상에 다시 부여하는 낭비도 제외한다.
 // 사용 전에는 주문 비용까지, 대상 선택 때는 남은 자원으로 굴절을 확인한다.
 function polMfMemoryTargets(p, base){
@@ -450,7 +450,7 @@ function polMfNeutralCardBlocked(p, n){
   return polRuneRecycleNeed(p,powerPips(c))>0 && !polMfCanSpendBeforeAurora(p,c);
 }
 
-// 조작된 덱 선택용 짧은 자원 시뮬레이션. 현재 행동 단계에서 손패의 동원/촉매를
+// 속임수 덱 선택용 짧은 자원 시뮬레이션. 현재 행동 단계에서 손패의 동원/촉매를
 // 가능한 순서로 사용하고, 이후 내 턴마다 룬 2개를 자연 전개했을 때 오로라를
 // 처음 낼 수 있는 턴(0=이번 턴)을 구한다. 실제 G는 변경하지 않는다.
 function polMfAuroraTurns(p, extraN, assumeAurora){
@@ -1194,7 +1194,7 @@ POLICY.unit = async function(p, candidates, promptText, optional, selection){
   const foes = candidates.filter(u=>u.ctrl!==p);
   const mine = candidates.filter(u=>u.ctrl===p);
 
-  // ⓪ '유닛 준비'(일등 항해사 132 등 — 플레이 시점 대상 프롬프트 「…」 대상 선택 — 유닛 준비): 탈진한 아군에게. 준비된 아군은 무의미하고
+  // ⓪ '유닛 준비'(일등항해사 132 등 — 플레이 시점 대상 프롬프트 「…」 대상 선택 — 유닛 준비): 탈진한 아군에게. 준비된 아군은 무의미하고
   //   적을 준비시키면 자해다 (예전엔 문구가 POL_BENEFIT에 안 잡혀 '해로운 효과 → 적 최강'으로 상대 유닛을 준비시켜 줬다)
   if(selection?.op?.op==='ready' || /유닛 준비|준비시킬/.test(txt)){
     const tired=mine.filter(u=>u.ex);
@@ -1636,7 +1636,7 @@ POLICY.option = function(p, title, options){
     // 오로라 전에는 엔진 조각을 손에서 끊을 카드를 먼저 없애고, 설치 후에는
     // 오로라 자체를 보드에서 지울 수 있는 카드를 최우선으로 없앤다.
     if(/버리게 할 카드|재활용시킬 카드/.test(txt)) return polMfDiscardChoice(p,options);
-    // 조작된 덱: 엔진 조각을 찾되, 선택지가 전부 유닛이면 오로라가 공짜로 뽑을
+    // 속임수 덱: 엔진 조각을 찾되, 선택지가 전부 유닛이면 오로라가 공짜로 뽑을
     // 고비용 유닛을 덱에 남기고 가장 작은 유닛을 손으로 가져온다.
     if(/손패에 넣을 카드/.test(txt)) return polMfStackedChoice(p,options);
     // 상대 효과 등으로 도구를 잃어야 할 때 오로라를 가능한 한 보존한다.
@@ -3156,7 +3156,7 @@ POLICY.hidePlan = function(p, ctx){
   // 통제를 잃으면 숨긴 카드는 그대로 폐기된다(engine 1263행). 적이 있는 전장에는 깔지 않는다.
   if(!G.bfs.some(bf => bf.controller === p && bf.hiddenCards.length < polHideCap(bf)
                     && !bf.units.some(u => u.ctrl !== p))) return null;
-  // 비용: 힘 1 (티모 전설은 에너지 1로 대체, [게릴라전] 중엔 무료)
+  // 비용: 힘 1 (티모 전설은 에너지 1로 대체, [유격 전투] 중엔 무료)
   if(!hideCosts(p).length) return null;
   let best = null, bestC = 1;
   const candidates=P.hand.map((n,idx)=>({n,idx}));

@@ -1,10 +1,10 @@
 // 2026-07-16판 종합 규칙 대조 2차(rules-audit-2026 work-B/D/E) 검증 — 헤드리스(vm) 엔진 테스트
-//  ① 356.4.c.1/d 할인 최소값은 '그 할인만' — 견습생(84)+「하늘 가르기」/'다음 주문 -5' → 0
+//  ① 356.4.c.1/d 할인 최소값은 '그 할인만' — 견습생(84)+「천공 분열」/'다음 주문 -5' → 0
 //  ② 377.3.b.2 · 403.1.b · 404 활성화 능력: 대상은 발동 시점(비용 전), 후보 없으면 발동 불가, 중립에서도 [반응] 응수 창 (전설 포함)
 //  ③ 420.3.b · 812.2/813.1 비격발 '플레이' 판정은 파이널라이즈 기준 — 카운터된 주문·체인 위 미해결 주문도 셈, 격발 순번(playedSeq)은 해결 기준
 //  ④ 358/359.2.d 비용 지불 중 취소 → 아무것도 내지 않음 (말자하 113)
 //  ⑤ 383.4.c 「꿈꾸는 나무」(292) 격발은 파이널라이즈 뒤 — 굴절 거부로 플레이가 취소되면 드로우 없음
-//  ⑥ 817.2 인쇄 [통찰]+오라 [통찰]은 각각 격발  ⑦ 정령의 안식처(63) 'if they didn't already'  ⑧ 717.3 피해 0엔 보너스 없음
+//  ⑥ 817.2 인쇄 [통찰]+오라 [통찰]은 각각 격발  ⑦ 의지의 결계(63) 'if they didn't already'  ⑧ 717.3 피해 0엔 보너스 없음
 //  ⑨ 431.3/431.4 번아웃 반복  ⑩ 428.6 'Kill all' 동시 처치(존야 선택)  ⑪ 417.1 동시 재활용 무작위 순서(scryTop)
 //  ⑫ 423.1/414.1 'a unit' 기절·탈진은 아군도 가능  ⑬ 416.6 효과 재활용 강제  ⑭ 431.1.b 「맹목적 분노」(25) 덱 비면 번아웃
 const fs = require('fs'), path = require('path'), vm = require('vm');
@@ -55,28 +55,28 @@ const resolve=async()=>{ await showdownPass(); await showdownPass(); };
 const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
 (async()=>{
   // ══ ① 356.4 할인 최소값은 그 할인에만 ══
-  fresh(); unit(84,0,0);                                    // 열성적인 견습생 (전장) — 주문 -1, 최소 1
+  fresh(); unit(84,0,0);                                    // 열정적인 수습생 (전장) — 주문 -1, 최소 1
   ok('356.4: 견습생만 — 2코 주문은 1', applyCostMods(0, card(50), 2)===1, 'e='+applyCostMods(0, card(50), 2));
   ok('356.4: 견습생 — 0코 주문은 0 그대로(최소값이 비용을 올리지 않는다)', applyCostMods(0, card(50), 0)===0, 'e='+applyCostMods(0, card(50), 0));
-  TF().nextSpellDisc[0]=5;                                  // 격노한 화염룡 '다음 주문 -5'
+  TF().nextSpellDisc[0]=5;                                  // 성난 화염용 '다음 주문 -5'
   ok('356.4: 견습생(최소 1) + 다음 주문 -5 → 0 (예전엔 1)', applyCostMods(0, card(50), 2)===0, 'e='+applyCostMods(0, card(50), 2));
   TF().nextSpellDisc[0]=0;
   const big=unit(219,0,'base'); big.tempM=[{v:4,dur:'turn'}];   // 위력 높은 유닛 흉내
   const hi=Math.max(...allUnits(0).map(u=>might(u)));
-  ok('356.4: 견습생 + 「하늘 가르기」(최고 위력만큼 감소) → 8-1-'+hi+' = '+Math.max(0,7-hi)+' (룰북 예시 순서)', applyCostMods(0, card(14), 8)===Math.max(0,7-hi), 'e='+applyCostMods(0, card(14), 8));
+  ok('356.4: 견습생 + 「천공 분열」(최고 위력만큼 감소) → 8-1-'+hi+' = '+Math.max(0,7-hi)+' (룰북 예시 순서)', applyCostMods(0, card(14), 8)===Math.max(0,7-hi), 'e='+applyCostMods(0, card(14), 8));
   fresh(); unit(140,0,'base');                              // 비늘의 전령: 용 -2 최소 1
   ok('356.4: 전령 — 6코 용(31)은 4', applyCostMods(0, card(31), 6)===4, 'e='+applyCostMods(0, card(31), 6));
 
   // ══ ② 활성화 능력 — 대상은 발동 시점·후보 없으면 불가·중립 응수 창 ══
   fresh(); const g17=gear(17,0); B().hand=[311];
   await activateAbility(0,{kind:'gear',g:g17},FX[17].activated[0]);
-  ok('404: 「강철 발리스타」 전장 유닛이 없으면 발동 불가 — 탈진 없음·프롬프트 없음', g17.ex===false && PICKS.length===0 && REACTS.length===0, 'ex='+g17.ex+' picks='+PICKS.length);
+  ok('404: 「강철 쇠뇌」 전장 유닛이 없으면 발동 불가 — 탈진 없음·프롬프트 없음', g17.ex===false && PICKS.length===0 && REACTS.length===0, 'ex='+g17.ex+' picks='+PICKS.length);
   const abc=polAbList(0).find(c=>c.src.g===g17);
   ok('404(봇): polAbLegal도 대상 없으면 false', abc && polAbLegal(0,abc)===false);
   const foe=unit(219,1,0);
   ok('404(봇): 대상이 생기면 polAbLegal true', polAbLegal(0,abc)===true);
   await activateAbility(0,{kind:'gear',g:g17},FX[17].activated[0]);
-  ok('403.1.b: 대상은 발동 시점에 고른다(프롬프트에 능력 이름·피해 2) → 상대 [반응] 응수 창 → 피해 2', PICKS.length===1 && /강철 발리스타 능력.*피해 2/.test(PICKS[0]) && REACTS.length===1 && /발동/.test(REACTS[0]) && foe.dmg===2 && g17.ex===true, JSON.stringify([PICKS,REACTS,foe.dmg]));
+  ok('403.1.b: 대상은 발동 시점에 고른다(프롬프트에 능력 이름·피해 2) → 상대 [반응] 응수 창 → 피해 2', PICKS.length===1 && /강철 쇠뇌 능력.*피해 2/.test(PICKS[0]) && REACTS.length===1 && /발동/.test(REACTS[0]) && foe.dmg===2 && g17.ex===true, JSON.stringify([PICKS,REACTS,foe.dmg]));
   fresh(); const g17b=gear(17,0); const foe2=unit(219,1,0); B().hand=[311];
   REACT=()=>{ removeUnit(foe2); foe2._dead=true; return null; };   // 응수로 대상이 사라짐
   await activateAbility(0,{kind:'gear',g:g17b},FX[17].activated[0]);
@@ -94,7 +94,7 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('333.1.c: [추가] 자원 능력은 응수 창 없이 즉시', REACTS.length===0 && A().energy===e0+1, 'reacts='+REACTS.length+' e='+A().energy);
 
   // ══ ③ 파이널라이즈 기준 플레이 수 ══
-  // 중립: A의 「광선」(9)이 B의 「저항」(45)에 카운터당해도 파이널라이즈됐으므로 이어 낸 「다리우스 - 처형자」(243) [군단] 준비 등장
+  // 중립: A의 「광선」(9)이 B의 「반항」(45)에 카운터당해도 파이널라이즈됐으므로 이어 낸 「다리우스 - 처형자」(243) [군단] 준비 등장
   fresh(); unit(219,1,0); G.bfs[0].controller=1; B().hand=[45]; REACT=(p,t,o)=>o[0].v;   // (B 통제 전장 — 결전이 열리지 않게)
   await play(9);
   ok('420.3.b: 카운터당한 주문 — 플레이 수 1, 격발 순번 0', A().playedCards===1 && A().playedSeq===0, 'played='+A().playedCards+' seq='+A().playedSeq);
@@ -103,7 +103,7 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('813.1: 카운터당한 주문 뒤의 [군단] 카드 활성 — 다리우스 준비 상태로 등장', dar && dar.ex===false, 'ex='+(dar&&dar.ex));
   // 결전 체인: 군단 주문이 먼저 적재되고 그 위에 다른 주문이 오르면, 해결 시점에 군단 조건 충족 (813.1 '파이널라이즈됐는가'를 다시 본다)
   fresh(); openSd(0); unit(219,1,0);
-  const savedOps=FX[133].playOps; FX[133].playOps=[...savedOps, {legion:true, ops:[{op:'draw',n:1}]}];   // 「칼날 세례」([반응])에 군단 드로우를 덧붙여 검증
+  const savedOps=FX[133].playOps; FX[133].playOps=[...savedOps, {legion:true, ops:[{op:'draw',n:1}]}];   // 「칼날 돌풍」([반응])에 군단 드로우를 덧붙여 검증
   try{
     await play(133); const it1=G.showdown.chain[0];
     ok('812.2: 첫 주문 적재 시점엔 군단 미충족(다른 카드 없음)', it1.legionOK===false && A().playedCards===1, 'legionOK='+it1.legionOK);
@@ -129,11 +129,11 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('383.4.c: 굴절 지불 후 파이널라이즈 → 드로우 1', await play(128)===true && A().hand.length===1 && TF().bf292[0][0]===true, 'hand='+A().hand.length);
 
   // ══ ⑥ 817.2 통찰 인스턴스마다 ══
-  fresh(); unit(100,0,'base'); unit(100,0,'base');   // 예언자 2기(오라 [통찰]) + 인쇄 [통찰] 보석 거상(86)
+  fresh(); unit(100,0,'base'); unit(100,0,'base');   // 예언자 2기(오라 [통찰]) + 인쇄 [통찰] 보석 거신(86)
   await play(86);
   ok('817.2: 인쇄 [통찰] + 예언자 오라 2 → 3회', CONFIRMS.filter(t=>/통찰/.test(t)).length===3, JSON.stringify(CONFIRMS));
 
-  // ══ ⑦ 정령의 안식처 'if they didn't already' ══
+  // ══ ⑦ 의지의 결계 'if they didn't already' ══
   fresh(); gear(63,0); const pred=unit(161,0,'base',{buff:1}); const poro=unit(210,0,'base',{buff:1});
   ok('안식처: 인쇄 [굴절] 유닛은 그대로 1, 없는 유닛은 1 부여', effKw(pred).deflect===1 && effKw(poro).deflect===1, 'pred='+effKw(pred).deflect+' poro='+effKw(poro).deflect);
 
@@ -156,7 +156,7 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await execOps([{op:'killAll',spec:{side:'enemy',where:'any'}}],{p:0,kind:'spell'});
   ok('428.6: 존야 통제자가 어느 죽음을 대체할지 고른다(동시 처치) — 고른 k2 회수, k1 사망', PICKS.some(t=>/존야/.test(t)) && onBoard(k2) && k2.loc==='base' && !onBoard(k1), 'picks='+JSON.stringify(PICKS)+' k2='+onBoard(k2)+' k1='+onBoard(k1));
 
-  // ══ ⑪ 417.1 동시 재활용은 덱 밑에 무작위 순서 (촛불 밝힌 성소 scryTop) ══
+  // ══ ⑪ 417.1 동시 재활용은 덱 밑에 무작위 순서 (촛불 성소 scryTop) ══
   fresh(); A().deck=[9,45,...Array(10).fill(210)]; CONFIRM=()=>true;
   await execOps([{op:'scryTop',n:2}],{p:0,kind:'effect'});
   const bot2=A().deck.slice(-2);

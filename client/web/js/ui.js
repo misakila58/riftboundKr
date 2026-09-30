@@ -332,7 +332,7 @@ function appendBattlefieldSource(parent){
   const effect=document.createElement('div'); effect.className='battlefield-source-text';
   effect.innerHTML=renderIcons(esc(c.tko||c.text||''));
   info.append(name,effect);
-  // 결전 중인 전장의 효과라면 지금 맞붙은 양측 유닛을 함께 보여 준다 — 「약탈자의 거리」 방어 시 기지로 뺄 유닛을 고를 때
+  // 결전 중인 전장의 효과라면 지금 맞붙은 양측 유닛을 함께 보여 준다 — 「약탈자의 노」 방어 시 기지로 뺄 유닛을 고를 때
   // 어떤 유닛이 들어왔는지 보이지 않는다는 요청(2026-09-14). 표시 전용 — 선택값·게임 상태에는 관여하지 않는다.
   const sd=G && G.showdown;
   if(sd && G.bfs[sd.bfIdx] && G.bfs[sd.bfIdx].n===_battlefieldSource.n){
@@ -586,7 +586,7 @@ function liveLocalPrompt(){
 // 살아 있는 동안은 반드시 서버 응답을 기다리는 NET.pendingChoices 항목이 있다(등록이 프롬프트보다 먼저, 삭제는 응답 도착 때).
 // 그 항목이 하나도 없는데 선택 표식(_turnGlowPick·_resolver·unitSelectionPending·placementPending)만 남아 있으면 낡은 표식이다 —
 // 그대로 두면 isPicking()이 영원히 참이라 패스·턴 종료가 잠기고 손패 클릭은 "진행 중인 선택을 먼저 완료하세요"로 막힌다
-// (제보 2026-09-23: 떠돌이 상인 점령 뒤 패스 불가·주문도 안 나감). 지우고 계속 진행한다.
+// (제보 2026-09-23: 행상인 점령 뒤 패스 불가·주문도 안 나감). 지우고 계속 진행한다.
 // 봇전·핫시트는 봇의 지연 선택이 표식 없이 진행될 수 있어 손대지 않는다. 모달(항복 확인 등)은 선택 밖에서도 쓰므로 건드리지 않는다.
 // 주의: 엔진 흐름 안(updateButtons/can*)에서 부르면 안 된다 — routedPick은 NET.choice 등록 전에 버튼을 갱신하므로 그 순간엔 '대기 없음'으로 보인다
 // (1.0.91에서 그렇게 불러 온라인 손패 선택이 전부 손패 메뉴로 새던 회귀). 감시 타이머·클릭 핸들러에서만, 막 시작한 선택은 유예한다.
@@ -1055,7 +1055,7 @@ function boardChainView(){
   return _showdownChainView;
 }
 function canPassReaction(){
-  // 응수 창은 결전 종료 처리 중(정복 격발, G.state는 아직 'showdown')에도 열린다 — 상태로 막으면 패스가 안 돼 갇힌다(제보 2026-09-22: 불굴의 정신)
+  // 응수 창은 결전 종료 처리 중(정복 격발, G.state는 아직 'showdown')에도 열린다 — 상태로 막으면 패스가 안 돼 갇힌다(제보 2026-09-22: 물러서지 않는 영혼)
   return !!(_reactionPick && _boardCardPick && _resolver && G && G.winner===null
     && (!NET.online || _reactionPick.p===NET.seat));
 }
@@ -1905,7 +1905,7 @@ UI.inspectUnit = function(u){
 
 // ---------- 선택지 카드 미리보기 (마우스 오버) ----------
 // 선택 모달은 오버레이(z-index 100) 위에 뜨는데, 사이드 인스펙터는 그 아래에 깔린다.
-// 그래서 [반응] 응수나 「정신을 가르는 자」처럼 카드를 고르는 순간에는 정작 그 카드가
+// 그래서 [반응] 응수나 「정신 분쇄자」처럼 카드를 고르는 순간에는 정작 그 카드가
 // 무슨 효과인지 볼 수가 없었다 — 모달 위에 뜨는 별도 패널을 쓴다.
 // (터치 기기는 hover가 없으므로 attachZoom의 롱프레스가 같은 역할을 한다)
 UI.showHover = function(c, x, y){

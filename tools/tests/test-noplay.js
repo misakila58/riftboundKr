@@ -32,13 +32,13 @@ function fresh(){
   SEEN.length=0; RQ.length=0;
 }
 (async()=>{
-  // ── ① 브린히르 없이: B의 카운터(저항 45)가 응수 창에 제시되고 통한다 (대조군) ──
+  // ── ① 브린히르 없이: B의 카운터(반항 45)가 응수 창에 제시되고 통한다 (대조군) ──
   fresh();
   const t1=makeUnit(219,1,{loc:0,ready:true}); placeUnit(t1,0);
   G.players[0].hand=[303]; G.players[1].hand=[45];
   RQ.push('counter'); RQ.push(null);
   await playCardFromHand(0,0,{});
-  ok('① 대조군: 카운터가 제시됨', SEEN.length>0 && SEEN[0].some(l=>l.includes('저항')), JSON.stringify(SEEN));
+  ok('① 대조군: 카운터가 제시됨', SEEN.length>0 && SEEN[0].some(l=>l.includes('반항')), JSON.stringify(SEEN));
   ok('① 대조군: 카운터 통과 → 피해 0', t1.dmg===0, 'dmg='+t1.dmg);
 
   // ── ② 브린히르(26) 플레이 → 같은 턴 A의 소각에 B는 카운터할 수 없다 ──
@@ -49,7 +49,7 @@ function fresh(){
   ok('② 브린히르 등장 → 상대 noPlay 플래그', TF().noPlay[1]===true && TF().noPlay[0]!==true, JSON.stringify(TF().noPlay));
   SEEN.length=0; RQ.push('counter'); RQ.push(null);
   await playCardFromHand(0,0,{});                       // 소각(303)
-  ok('② 응수 창에 손패 카드가 제시되지 않음', !SEEN.some(list=>list.some(l=>l.includes('저항'))), JSON.stringify(SEEN));
+  ok('② 응수 창에 손패 카드가 제시되지 않음', !SEEN.some(list=>list.some(l=>l.includes('반항'))), JSON.stringify(SEEN));
   ok('② 소각이 그대로 해결 → 피해 2', t2.dmg===2, 'dmg='+t2.dmg);
   ok('② B의 저항은 손패에 그대로', G.players[1].hand.includes(45), JSON.stringify(G.players[1].hand));
 

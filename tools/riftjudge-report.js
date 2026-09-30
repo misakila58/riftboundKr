@@ -13,17 +13,17 @@ findings.forEach((f,i)=>f.no=i+1);
 
 // ── 공통 원인 묶음 (에이전트 요약을 종합한 수동 분류 — 근거 줄 번호로 매칭) ──
 const CLUSTERS=[
- {k:'spellPlayTiming', t:"주문 '플레이할 때' 격발이 효과 실행 전에 발화", d:"resolveSpellEffects가 playOps 실행 전에 fireSpellPlayEvents를 호출. 공식은 주문 완전 해결 후(폐기·클린업 뒤). 레이븐블룸 학생·다리우스·빅토르·빙의·괴롭히는 밤·마법사냥꾼 간수 등 영향. 탈취 시 원 시전자 기준(execAs로 바꿔야 함)", re:/engine\.js:1316/},
- {k:'preTargetGap', t:"전용 op가 플레이 시점 대상 지정(PRE_TARGET_OPS)에서 빠짐", d:"bounceSpec(돌풍)·retreatOp(후퇴·질책)·grantKw(가르기·막기)·challenge(도전)·engarde·guillotine·possess(빙의)·dragonRage·extortion·mightSetToOther·gunsBlazing·dmgLastDiscardCost 등은 해결 시점에 대상을 골라, 응수로 대상이 사라지면 재지정 가능·굴절 소급·꿈꾸는 나무 미격발", re:/engine\.js:222[0-9]|engine\.js:2223/},
- {k:'legalTarget', t:"적법 대상 없어도 대상 주문 플레이 가능 / 굴절 거부 시 대상 없이 진행", d:"공허의 추적자(드로우만)·규율·혼미·단결된 의지·안면 분쇄·최후의 숨결·갈취 등을 대상 없이 낼 수 있음. 숨김 전용 hiddenSpellHasTarget을 손패 플레이로 일반화하면 해결", re:/engine\.js:224[0-9]|engine\.js:2266|engine\.js:1476/},
+ {k:'spellPlayTiming', t:"주문 '플레이할 때' 격발이 효과 실행 전에 발화", d:"resolveSpellEffects가 playOps 실행 전에 fireSpellPlayEvents를 호출. 공식은 주문 완전 해결 후(폐기·클린업 뒤). 레이븐블룸 학생·다리우스·빅토르·지배·해로윙·마력척결관 간수 등 영향. 탈취 시 원 시전자 기준(execAs로 바꿔야 함)", re:/engine\.js:1316/},
+ {k:'preTargetGap', t:"전용 op가 플레이 시점 대상 지정(PRE_TARGET_OPS)에서 빠짐", d:"bounceSpec(돌풍)·retreatOp(후퇴·처벌)·grantKw(쪼개기·막기)·challenge(도전)·engarde·guillotine·possess(지배)·dragonRage·extortion·mightSetToOther·gunsBlazing·dmgLastDiscardCost 등은 해결 시점에 대상을 골라, 응수로 대상이 사라지면 재지정 가능·굴절 소급·꿈꾸는 나무 미격발", re:/engine\.js:222[0-9]|engine\.js:2223/},
+ {k:'legalTarget', t:"적법 대상 없어도 대상 주문 플레이 가능 / 굴절 거부 시 대상 없이 진행", d:"공허추적자(드로우만)·규율·마비·단결된 의지·안면 강타·최후의 숨결·갈취 등을 대상 없이 낼 수 있음. 숨김 전용 hiddenSpellHasTarget을 손패 플레이로 일반화하면 해결", re:/engine\.js:224[0-9]|engine\.js:2266|engine\.js:1476/},
  {k:'phoenix', t:"불멸의 불사조 격발 조건", d:"피해 주문으로 죽인 유닛(cleanup 사망)은 _spellKilled를 못 세움·자기 유닛을 자기 주문으로 처치해도 미격발(u.ctrl!==G._casting)·폐기장에서 기지에만 배치·여러 장이어도 1장만", re:/engine\.js:1965|engine\.js:13(2[9]|3[0-6])/},
- {k:'unitDamageKind', t:"유닛이 주는 피해가 주문/능력 피해로 취급됨", d:"도전·용의 분노·최후의 숨결·신사의 결투·육식 덩굴 등 'they/it deal' 피해에 kind='spell'/'effect'를 써서 불굴의 정신이 막고 레이븐본 서적·공허의 관문 보너스가 붙음. 또 might()를 combatRole 없이 불러 맹공·보호막 누락", re:/engine\.js:706|cardscripts\.js:2(09|13|1[3-6])/},
+ {k:'unitDamageKind', t:"유닛이 주는 피해가 주문/능력 피해로 취급됨", d:"도전·용의 분노·최후의 숨결·신사의 결투·육식성 덩굴 등 'they/it deal' 피해에 kind='spell'/'effect'를 써서 불굴의 정신이 막고 레이븐본 서적·공허의 문 보너스가 붙음. 또 might()를 combatRole 없이 불러 맹공·보호막 누락", re:/engine\.js:706|cardscripts\.js:2(09|13|1[3-6])/},
  {k:'showdownCleanup', t:"결전 정리 — 무혈 결전 치유·종소리 피해 소실·동시 사망 존야 선택권", d:"resolveShowdown이 hasCombat과 무관하게 전 유닛 치유(1784), 전투 사망 [죽음의 종소리] 피해가 곧바로 치유에 지워짐, killUnitsTogether가 순서대로 처리해 존야 통제자의 구원 대상 선택권 없음, 포탄 세례 where:'combat'이 무혈 결전에도 적용", re:/engine\.js:17[7-8][0-9]|engine\.js:1882|engine\.js:2204/},
- {k:'attackTrigger', t:"공격/방어 트리거 판정이 결전의 공격자·방어자 지정을 안 봄", d:"fireAttackTriggers가 '적이 있으면 공격'으로 판정해 무혈 결전에 방어자로 합류한 유닛(바람 타기·천공의 검·야스오)의 [공격 시]가 발동하고 진짜 공격자의 [공격 시]는 누락. 방어 격발이 공격 격발보다 늦음", re:/engine\.js:2(4[0-9]|5[0-9])\b|engine\.js:1574|engine\.js:165[0-9]|engine\.js:166[0-9]/},
- {k:'mightyTiming', t:"볼리베어 '위력적 유닛 플레이' 판정 시점", d:"onPlay 격발(자기 버프 등)을 먼저 해결한 뒤 isMighty를 검사해 위험한 2인조·세트·숨김 티모가 잘못 격발. 검사를 격발 전으로", re:/engine\.js:118[6-9]/},
- {k:'playedCount', t:"'플레이한 카드 수'·[군단]·숨김 플레이가 카운터 여부와 무관하게 셈", d:"playedCards++가 플레이 시점이라 카운터된 주문도 녹서스 지망생 할인·다리우스 삼두정 조건에 들어가고, onPlayFromHidden이 적재 시점에 발화해 카운터된 숨김 주문도 잉걸불 수도승 +2. 태양 원반 [군단]이 자기 자신을 셈", re:/engine\.js:1160|engine\.js:1410|engine\.js:1229|engine\.js:1269|engine\.js:1228/},
- {k:'altPlayPath', t:"덱·폐기장·효과로 플레이하는 경로가 정식 플레이를 우회", d:"차원문 구출·미끼 바늘·유망한 미래·불사조·증원·선봉대 소집·스프라이트 부름 등이 makeUnit/placeUnit으로 직접 놓아 배치 위치 선택·[가속]·추가 비용·플레이 이벤트·[통찰]·등장 트리거가 누락. playCardFromHand(fromDeck…) 경로로 통일하면 해결", re:/cardscripts\.js:(3[4-6][0-9]|4[1-2][0-9]|57[0-6])|engine\.js:2447|engine\.js:2465/},
- {k:'kwAura', t:"오라가 주는 수치 키워드가 합산되지 않음", d:"effKw가 base[k]||true로 덮어써 타릭 [보호막]·패론 대위 2기 등이 공식보다 낮음", re:/engine\.js:220\b/},
+ {k:'attackTrigger', t:"공격/방어 트리거 판정이 결전의 공격자·방어자 지정을 안 봄", d:"fireAttackTriggers가 '적이 있으면 공격'으로 판정해 무혈 결전에 방어자로 합류한 유닛(바람을 타고·천공의 검·야스오)의 [공격 시]가 발동하고 진짜 공격자의 [공격 시]는 누락. 방어 격발이 공격 격발보다 늦음", re:/engine\.js:2(4[0-9]|5[0-9])\b|engine\.js:1574|engine\.js:165[0-9]|engine\.js:166[0-9]/},
+ {k:'mightyTiming', t:"볼리베어 '위력적 유닛 플레이' 판정 시점", d:"onPlay 격발(자기 버프 등)을 먼저 해결한 뒤 isMighty를 검사해 위험한 듀오·세트·숨김 티모가 잘못 격발. 검사를 격발 전으로", re:/engine\.js:118[6-9]/},
+ {k:'playedCount', t:"'플레이한 카드 수'·[군단]·숨김 플레이가 카운터 여부와 무관하게 셈", d:"playedCards++가 플레이 시점이라 카운터된 주문도 녹서스의 기대주 할인·다리우스 삼두정 조건에 들어가고, onPlayFromHidden이 적재 시점에 발화해 카운터된 숨김 주문도 불꽃 수도승 +2. 태양 원판 [군단]이 자기 자신을 셈", re:/engine\.js:1160|engine\.js:1410|engine\.js:1229|engine\.js:1269|engine\.js:1228/},
+ {k:'altPlayPath', t:"덱·폐기장·효과로 플레이하는 경로가 정식 플레이를 우회", d:"차원문 구출·미끼 갈고리·유망한 미래·불사조·지원·선봉대 모집·정령 부름 등이 makeUnit/placeUnit으로 직접 놓아 배치 위치 선택·[가속]·추가 비용·플레이 이벤트·[통찰]·등장 트리거가 누락. playCardFromHand(fromDeck…) 경로로 통일하면 해결", re:/cardscripts\.js:(3[4-6][0-9]|4[1-2][0-9]|57[0-6])|engine\.js:2447|engine\.js:2465/},
+ {k:'kwAura', t:"오라가 주는 수치 키워드가 합산되지 않음", d:"effKw가 base[k]||true로 덮어써 타릭 [보호막]·파론 대위 2기 등이 공식보다 낮음", re:/engine\.js:220\b/},
  {k:'extraTurn', t:"시간 왜곡 추가 턴이 단일 플래그", d:"한 턴에 2장·유망한 미래로 양쪽 각 1장·탈취 재시전 시 1턴만 남음. 큐로 바꿔야 함. 카이사 폐기장 플레이 시 추방 대신 재활용", re:/engine\.js:2677|engine\.js:694\b/},
 ];
 function clusterOf(f){ const ev=(f.evidence||[]).join(' '); for(const c of CLUSTERS) if(c.re.test(ev)) return c.k; return null; }
@@ -103,7 +103,7 @@ h.push(`<main><header><h1>RiftJudge 판정 대조 — Origins 카드</h1>
 <h2 class="sec">공통 원인 — 같은 코드 한 곳을 고치면 함께 풀리는 항목</h2><ul class="clusters">`+
   CLUSTERS.filter(c=>clusterCount(c.k)).map(c=>`<li><b>${esc(c.t)}</b><button data-cl="${c.k}">${clusterCount(c.k)}건 보기</button><div class="d">${esc(c.d)}</div></li>`).join('')+
   `<li><b>알려진 절충(격발 즉시 해결 등)의 파생</b><button data-cl="knownCompromise">${clusterCount('knownCompromise')}건 보기</button><div class="d">공식은 격발 능력이 체인에 올라 응수·순서 지정이 가능. 시뮬레이터는 즉시 해결하는 의도된 단순화이며, 아래 목록에서는 보라색 줄로 표시됩니다.</div></li>`+
-  `<li><b>그 외 개별 카드 문제</b><button data-cl="none">${findings.filter(f=>!f.cluster).length}건 보기</button><div class="d">솔라리의 상징(작동 안 함) · 신성한 심판(선택 방식) · 녹턴(대체 플레이 미구현) · 예지의 가면 · 황제의 칙령 '두 번 죽음' · 용광로 자기 재활용 · 물결을 바꾸는 자 부분 교환 등</div></li></ul>
+  `<li><b>그 외 개별 카드 문제</b><button data-cl="none">${findings.filter(f=>!f.cluster).length}건 보기</button><div class="d">솔라리의 상징(작동 안 함) · 신성한 심판(선택 방식) · 녹턴(대체 플레이 미구현) · 예지의 가면 · 제국의 법령 '두 번 죽음' · 용광로 자기 재활용 · 파도전환자 부분 교환 등</div></li></ul>
 <div class="bar"><button class="on" data-k="all">전체</button><button data-k="confirmed">확인됨</button><button data-k="likely">유력</button><button data-k="uncertain">불확실</button><button data-k="kc">알려진 절충 제외</button><span class="n" id="cnt">${findings.length}건 표시</span></div>`);
 for(const f of findings){
   const tc='t'+(RANK[f.mismatch]??2);

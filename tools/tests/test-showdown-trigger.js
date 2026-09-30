@@ -29,7 +29,7 @@ function fresh(){
   G.turn=0;G.phase='action';G.state='neutral';G.turnCount=5;G.actingPlayer=0;
   G.players.forEach(P=>{P.hand=[];P.energy=20;Object.keys(P.power).forEach(k=>P.power[k]=9);});
 }
-const KAISA=112, BURN=303;   // 카이사 - 진화자(정복 시 폐기장의 주문을 점수 미만 비용이면 플레이 후 재활용) · 소각(피해 2)
+const KAISA=112, BURN=303;   // 카이사 - 진화(정복 시 폐기장의 주문을 점수 미만 비용이면 플레이 후 재활용) · 소각(피해 2)
 (async()=>{
   // ── 결전 종료 정복 격발이 플레이한 주문은 결전 체인에 남지 않고 즉시 해결·재활용된다 (봇전 로그 2026-09-22 「유망한 미래」 증발) ──
   fresh();

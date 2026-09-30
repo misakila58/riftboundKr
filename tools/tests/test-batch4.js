@@ -1,10 +1,10 @@
 // RiftJudge 감사 4차 묶음(work-4.json) 검증 — 덱·폐기장·효과로 '플레이'하는 경로의 정식 플레이(playCardFromHand) 통일:
 //  ① 차원문 구출(102) — 등장 준비(워윅)·[가속] 선택·소유자가 기지에 플레이(에라타)·플레이 이벤트(시트리아)·토큰은 소멸(182)
-//  ② 미끼 바늘(242)·증원(62) — [가속]·추가 비용(잔혹한 후원자, 불가 시 추방 유지)·비워진 통제 전장 배치·다리우스 '두 번째 카드'·증원 할인은 가속 에너지까지(#5164)
+//  ② 미끼 갈고리(242)·지원(62) — [가속]·추가 비용(잔인한 후원자, 불가 시 추방 유지)·비워진 통제 전장 배치·다리우스 '두 번째 카드'·지원 할인은 가속 에너지까지(#5164)
 //  ③ 유망한 미래(115) — 힘 비용 지불(불가 시 후보 제외)·배치 위치·주문 플레이 이벤트(럭스 전설)·도구 등장 격발·브린히르 금지 시 추방 유지·카르마 재활용 격발은 플레이 뒤
 //  ④ 시간 왜곡(122) — 추가 턴 큐(2장 = 2턴, 양측 각 1장)
-//  ⑤ 스프라이트 부름(94) — 손패에서 내면 기지/통제 전장 선택 · 보석세공 예언자(100) — 토큰마다 [통찰]
-//  ⑥ 녹턴(194) — 조작된 덱(183)·[통찰]에서 추방 → ✳ 지불 플레이
+//  ⑤ 정령 부름(94) — 손패에서 내면 기지/통제 전장 선택 · 보석 공예 예언자(100) — 토큰마다 [통찰]
+//  ⑥ 녹턴(194) — 속임수 덱(183)·[통찰]에서 추방 → ✳ 지불 플레이
 //  ⑦ 눈부신 오로라 2장 + 죽음꽃 포식자(161) — 종료 격발을 모두 해결한 뒤 결전 개시(342.1.b · #9290)
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const JS = path.join(__dirname, '../../client/web/js');
@@ -73,38 +73,38 @@ const locOpts=t=>OPTLIST.filter(x=>x.t===t).map(x=>x.o.map(o=>o.v));
   await play(102);
   ok('차원문: 토큰 추방 → 소멸(재소환 없음)', !onBoard(tk) && allUnits(0).length===0, 'units='+allUnits(0).length);
 
-  // ══ ② 미끼 바늘(242) · 증원(62) ══
-  // ── 미끼 바늘: [가속] 선택(#10924) · 비워진 통제 전장에 배치 가능(#10517) ──
+  // ══ ② 미끼 갈고리(242) · 지원(62) ══
+  // ── 미끼 갈고리: [가속] 선택(#10924) · 비워진 통제 전장에 배치 가능(#10517) ──
   fresh(); G.bfs[0].controller=0; const bait=unit(210,0,0); PICK=u=>u===bait; CONFIRM=t=>/가속/.test(t);
   G.players[0].deck.unshift(10,210,210,210,210);
   OPT=(t,o)=>{ if(/배치할 위치/.test(t)) return 0; return o[0].v; };
   await EXTRA_OPS.luredHook({}, {p:0}, null);
-  ok('미끼 바늘: 후위병 추방 후 플레이 — [가속] 묻고 준비 등장', CONFIRMS.some(t=>/가속/.test(t)) && find(0,10) && find(0,10).ex===false, JSON.stringify(CONFIRMS));
-  ok('미끼 바늘: 비워진 통제 전장이 배치 후보에 있고 거기 배치', locOpts('유닛을 배치할 위치').some(l=>l.includes(0)) && find(0,10).loc===0, JSON.stringify(locOpts('유닛을 배치할 위치'))+' loc='+find(0,10).loc);
-  ok('미끼 바늘: 남은 4장 재활용', G.players[0].deck.slice(0,1)[0]===210 && !G.players[0].banish.includes(10), 'banish='+JSON.stringify(G.players[0].banish));
-  // ── 잔혹한 후원자(208): 추가 비용(아군 처치)을 내야 하고, 아군이 없으면 추방 유지(#5989) ──
+  ok('미끼 갈고리: 후위병 추방 후 플레이 — [가속] 묻고 준비 등장', CONFIRMS.some(t=>/가속/.test(t)) && find(0,10) && find(0,10).ex===false, JSON.stringify(CONFIRMS));
+  ok('미끼 갈고리: 비워진 통제 전장이 배치 후보에 있고 거기 배치', locOpts('유닛을 배치할 위치').some(l=>l.includes(0)) && find(0,10).loc===0, JSON.stringify(locOpts('유닛을 배치할 위치'))+' loc='+find(0,10).loc);
+  ok('미끼 갈고리: 남은 4장 재활용', G.players[0].deck.slice(0,1)[0]===210 && !G.players[0].banish.includes(10), 'banish='+JSON.stringify(G.players[0].banish));
+  // ── 잔인한 후원자(208): 추가 비용(아군 처치)을 내야 하고, 아군이 없으면 추방 유지(#5989) ──
   fresh(); const only=unit(159,0,'base'); PICK=u=>u===only;   // 워윅(5⚔) 처치 → 위력 6까지
   G.players[0].deck.unshift(208,210,210,210,210);
   await EXTRA_OPS.luredHook({}, {p:0}, null);
-  ok('미끼 바늘: 잔혹한 후원자 — 처치할 아군이 없어 플레이 실패 → 추방 유지', !find(0,208) && G.players[0].banish.includes(208) && !G.players[0].hand.includes(208), 'banish='+JSON.stringify(G.players[0].banish)+' hand='+JSON.stringify(G.players[0].hand));
+  ok('미끼 갈고리: 잔인한 후원자 — 처치할 아군이 없어 플레이 실패 → 추방 유지', !find(0,208) && G.players[0].banish.includes(208) && !G.players[0].hand.includes(208), 'banish='+JSON.stringify(G.players[0].banish)+' hand='+JSON.stringify(G.players[0].hand));
   fresh(); const v1=unit(159,0,'base'), v2=unit(210,0,'base'); PICK=u=>u===v1 ? true : u===v2;
   G.players[0].deck.unshift(208,210,210,210,210);
   await EXTRA_OPS.luredHook({}, {p:0}, null);
-  ok('미끼 바늘: 잔혹한 후원자 — 남은 아군을 추가 비용으로 처치하고 등장', find(0,208) && !onBoard(v1) && !onBoard(v2), 'v2='+onBoard(v2)+' 208='+!!find(0,208));
+  ok('미끼 갈고리: 잔인한 후원자 — 남은 아군을 추가 비용으로 처치하고 등장', find(0,208) && !onBoard(v1) && !onBoard(v2), 'v2='+onBoard(v2)+' 208='+!!find(0,208));
   // ── 다리우스(27)를 미끼 바늘로 내면 '두 번째 카드'로 자기 준비(#8008) ──
   fresh(); G.players[0].playedCards=1; G.players[0].playedSeq=1; const d0=unit(159,0,'base'); PICK=u=>u===d0;
   G.players[0].deck.unshift(27,210,210,210,210);
   await EXTRA_OPS.luredHook({}, {p:0}, null);
-  ok('미끼 바늘: 다리우스 두 번째 카드 → 준비', find(0,27) && find(0,27).ex===false, 'ex='+(find(0,27)&&find(0,27).ex));
-  // ── 증원(62): 통제 전장 선택(#2074) · 할인은 [가속] 에너지까지(#5164) — 크라켄 사냥꾼(150, 3에너지) ──
+  ok('미끼 갈고리: 다리우스 두 번째 카드 → 준비', find(0,27) && find(0,27).ex===false, 'ex='+(find(0,27)&&find(0,27).ex));
+  // ── 지원(62): 통제 전장 선택(#2074) · 할인은 [가속] 에너지까지(#5164) — 크라켄 사냥꾼(150, 3에너지) ──
   fresh(); G.bfs[0].controller=0; unit(210,0,0); G.players[0].deck.unshift(150,210,210,210,210);
   G.players[0].energy=5; CONFIRM=t=>/가속/.test(t);
   await play(62);
-  ok('증원: 크라켄 사냥꾼 [가속] 등장, 가속 에너지도 할인(에너지 5→0)', find(0,150) && find(0,150).ex===false && G.players[0].energy===0, 'e='+G.players[0].energy+' ex='+(find(0,150)&&find(0,150).ex));
-  ok('증원: 통제 전장이 배치 후보에 포함', locOpts('유닛을 배치할 위치').some(l=>l.includes(0)), JSON.stringify(locOpts('유닛을 배치할 위치')));
+  ok('지원: 크라켄 사냥꾼 [가속] 등장, 가속 에너지도 할인(에너지 5→0)', find(0,150) && find(0,150).ex===false && G.players[0].energy===0, 'e='+G.players[0].energy+' ex='+(find(0,150)&&find(0,150).ex));
+  ok('지원: 통제 전장이 배치 후보에 포함', locOpts('유닛을 배치할 위치').some(l=>l.includes(0)), JSON.stringify(locOpts('유닛을 배치할 위치')));
 
   // ══ ③ 유망한 미래(115) ══
-  // ── 상대: 시간 왜곡(122) → 상대 추가 턴 큐 · 나: 미래의 용광로(212) → 신병 토큰(등장 격발) · 럭스 전설(321) 5비용 주문 드로우(#7470) ──
+  // ── 상대: 시간 왜곡(122) → 상대 추가 턴 큐 · 나: 미래의 대장간(212) → 신병 토큰(등장 격발) · 럭스 전설(321) 5비용 주문 드로우(#7470) ──
   fresh(); G.players[0].legendN=321;
   G.players[0].deck.unshift(212,210,210,210,210); G.players[1].deck.unshift(122,210,210,210,210);
   OPT=(t,o)=>{ if(/추방\\(플레이 예약\\)/.test(t)) return o.find(x=>x.v===212||x.v===122).v; return o[0].v; };
@@ -147,15 +147,15 @@ const locOpts=t=>OPTLIST.filter(x=>x.t===t).map(x=>x.o.map(o=>o.v));
   await endTurn();
   ok('추가 턴 소진 후 B의 턴', G.turn===1, 'turn='+G.turn);
 
-  // ══ ⑤ 스프라이트 부름(94) · 보석세공 예언자(100) ══
+  // ══ ⑤ 정령 부름(94) · 보석 공예 예언자(100) ══
   fresh(); G.bfs[0].controller=0; unit(210,0,0);
   OPT=(t,o)=>{ if(/토큰을 배치할 위치/.test(t)) return 0; return o[0].v; };
   await play(94);
-  ok('스프라이트 부름: 기지/통제 전장 선택 → 전장에 준비 스프라이트', locOpts('토큰을 배치할 위치').length===1 && G.bfs[0].units.some(u=>u.isToken&&u.tokenName==='Sprite'&&!u.ex), JSON.stringify(locOpts('토큰을 배치할 위치')));
+  ok('정령 부름: 기지/통제 전장 선택 → 전장에 준비 정령', locOpts('토큰을 배치할 위치').length===1 && G.bfs[0].units.some(u=>u.isToken&&u.tokenName==='Sprite'&&!u.ex), JSON.stringify(locOpts('토큰을 배치할 위치')));
   fresh(); openSd(1); G.bfs[0].controller=0; unit(219,0,0); unit(210,1,0);
   OPT=(t,o)=>{ if(/토큰을 배치할 위치/.test(t)) return 0; return o[0].v; };
   await play(94); await resolve();
-  ok('스프라이트 부름: 방어 중 결전 전장에 직접 소환', G.bfs[0].units.some(u=>u.isToken&&u.tokenName==='Sprite'), 'units='+G.bfs[0].units.map(u=>unitName(u)).join(','));
+  ok('정령 부름: 방어 중 결전 전장에 직접 소환', G.bfs[0].units.some(u=>u.isToken&&u.tokenName==='Sprite'), 'units='+G.bfs[0].units.map(u=>unitName(u)).join(','));
   fresh(); unit(100,0,'base');
   await play(315);
   ok('예언자 오라: 신병 4기 각각 [통찰]', CONFIRMS.filter(t=>/통찰/.test(t)).length===4, JSON.stringify(CONFIRMS));
@@ -163,7 +163,7 @@ const locOpts=t=>OPTLIST.filter(x=>x.t===t).map(x=>x.o.map(o=>o.v));
   // ══ ⑥ 녹턴(194) ══
   fresh(); G.players[0].deck.unshift(194,210,219); CONFIRM=t=>/녹턴/.test(t);
   await play(183);
-  ok('조작된 덱: 녹턴 추방 → ✳ 지불 플레이, 손패 1장은 별개', find(0,194) && G.players[0].hand.length===1 && G.players[0].hand[0]!==194, 'hand='+JSON.stringify(G.players[0].hand));
+  ok('속임수 덱: 녹턴 추방 → ✳ 지불 플레이, 손패 1장은 별개', find(0,194) && G.players[0].hand.length===1 && G.players[0].hand[0]!==194, 'hand='+JSON.stringify(G.players[0].hand));
   fresh(); G.players[0].deck.unshift(194); CONFIRM=t=>/녹턴/.test(t);
   await play(171);
   ok('[통찰]로 본 녹턴도 플레이', find(0,194) && !CONFIRMS.some(t=>/덱 맨 위/.test(t)), JSON.stringify(CONFIRMS));

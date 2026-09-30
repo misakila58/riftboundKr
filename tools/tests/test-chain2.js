@@ -30,7 +30,7 @@ function fresh(){
 }
 (async()=>{
   // ── ① 중립: 카운터의 카운터 ──
-  // A가 소각(303, 피해2) 시전 → B가 저항(45)으로 카운터 → A가 저항으로 그 카운터를 카운터
+  // A가 소각(303, 피해2) 시전 → B가 반항(45)으로 카운터 → A가 저항으로 그 카운터를 카운터
   // → B의 카운터 무효 → 소각이 그대로 해결되어 적 유닛 피해
   fresh();
   const tgt=makeUnit(219,1,{loc:0,ready:true}); placeUnit(tgt,0);   // 4⚔
@@ -73,15 +73,15 @@ function fresh(){
   G.players[0].hand=[303,45]; G.players[1].hand=[45];
   await playCardFromHand(0,0,{});                    // A: 소각 적재 (chain1)
   G.actingPlayer=1;
-  await playCardFromHand(1,0,{});                    // B: 저항 적재 — 소각 대상 (chain2)
+  await playCardFromHand(1,0,{});                    // B: 반항 적재 — 소각 대상 (chain2)
   ok('④ B 카운터 적재', G.showdown.chain.length===2 && G.showdown.chain[1].kind==='counter');
   G.actingPlayer=0;
-  const rA=await playCardFromHand(0,0,{});           // A: 저항 적재 — B의 카운터를 대상 (핵심!)
+  const rA=await playCardFromHand(0,0,{});           // A: 반항 적재 — B의 카운터를 대상 (핵심!)
   ok('④ 카운터를 대상으로 적재 가능', rA===true && G.showdown.chain.length===3,
      'r='+rA+' chain='+(G.showdown&&G.showdown.chain.length));
-  // 해결: A저항 → B저항 무효 → 소각 정상 해결
-  await showdownPass(); await showdownPass();        // A카운터 해결 (B저항 무효화)
-  await showdownPass(); await showdownPass();        // B저항 해결(무효)
+  // 해결: A반항 → B반항 무효 → 소각 정상 해결
+  await showdownPass(); await showdownPass();        // A카운터 해결 (B반항 무효화)
+  await showdownPass(); await showdownPass();        // B반항 해결(무효)
   await showdownPass(); await showdownPass();        // 소각 해결
   ok('④ 원 주문 정상 해결', u1.dmg===2, 'dmg='+u1.dmg+' chain='+(G.showdown?G.showdown.chain.length:'-'));
 

@@ -1,6 +1,6 @@
-// 일등 항해사(132) 「내가 플레이될 때, 다른 유닛 하나를 준비」 진행 멈춤 재현 — 헤드리스(vm) 엔진 테스트
-//  ① 화염 폭풍 전장 사전 지정 ② 신난다 '이 해결의 버림' ③ 태양 원반 [군단] 자기 제외 ④ 코그모 기지 사망 ⑤ 수호자 응수 사망
-//  ⑥ 시간선 역전 버림 격발 ⑦ 카이사 힘 비용 ⑧ 게릴라전 동명 2장 ⑨ 마도서 카운터 소모 ⑩ 유망한 미래 LIFO ⑪ 둥지 제자리 준비
+// 일등항해사(132) 「내가 플레이될 때, 다른 유닛 하나를 준비」 진행 멈춤 재현 — 헤드리스(vm) 엔진 테스트
+//  ① 불의 폭풍 전장 사전 지정 ② 신난다 '이 해결의 버림' ③ 태양 원판 [군단] 자기 제외 ④ 코그모 기지 사망 ⑤ 수호자 응수 사망
+//  ⑥ 시간선 뒤집기 버림 격발 ⑦ 카이사 힘 비용 ⑧ 유격 전투 동명 2장 ⑨ 마도서 카운터 소모 ⑩ 유망한 미래 LIFO ⑪ 둥지 제자리 준비
 //  ⑫ 블리츠 기지 플레이 ⑬ 효과 플레이 유닛의 등장 격발 응수 창
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const JS = path.join(__dirname, '../../client/web/js');
@@ -58,7 +58,7 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('A 대상 준비됨', a1.ex===false, 'ex='+a1.ex);
   // B: 다른 유닛 없음
   fresh(); await withTimeout('B 다른 유닛 없음', ()=>play(132));
-  ok('B 일등 항해사 등장', !!find(0,132));
+  ok('B 일등항해사 등장', !!find(0,132));
   // C: 적 유닛만
   fresh(); G.bfs[0].controller=1; const c1=unit(219,1,0); c1.ex=true; PICK=null;
   await withTimeout('C 적 유닛만', ()=>play(132));

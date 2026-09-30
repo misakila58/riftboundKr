@@ -167,7 +167,7 @@ function parseOp(s){
   if((m = s.match(/^[Dd]eal (\d+) damage split among any number of enemy units( here)?$/)))
     return { op:'dealSplit', n:+m[1], spec:{side:'enemy', where:m[2]?'here':'any'} };
   // 전장 아군 유닛 → 기지
-  // 「사이렌 호」는 "to your base"로 인쇄돼 있다 — 같은 효과이므로 둘 다 받는다
+  // 「사이렌호」는 "to your base"로 인쇄돼 있다 — 같은 효과이므로 둘 다 받는다
   if(/^[Mm]ove a friendly unit at a battlefield to (?:its|your) base$/.test(s))
     return { op:'moveSpec', spec:{side:'friendly',where:'bf'}, to:'base' };
   // 추가 턴 / 자기 추방
@@ -177,7 +177,7 @@ function parseOp(s){
   // 토큰 생성
   if((m = s.match(/^(?:You may )?[Pp]lay (a|one|two|three|\d+)? ?(ready )?(\d+) :rb_might: ([\w' ]+?) unit tokens?( with \[Temporary\])?( here| at a battlefield| to your base| in your base| at your base| into your base)?/))){
     // 위치 지정이 없으면 유닛 플레이 규칙대로 기지 또는 통제 전장을 고른다(룰 179.1.a 토큰 플레이 · 352.4.a) —
-    // 「스프라이트 부름」을 방어 중인 전장에 바로 낼 수 있다 (RiftJudge #7478). "in/at your base"만 기지 고정.
+    // 「정령 부름」을 방어 중인 전장에 바로 낼 수 있다 (RiftJudge #7478). "in/at your base"만 기지 고정.
     let where = m[6]?m[6].trim():'play';
     if(/base/.test(where)) where='base';
     return { op:'token', count:numOf(m[1]), might:+m[3], name:m[4].trim(), where, ready:!!m[2], temp:!!m[5] };

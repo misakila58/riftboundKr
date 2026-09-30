@@ -55,7 +55,7 @@ var REL=[]; const _rel=releaseEmptyBattlefields;
 releaseEmptyBattlefields=function(){ const e={rw:G._rwFor??null, chain:G.showdown?G.showdown.chain.length:-1, ctrl:G.bfs[1].controller}; REL.push(e); const ret=_rel(); e.after=G.bfs[1].controller; return ret; };
 (async()=>{
   // ══ ① 무혈 결전 → 전투 결전 승격 ══
-  // ── A의 야스오(76)가 빈 전장에 들어가 무혈 결전. B가 「바람 타기」(173)로 선봉대 하사(219)를 들여보내면
+  // ── A의 야스오(76)가 빈 전장에 들어가 무혈 결전. B가 「바람을 타고」(173)로 선봉대 병장(219)를 들여보내면
   //    그 해결 뒤의 클린업에서 같은 결전이 전투 결전이 되고 야스오 [공격 시] 6피해로 하사(4)가 죽는다 ──
   fresh([279,297]);
   const ya=unit(76,0,'base'); await moveUnits(0,[ya],0);
@@ -63,13 +63,13 @@ releaseEmptyBattlefields=function(){ const e={rw:G._rwFor??null, chain:G.showdow
   const sd0=G.showdown;
   const b1=unit(219,1,'base');
   PICK=u=>u===b1; OPT=(t,o)=>{ const s=o.find(x=>x.movement&&x.movement.dest===0); return s?s.v:o[0].v; };
-  G.actingPlayer=1; ok('승격: B가 결전 중 「바람 타기」 적재', await play(173,1)===true && sd0.chain.length===1, 'chain='+sd0.chain.length);
+  G.actingPlayer=1; ok('승격: B가 결전 중 「바람을 타고」 적재', await play(173,1)===true && sd0.chain.length===1, 'chain='+sd0.chain.length);
   await resolve();
   ok('승격: 해결 뒤 클린업에서 같은 결전이 전투 결전이 된다 (격발은 체인에 적재)', G.showdown===sd0 && sd0.hasCombat===true && sd0.chain.length===2, 'chain='+(G.showdown&&sd0.chain.length));
-  await settle();   // 요새화된 진지(B) → 야스오 [공격 시](A) 순으로 해결 (공격자가 먼저 적재 — 465 4단계)
+  await settle();   // 요새화 진형(B) → 야스오 [공격 시](A) 순으로 해결 (공격자가 먼저 적재 — 465 4단계)
   ok('승격: 해결 뒤 클린업에서 같은 결전이 전투 결전이 된다 (새 결전 없음)', G.showdown===sd0 && sd0.hasCombat===true && sd0.attacker===0 && sd0.defender===1, JSON.stringify(G.showdown&&[G.showdown===sd0,G.showdown.hasCombat,G.showdown.attacker]));
   ok('승격: 공격자 야스오 [공격 시] 즉시 격발 → 하사 6피해 사망 (같은 클린업의 치명 판정)', !onBoard(b1) && b1.loc===0, 'onBoard='+onBoard(b1)+' dmg='+b1.dmg);
-  ok('승격: 전장 「요새화된 진지」 [방어 시] 격발 — 방어자 B가 유닛을 골라 이번 전투 [보호막 2]', (G._combatGrants||[]).length===1 && PICKS.some(t=>/보호막|유닛/.test(t)), 'grants='+JSON.stringify(G._combatGrants&&G._combatGrants.map(g=>g.key)));
+  ok('승격: 전장 「요새화 진형」 [방어 시] 격발 — 방어자 B가 유닛을 골라 이번 전투 [보호막 2]', (G._combatGrants||[]).length===1 && PICKS.some(t=>/보호막|유닛/.test(t)), 'grants='+JSON.stringify(G._combatGrants&&G._combatGrants.map(g=>g.key)));
   ok('승격: 격발 체인이 닫혀도 포커스는 그대로(A) (344.2·347.1.a) — 추가 패스 라운드 없이 결전 계속', G.state==='showdown' && G.actingPlayer===0 && sd0.passes===0, 'acting='+G.actingPlayer+' passes='+sd0.passes);
   await resolve();
   ok('승격: 이어지는 전투 — 방어자 없음 → A 정복 득점', G.state==='neutral' && G.bfs[0].controller===0 && G.players[0].points===1, 'ctrl='+G.bfs[0].controller+' pts='+G.players[0].points);
@@ -85,7 +85,7 @@ releaseEmptyBattlefields=function(){ const e={rw:G._rwFor??null, chain:G.showdow
   const a2=unit(219,0,'base'); await moveUnits(0,[a2],0); const sd2=G.showdown;
   G.actingPlayer=0; PICK=u=>u===a2; await play(207,0);                 // A: 영광의 부름(체인 #1, 시작자 A)
   const b2=unit(219,1,0);                                               // 클린업 없이 진입(체인 위 항목 해결 상황 모사)
-  G.actingPlayer=1; G.players[1].hand=[133]; PICK=null; await playCardFromHand(1,0,{});   // B: 칼날 세례(체인 #2)
+  G.actingPlayer=1; G.players[1].hand=[133]; PICK=null; await playCardFromHand(1,0,{});   // B: 칼날 돌풍(체인 #2)
   ok('열린 상태 조건: 체인 2개 적재', sd2.chain.length===2, 'chain='+sd2.chain.length);
   await resolve();                                                       // #2 해결 → 체인에 #1 남음(닫힌 상태)
   ok('열린 상태 조건: 체인이 남아 있으면 아직 무혈 결전', G.showdown===sd2 && sd2.hasCombat===false, JSON.stringify([sd2.hasCombat, sd2.chain.length]));
@@ -93,7 +93,7 @@ releaseEmptyBattlefields=function(){ const e={rw:G._rwFor??null, chain:G.showdow
   ok('열린 상태 조건: 체인이 비는 클린업에서 승격', G.showdown===sd2 && sd2.hasCombat===true && sd2.attacker===0, JSON.stringify([sd2.hasCombat, sd2.chain.length]));
 
   // ══ ② 빈 전장 통제 상실 시점 ══
-  // ── 결전 체인: A의 1번 전장(통제, 보초 96 하나·숨김 카드)이 B의 「칼날 세례」(체인 위)로 비어도 아래 항목(A의 207)이 남은 동안 유지 ──
+  // ── 결전 체인: A의 1번 전장(통제, 보초 96 하나·숨김 카드)이 B의 「칼날 돌풍」(체인 위)로 비어도 아래 항목(A의 207)이 남은 동안 유지 ──
   fresh(); openSd(0); unit(219,0,0); unit(219,1,0);
   G.bfs[1].controller=0; const sentry=unit(96,0,1); G.bfs[1].hiddenCards.push({n:311,by:0,turn:1});
   G.actingPlayer=0; PICK=u=>u.loc===0&&u.ctrl===0; await play(207,0);
@@ -104,7 +104,7 @@ releaseEmptyBattlefields=function(){ const e={rw:G._rwFor??null, chain:G.showdow
   ok('통제 유지: 닫힌 상태 클린업(chain=1)이 실제로 돌았고 통제를 풀지 않았다', REL.some(x=>x.chain===1 && x.ctrl===0 && x.after===0), JSON.stringify(REL));
   await resolve(); await resolve();   // 보초 종소리(체인) 해결 → 영광의 부름 해결 → 열린 클린업
   ok('통제 상실: 체인이 빈 열린 클린업에서 무주공산 + 숨김 카드 폐기', G.bfs[1].controller===null && G.bfs[1].hiddenCards.length===0 && G.players[0].trash.includes(311), 'ctrl='+G.bfs[1].controller);
-  // ── 중립 응수 창: A의 주문에 B가 「칼날 세례」로 응수해 A의 1번 전장이 비어도 원 주문이 해결될 때까지 유지 ──
+  // ── 중립 응수 창: A의 주문에 B가 「칼날 돌풍」로 응수해 A의 1번 전장이 비어도 원 주문이 해결될 때까지 유지 ──
   fresh(); G.bfs[1].controller=0; const s2=unit(96,0,1); const tgt=unit(219,0,0); G.bfs[0].controller=0;
   G.players[1].hand=[133]; REACT=(p,t,o)=>o[0].v; PICK=u=>u===tgt;
   await play(207,0);

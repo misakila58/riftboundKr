@@ -1,5 +1,5 @@
 // 2026-09-22 보류 항목 반영 회귀 테스트 — ① 다리우스 기지 오라 ② 우디르 발동 시점 모드/대상 ③ [일시적] 격발+존야 공개
-//  ④ 신성한 심판 장착 도구 ⑤ 희미해지는 기억 플레이 시점 대상 ⑥ 인양 도구 대상 ⑦ 하이머딩거 복사 능력 목록 ⑧ 물결을 바꾸는 자 격발 시점 대상
+//  ④ 신성한 심판 장착 도구 ⑤ 바래지는 기억 플레이 시점 대상 ⑥ 인양 도구 대상 ⑦ 하이머딩거 복사 능력 목록 ⑧ 파도전환자 격발 시점 대상
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const JS = path.join(__dirname, '../../client/web/js');
 const r = f => fs.readFileSync(path.join(JS, f), 'utf8');
@@ -81,13 +81,13 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   const gearWhere = G.players[0].deck.includes(21) ? 'deck' : (G.players[0].gear.some(g=>g.n===21) ? 'base' : ((ju.gear||[]).includes(21) ? 'attached' : 'LOST'));
   ok('④ 심판: 장착 도구가 후보에 오르고 소실되지 않음', OPTLIST.some(x=>/남길 도구/.test(x.t) && x.o.some(o=>/장착/.test(o.label))) && gearWhere!=='LOST', 'where='+gearWhere);
 
-  // ══ ⑤ 희미해지는 기억(180): 대상(도구)은 플레이 시점 지정 ══
+  // ══ ⑤ 바래지는 기억(180): 대상(도구)은 플레이 시점 지정 ══
   fresh(); const bg=gear(60,1); OPT=(t,o)=>{ if(/일시적\]를 부여할 대상/.test(t)){ const x=o.find(x=>/도구/.test(x.label)); return x?x.v:o[0].v; } return o[0].v; };
   await play(180);
-  ok('⑤ 희미해지는 기억: 플레이 시점에 고른 도구에 [일시적]', bg.temporary===true && OPTS.filter(t=>/일시적\]를 부여할 대상/.test(t)).length===1, 'temp='+bg.temporary+' prompts='+OPTS.filter(t=>/부여할 대상/.test(t)).length);
+  ok('⑤ 바래지는 기억: 플레이 시점에 고른 도구에 [일시적]', bg.temporary===true && OPTS.filter(t=>/일시적\]를 부여할 대상/.test(t)).length===1, 'temp='+bg.temporary+' prompts='+OPTS.filter(t=>/부여할 대상/.test(t)).length);
   fresh();   // 후보(전장 유닛·도구)가 없으면 플레이 불가
   G.players[0].hand=[180]; const r5=await playCardFromHand(0,0,{});
-  ok('⑤ 희미해지는 기억: 대상 없으면 플레이 불가', r5===false && G.players[0].hand.includes(180), 'r='+r5);
+  ok('⑤ 바래지는 기억: 대상 없으면 플레이 불가', r5===false && G.players[0].hand.includes(180), 'r='+r5);
 
   // ══ ⑥ 인양(224): 도구 대상(선택)은 플레이 시점 — 해결 때 처치 + 드로우 ══
   fresh(); const kg=gear(60,1); OPT=(t,o)=>{ if(/처치할 도구/.test(t)){ const x=o.find(x=>/도구/.test(x.label)); return x?x.v:o[0].v; } return o[0].v; }; const h6=G.players[0].hand.length;
@@ -97,13 +97,13 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   // ══ ⑦ 하이머딩거(111): 복사한 탈진 능력이 봇/충당/응수 목록에 오른다(#2679) ══
   fresh(); unit(111,0,'base'); gear(120,0);
   const copied=polAbList(0).filter(c=>c.ab.copied);
-  ok('⑦ 하이머딩거: 통찰의 인장 능력 복사 항목', copied.length>=1 && copied.every(c=>c.src.u.n===111), 'copied='+copied.map(c=>c.name).join('|'));
+  ok('⑦ 하이머딩거: 통찰의 문장 능력 복사 항목', copied.length>=1 && copied.every(c=>c.src.u.n===111), 'copied='+copied.map(c=>c.name).join('|'));
 
-  // ══ ⑧ 물결을 바꾸는 자(199): 교환 상대는 격발 시점(대상) ══
+  // ══ ⑧ 파도전환자(199): 교환 상대는 격발 시점(대상) ══
   fresh(); G.bfs[0].controller=0; const mate=unit(210,0,0); OPT=(t,o)=>{ if(/배치|위치/.test(t)) return 'base'; return o[0].v; }; PICK=(u,p)=>u===mate;
   await play(199);
   const tt=find(0,199);
-  ok('⑧ 물결을 바꾸는 자: 격발 시점에 교환 상대 지정 → 자리 교환', tt && tt.loc===0 && mate.loc==='base' && PICKS.some(t=>/교환할 아군/.test(t)), 'tt.loc='+(tt&&tt.loc)+' mate='+mate.loc);
+  ok('⑧ 파도전환자: 격발 시점에 교환 상대 지정 → 자리 교환', tt && tt.loc===0 && mate.loc==='base' && PICKS.some(t=>/교환할 아군/.test(t)), 'tt.loc='+(tt&&tt.loc)+' mate='+mate.loc);
 
   console.log(pass+'/'+(pass+fail)+' 통과'+(fail?' ← 실패 '+fail:''));
 })().catch(e=>console.log('CRASH',e.stack));

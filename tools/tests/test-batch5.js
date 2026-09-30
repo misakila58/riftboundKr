@@ -1,12 +1,12 @@
 // RiftJudge 감사 5차 묶음(work-5.json, 카드 #5~#80) 검증:
 //  ① 붕괴(5) — "이것으로 처치되면"은 클린업 잣대(결전 역할 위력)로 판정(#7148)
-//  ② 와작와작 죠스(6) — 정식 플레이 경로: 기지/통제 전장 선택(#5470)·방어 중 결전 전장(#3111)·플레이 이벤트(#4866) · 로켓(252) 버림 격발(#6209)
+//  ② 와작와작 뻥(6) — 정식 플레이 경로: 기지/통제 전장 선택(#5470)·방어 중 결전 전장(#3111)·플레이 이벤트(#4866) · 로켓(252) 버림 격발(#6209)
 //  ③ 무허가 무기고(23) — 대상 없으면 발동 불가(#3642)·대상은 비용 전(#2485)·여러 장은 하나씩 소모(#686)
-//  ④ 신비한 반전(80) — 탈취자 기준 시전(마도서 보너스 없음 #1393)·새 대상 선택(#4630)
-//  ⑤ 열 광선(22) — 장착 장비도 폐기(#3302) · 눈먼 분노(25) — 정식 플레이(배치·[가속]·소유자 #2434·#4963)·브린히르 금지(#10521)
-//  ⑥ 격노한 화염룡(31) — 할인은 지불 시 소모(#4039) · 볼리베어(158) — 전장에 있을 때만(#8279) · 매혹(43) — 이동 강제(#9277)·숨김 카드로 응수(#10372)
-//  ⑦ 태엽 수호자(44) — 숨김 공개도 추가 비용(#2488) · 저항(45) — 자기 주문 카운터(#8450) · 간수(70) — 숨김 유닛 공개 불가(#4573)
-//  ⑧ 솔라리 성소(72) — 처치자 귀속(#5587) · 최후의 저항(69) — 결전 위력 스냅샷(#2568) · 회귀: 규율(58)/광선(9) 대상 없으면 불가, 카운터된 주문 미집계, 무혈 결전 무치유, 간수 사후 다리우스 준비
+//  ④ 신비한 전환(80) — 탈취자 기준 시전(마도서 보너스 없음 #1393)·새 대상 선택(#4630)
+//  ⑤ 발열 광선(22) — 장착 장비도 폐기(#3302) · 무분별한 분노(25) — 정식 플레이(배치·[가속]·소유자 #2434·#4963)·브린히르 금지(#10521)
+//  ⑥ 성난 화염용(31) — 할인은 지불 시 소모(#4039) · 볼리베어(158) — 전장에 있을 때만(#8279) · 매혹(43) — 이동 강제(#9277)·숨김 카드로 응수(#10372)
+//  ⑦ 시계태엽 지킴이(44) — 숨김 공개도 추가 비용(#2488) · 반항(45) — 자기 주문 카운터(#8450) · 간수(70) — 숨김 유닛 공개 불가(#4573)
+//  ⑧ 솔라리 성지(72) — 처치자 귀속(#5587) · 최후의 저항(69) — 결전 위력 스냅샷(#2568) · 회귀: 규율(58)/광선(9) 대상 없으면 불가, 카운터된 주문 미집계, 무혈 결전 무치유, 간수 사후 다리우스 준비
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const JS = path.join(__dirname, '../../client/web/js');
 const r = f => fs.readFileSync(path.join(JS, f), 'utf8');
@@ -61,15 +61,15 @@ const A=()=>G.players[0], B=()=>G.players[1];
   await play(5); await resolveOne();
   ok('붕괴: 맹공 1 공격자(2+1)에 피해 3 → 사망·드로우 1', !onBoard(poro) && A().hand.length===1, 'alive='+onBoard(poro)+' hand='+A().hand.length);
 
-  // ══ ② 와작와작 죠스(6) — 정식 플레이 경로 ══
+  // ══ ② 와작와작 뻥(6) — 정식 플레이 경로 ══
   fresh(); G.bfs[0].controller=0; const cit=unit(139,0,'base'); A().hand=[6];
-  CONFIRM=t=>/죠스/.test(t); OPT=(t,o)=>{ if(/배치할 위치/.test(t)) return 0; return o[0].v; };
+  CONFIRM=t=>/와작와작 뻥/.test(t); OPT=(t,o)=>{ if(/배치할 위치/.test(t)) return 0; return o[0].v; };
   await discardFromHand(0,0);
   ok('죠스: 버림 → 분노 지불 → 통제 전장 선택지가 있고 그곳에 등장(#5470)', OPTS.some(t=>/배치할 위치/.test(t)) && find(0,6) && find(0,6).loc===0, 'loc='+(find(0,6)&&find(0,6).loc)+' opts='+JSON.stringify(OPTS));
   ok('죠스: 플레이 이벤트(시트리아 버프)·playedCards(#4866)', cit.buff===1 && A().playedCards===1, 'buff='+cit.buff+' played='+A().playedCards);
   ok('죠스: 폐기장에 남지 않음', !A().trash.includes(6), JSON.stringify(A().trash));
   fresh(); G.bfs[0].controller=0; unit(210,0,0); unit(210,1,0); openSd(1,true); A().hand=[6];
-  CONFIRM=t=>/죠스/.test(t); OPT=(t,o)=>{ if(/배치할 위치/.test(t)) return 0; return o[0].v; };
+  CONFIRM=t=>/와작와작 뻥/.test(t); OPT=(t,o)=>{ if(/배치할 위치/.test(t)) return 0; return o[0].v; };
   await discardFromHand(0,0); await showdownPass(); await showdownPass();   // 결전 중엔 버림 격발이 체인에 → 양측 패스로 해결
   ok('죠스: 방어 중인 결전 전장에 바로 등장(#3111)', find(0,6) && find(0,6).loc===0, 'loc='+(find(0,6)&&find(0,6).loc));
   fresh(); TF().noPlay[0]=true; A().hand=[6]; CONFIRM=()=>true;
@@ -84,7 +84,7 @@ const A=()=>G.players[0], B=()=>G.players[1];
   fresh(); let g23=gear(23,0); A().hand=[6,210];
   await activateAbility(0,{kind:'gear',g:g23},FX[23].activated[0]);
   ok('무기고: 아군 유닛이 없으면 발동 불가 — 탈진·버림 없음(#3642)', g23.ex===false && A().hand.length===2, 'ex='+g23.ex+' hand='+A().hand.length);
-  fresh(); g23=gear(23,0); const ax=unit(210,0,'base'); A().hand=[6,210]; CONFIRM=t=>/죠스/.test(t); PICK=u=>u===ax;
+  fresh(); g23=gear(23,0); const ax=unit(210,0,'base'); A().hand=[6,210]; CONFIRM=t=>/와작와작 뻥/.test(t); PICK=u=>u===ax;
   await activateAbility(0,{kind:'gear',g:g23},FX[23].activated[0]);
   const armCands=CANDS.find(x=>/사망 방지/.test(x.t));
   ok('무기고: 대상은 버림 전에 고르고, 버려서 등장한 죠스는 후보가 아니다(#2485)', armCands && !armCands.c.some(u=>u.n===6) && find(0,6) && ax._armory===1 && g23.ex===true, 'cands='+(armCands&&armCands.c.map(u=>u.n).join(','))+' jaws='+!!find(0,6)+' arm='+ax._armory);
@@ -92,7 +92,7 @@ const A=()=>G.players[0], B=()=>G.players[1];
   await killUnit(ay);
   ok('무기고: 두 장 걸린 유닛 사망 시 하나만 소모(#686)', onBoard(ay) && ay.loc==='base' && ay.ex===true && ay._armory===1, 'arm='+ay._armory+' on='+onBoard(ay));
 
-  // ══ ④ 신비한 반전(80): 탈취자가 새 대상을 고르고(#4630) 원 시전자의 마도서 보너스는 붙지 않는다(#1393) ══
+  // ══ ④ 신비한 전환(80): 탈취자가 새 대상을 고르고(#4630) 원 시전자의 마도서 보너스는 붙지 않는다(#1393) ══
   fresh(); openSd(0,true); const ua=unit(210,0,0), ub=unit(210,1,0); TF().nextSpellBonus[0]=1;
   PICK=u=>u===ub; await play(9,0);
   B().hand=[80]; await playCardFromHand(1,0,{});
@@ -101,21 +101,21 @@ const A=()=>G.players[0], B=()=>G.players[1];
   ok('반전: 탈취자(B)가 새 대상(A 유닛)을 골라 피해 3 — 원 시전자 마도서 +1 없음', ua.dmg===3 && ub.dmg===0, 'ua='+ua.dmg+' ub='+ub.dmg);
   ok('반전: 플레이 수는 탈취자에게(#6678 유지)', B().playedCards>=1, 'B='+B().playedCards+' A='+A().playedCards);
 
-  // ══ ⑤ 열 광선(22) · 눈먼 분노(25) ══
+  // ══ ⑤ 발열 광선(22) · 무분별한 분노(25) ══
   fresh(); const eq=unit(210,0,'base'); eq.gear.push(32); gear(23,1);
   await play(22);
-  ok('열 광선: 장착 장비도 폐기(#3302)', eq.gear.length===0 && A().trash.includes(32) && B().gear.length===0, 'ug='+eq.gear.length+' trash='+JSON.stringify(A().trash));
+  ok('발열 광선: 장착 장비도 폐기(#3302)', eq.gear.length===0 && A().trash.includes(32) && B().gear.length===0, 'ug='+eq.gear.length+' trash='+JSON.stringify(A().trash));
   fresh(); G.bfs[0].controller=0; B().deck.unshift(10);
   CONFIRM=t=>/가속/.test(t); OPT=(t,o)=>{ if(/배치할 위치/.test(t)) return 0; return o[0].v; };
   await play(25);
   const bl=find(0,10);
-  ok('눈먼 분노: 정식 플레이 — 배치 위치 선택·통제 전장 등장·[가속] 지불 준비 등장(#2434)', bl && bl.loc===0 && bl.ex===false && OPTS.some(t=>/배치할 위치/.test(t)) && CONFIRMS.some(t=>/가속/.test(t)), 'u='+!!bl+' loc='+(bl&&bl.loc)+' ex='+(bl&&bl.ex));
-  ok('눈먼 분노: 통제자는 나, 소유자는 상대(#4963)·추방 해제·플레이 이벤트', bl && bl.ctrl===0 && bl.owner===1 && !B().banish.includes(10) && A().playedCards===2, 'owner='+(bl&&bl.owner)+' played='+A().playedCards);
+  ok('무분별한 분노: 정식 플레이 — 배치 위치 선택·통제 전장 등장·[가속] 지불 준비 등장(#2434)', bl && bl.loc===0 && bl.ex===false && OPTS.some(t=>/배치할 위치/.test(t)) && CONFIRMS.some(t=>/가속/.test(t)), 'u='+!!bl+' loc='+(bl&&bl.loc)+' ex='+(bl&&bl.ex));
+  ok('무분별한 분노: 통제자는 나, 소유자는 상대(#4963)·추방 해제·플레이 이벤트', bl && bl.ctrl===0 && bl.owner===1 && !B().banish.includes(10) && A().playedCards===2, 'owner='+(bl&&bl.owner)+' played='+A().playedCards);
   fresh(); TF().noPlay[0]=true; B().deck.unshift(10);
   await EXTRA_OPS.blindRage({}, {p:0}, null);
-  ok('눈먼 분노: 브린히르 금지 중엔 공개 유닛도 플레이 불가 → 추방 유지(#10521)', !find(0,10) && B().banish.includes(10) && !A().hand.includes(10), 'banish='+JSON.stringify(B().banish));
+  ok('무분별한 분노: 브린히르 금지 중엔 공개 유닛도 플레이 불가 → 추방 유지(#10521)', !find(0,10) && B().banish.includes(10) && !A().hand.includes(10), 'banish='+JSON.stringify(B().banish));
 
-  // ══ ⑥ 격노한 화염룡(31) · 볼리베어(158) · 매혹(43) ══
+  // ══ ⑥ 성난 화염용(31) · 볼리베어(158) · 매혹(43) ══
   fresh(); openSd(0,true); unit(210,1,0); TF().nextSpellDisc[0]=5; const e0=A().energy;
   await play(9);
   ok('화염룡: 할인은 비용 지불 시 소모 — 체인 해결 전에 이미 0(#4039)', TF().nextSpellDisc[0]===0 && A().energy===e0 && G.showdown.chain.length===1, 'disc='+TF().nextSpellDisc[0]+' e='+A().energy);
@@ -137,18 +137,18 @@ const A=()=>G.players[0], B=()=>G.players[1];
   await play(43);
   ok('매혹: 중립 응수 창에서 숨김 카드(존야)를 공개해 응수(#10372)', B().gear.some(g=>g.n===77) && G.bfs[0].hiddenCards.length===0, 'gear='+JSON.stringify(B().gear.map(g=>g.n))+' hidden='+G.bfs[0].hiddenCards.length);
 
-  // ══ ⑦ 태엽 수호자(44) · 저항(45) · 간수(70) ══
+  // ══ ⑦ 시계태엽 지킴이(44) · 반항(45) · 간수(70) ══
   fresh(); G.bfs[0].controller=0; G.bfs[0].hiddenCards.push({n:44,by:0,turn:1}); CONFIRM=t=>/추가 비용/.test(t);
   await playHidden(0,0);
-  ok('태엽 수호자: 숨김 공개도 추가 비용(평정 힘)을 묻고 지불하면 드로우(#2488)', find(0,44) && find(0,44).loc===0 && CONFIRMS.some(t=>/추가 비용/.test(t)) && A().hand.length===1, 'u='+!!find(0,44)+' hand='+A().hand.length+' c='+JSON.stringify(CONFIRMS));
+  ok('시계태엽 지킴이: 숨김 공개도 추가 비용(평정 힘)을 묻고 지불하면 드로우(#2488)', find(0,44) && find(0,44).loc===0 && CONFIRMS.some(t=>/추가 비용/.test(t)) && A().hand.length===1, 'u='+!!find(0,44)+' hand='+A().hand.length+' c='+JSON.stringify(CONFIRMS));
   fresh(); openSd(0,true); const cb=unit(210,1,0); PICK=u=>u===cb;
   await play(9); const okc=await play(45);
-  ok('저항: 자기 주문도 카운터 대상(#8450)', okc===true && G.showdown.chain.length===2 && G.showdown.chain[1].target===G.showdown.chain[0], 'ok='+okc+' chain='+G.showdown.chain.length);
+  ok('반항: 자기 주문도 카운터 대상(#8450)', okc===true && G.showdown.chain.length===2 && G.showdown.chain[1].target===G.showdown.chain[0], 'ok='+okc+' chain='+G.showdown.chain.length);
   await resolveOne(); await resolveOne();
-  ok('저항: 자기 광선이 무효화되어 피해 없음 — 플레이 수는 둘 다 파이널라이즈(420.3.b)라 2', cb.dmg===0 && A().playedCards===2 && A().playedSeq===1, 'dmg='+cb.dmg+' played='+A().playedCards);
+  ok('반항: 자기 광선이 무효화되어 피해 없음 — 플레이 수는 둘 다 파이널라이즈(420.3.b)라 2', cb.dmg===0 && A().playedCards===2 && A().playedSeq===1, 'dmg='+cb.dmg+' played='+A().playedCards);
   fresh(); openSd(0,true); const cb2=unit(210,1,0); unit(210,0,0); PICK=u=>u===cb2;
   await play(9); B().hand=[45]; await playCardFromHand(1,0,{});
-  ok('저항: 상대 주문이 먼저 후보(단일 자동 선택이 상대 주문)', G.showdown.chain[1].target===G.showdown.chain[0] && G.showdown.chain[1].p===1, '');
+  ok('반항: 상대 주문이 먼저 후보(단일 자동 선택이 상대 주문)', G.showdown.chain[1].target===G.showdown.chain[0] && G.showdown.chain[1].p===1, '');
   fresh(); G.bfs[0].controller=0; G.bfs[1].controller=1; unit(70,1,1); G.bfs[0].hiddenCards.push({n:6,by:0,turn:1});
   await playHidden(0,0);
   ok('간수: 상대 간수가 전장에 있으면 숨김 유닛 공개 불가(#4573)', !find(0,6) && G.bfs[0].hiddenCards.length===1, 'u='+!!find(0,6)+' hidden='+G.bfs[0].hiddenCards.length);
@@ -156,7 +156,7 @@ const A=()=>G.players[0], B=()=>G.players[1];
   await playHidden(0,0);
   ok('간수 없음: 숨김 유닛은 그 전장에 공개', find(0,6) && find(0,6).loc===0, '');
 
-  // ══ ⑧ 솔라리 성소(72) · 최후의 저항(69) · 회귀 ══
+  // ══ ⑧ 솔라리 성지(72) · 최후의 저항(69) · 회귀 ══
   fresh(); gear(72,1); const st=unit(210,0,'base',{stunned:true}); st._decree=true; st._decreeBy=0; CONFIRM=()=>true; const bh=B().hand.length;
   await cleanupDeaths();
   ok('솔라리: 내 칙령으로 죽은 내 기절 유닛 — 상대 성소 미발동(#5587)', !onBoard(st) && B().hand.length===bh && B().gear[0].ex===false, 'hand='+B().hand.length+' ex='+B().gear[0].ex);

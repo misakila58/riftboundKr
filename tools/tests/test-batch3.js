@@ -1,6 +1,6 @@
 // RiftJudge 감사 3차 묶음(work-3.json) 검증:
 //  ① 결전 정리 — 무혈 결전은 치유 없음(142.4·437), 전투 사망 [죽음의 종소리]는 치유 뒤 해결(322), 동시 사망 존야 선택권(376.3 원칙),
-//     '전투 중' 대상은 전투 결전만(437), 솔라리 무승부=양측 잔존, 칙령+치명 피해 2회 처치, 클린업 반복(322), 약자 도태 동시 사망(376.3.b)
+//     '전투 중' 대상은 전투 결전만(437), 솔라리 무승부=양측 잔존, 칙령+치명 피해 2회 처치, 클린업 반복(322), 약자 도륙 동시 사망(376.3.b)
 //  ② 공격/방어 지정 — 전투가 있어야 지정(378·전투 1단계): 무혈 결전 합류 방어자의 [공격 시] 없음·전환 시 공격자 [공격 시],
 //     한 전투 1회, 예지의 가면은 전투에서만·장수만큼·지정 순간 스냅샷
 //  ③ 유닛 주체 피해(kind 'unit', 405~406) — 불굴의 정신이 못 막고 서적 보너스 없음·전투 중 지정 보정 포함
@@ -100,7 +100,7 @@ const tempSum=u=>u.tempM.reduce((s,t)=>s+t.v,0);
   await resolve();
   ok('솔라리: 전멸은 무승부가 아니다 — 사망 정상 처리', !onBoard(sc) && onBoard(sd_), 'sc='+onBoard(sc));
 
-  // ── 황제의 칙령(221) + 치명 피해: 존야가 첫 사망을 막아도 칙령이 다시 처치(#7440) / 비치명이면 생존(#8420) ──
+  // ── 제국의 법령(221) + 치명 피해: 존야가 첫 사망을 막아도 칙령이 다시 처치(#7440) / 비치명이면 생존(#8420) ──
   fresh(); gear(77,0); TF().dmgKill=true; TF().dmgKillBy=1;
   const da=unit(210,0,'base'); dealDamage(da,5,'spell');
   await cleanup(0);
@@ -117,11 +117,11 @@ const tempSum=u=>u.tempM.reduce((s,t)=>s+t.v,0);
   await cleanup(1);
   ok('클린업 반복: 리 신 사망 → 오라 소실 → 같은 클린업에서 함께 사망', !onBoard(lee) && !onBoard(fan), 'fan='+onBoard(fan));
 
-  // ── 약자 도태(209): 각자 고른 뒤 한 배치로 사망 — 두 종소리 모두 해결(#9900) ──
+  // ── 약자 도륙(209): 각자 고른 뒤 한 배치로 사망 — 두 종소리 모두 해결(#9900) ──
   fresh();
   const ca=unit(96,0,'base'), cb=unit(96,1,'base'); const d0=G.players[0].deck.length, d1=G.players[1].deck.length;
   await play(209);
-  ok('약자 도태: 양측 유닛 사망 + 각자 종소리 드로우', !onBoard(ca) && !onBoard(cb) && G.players[0].deck.length===d0-1 && G.players[1].deck.length===d1-1, 'd0 '+d0+'→'+G.players[0].deck.length);
+  ok('약자 도륙: 양측 유닛 사망 + 각자 종소리 드로우', !onBoard(ca) && !onBoard(cb) && G.players[0].deck.length===d0-1 && G.players[1].deck.length===d1-1, 'd0 '+d0+'→'+G.players[0].deck.length);
 
   // ══ ② 공격/방어 지정 ══
   // ── 무혈 결전에 바람 타기로 합류한 야스오(76)는 방어자 — [공격 시] 없음(#278) ──
@@ -150,7 +150,7 @@ const tempSum=u=>u.tempM.reduce((s,t)=>s+t.v,0);
   fresh(); openSd(1); unit(219,1,0); G.bfs[0].controller=0;
   const tm=unit(121,0,'base'); await effectMove(0, tm, 0); await settle();
   ok('전투 중 합류한 방어측 유닛: [방어 시] 격발(덱 5장 공개 프롬프트)', PICKS.some(t=>/대상 적 유닛/.test(t)), JSON.stringify(PICKS));
-  // ── 예지의 가면(60): 무혈 결전엔 없음(#4707) · 장수만큼(#6946) · 약탈자의 거리 귀환 전 스냅샷(#8304) ──
+  // ── 예지의 가면(60): 무혈 결전엔 없음(#4707) · 장수만큼(#6946) · 약탈자의 노 귀환 전 스냅샷(#8304) ──
   fresh(); gear(60,0); gear(60,0);
   const m1=unit(219,0,'base'); await moveUnits(0,[m1],0);
   ok('가면: 무혈 결전엔 +0', tempSum(m1)===0, 'temp='+tempSum(m1));
@@ -160,13 +160,13 @@ const tempSum=u=>u.tempM.reduce((s,t)=>s+t.v,0);
   ok('가면 2장: 혼자 공격 +2', tempSum(m2)===2, 'temp='+tempSum(m2));
   fresh([285,297]); gear(60,1); G.bfs[0].controller=1;
   const r1=unit(219,1,0), r2=unit(219,1,0); const m3=unit(210,0,'base');
-  CONFIRM=t=>/약탈자의 거리/.test(t);   // "you may" — 격발 적재 때 묻는다 (383.4)
+  CONFIRM=t=>/약탈자의 노/.test(t);   // "you may" — 격발 적재 때 묻는다 (383.4)
   await moveUnits(0,[m3],0); await settle(); CONFIRM=()=>false;
-  ok('약탈자의 거리: 방어 유닛 하나 귀환', (r1.loc==='base')!==(r2.loc==='base'), 'r1='+r1.loc+' r2='+r2.loc);
+  ok('약탈자의 노: 방어 유닛 하나 귀환', (r1.loc==='base')!==(r2.loc==='base'), 'r1='+r1.loc+' r2='+r2.loc);
   ok('가면: 귀환 전 스냅샷(둘이었으므로) +0', tempSum(r1)===0 && tempSum(r2)===0, 'temp='+tempSum(r1)+'/'+tempSum(r2));
 
   // ══ ③ 유닛 주체 피해 ══
-  // ── 도전(128): 불굴의 정신(145)이 못 막고, 레이븐본 서적 보너스도 안 붙는다(#8394·#8373) ──
+  // ── 도전(128): 물러서지 않는 영혼(145)이 못 막고, 레이븐본 서적 보너스도 안 붙는다(#8394·#8373) ──
   fresh(); TF().preventSpellDmg=true; TF().nextSpellBonus[0]=1;
   const c1=unit(219,0,'base'), c2=unit(210,1,0); G.players[0].trash.push(37); CONFIRM=()=>true;
   await play(128);

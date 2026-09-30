@@ -46,7 +46,7 @@ async function download(url, dest) {
 
 (async () => {
   const cards = loadCards();
-  // 토큰 카드 일러스트(loc.js TOKEN_IMG)도 함께 받는다 — 보드의 신병·스프라이트 토큰이 쓴다
+  // 토큰 카드 일러스트(loc.js TOKEN_IMG)도 함께 받는다 — 보드의 신병·정령 토큰이 쓴다
   let tokenUrls = [];
   try {
     const loc = fs.readFileSync(path.join(ROOT, 'client', 'web', 'js', 'loc.js'), 'utf8');

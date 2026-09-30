@@ -1,4 +1,4 @@
-// 이동 주문의 목적지 플레이 시점 지정(355.8) 회귀 테스트 — 바람 타기 173·점멸 311·용의 분노 258 (제보 2026-09-28: 목적지를 해결 때 물었음)
+// 이동 주문의 목적지 플레이 시점 지정(355.8) 회귀 테스트 — 바람을 타고 173·점멸 311·용의 분노 258 (제보 2026-09-28: 목적지를 해결 때 물었음)
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const JS = path.join(__dirname, '../../client/web/js');
 const r = f => fs.readFileSync(path.join(JS, f), 'utf8');
@@ -50,7 +50,7 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
 (async()=>{
   const DEST=/목적지/;
   const destPrompts=()=>OPTLIST.filter(x=>DEST.test(x.t));
-  // ① 바람 타기(173): 플레이 시점에 유닛+목적지를 함께 묻고(응수 창보다 먼저), 해결 때 다시 묻지 않는다 — 고른 전장으로 이동·준비
+  // ① 바람을 타고(173): 플레이 시점에 유닛+목적지를 함께 묻고(응수 창보다 먼저), 해결 때 다시 묻지 않는다 — 고른 전장으로 이동·준비
   fresh(); const a=unit(210,0,'base'); a.ex=true; G.players[1].hand=[64];
   let sawBefore=null; REACT=(p,t,o)=>{ sawBefore=destPrompts().length; return null; };
   OPT=(t,o)=>{ if(DEST.test(t)){ const x=o.find(x=>x.movement&&x.movement.dest===1); return x?x.v:o[0].v; } return o[0].v; };
@@ -78,7 +78,7 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('④ 점멸: 목적지 선택 2회', destPrompts().length===2, 'n='+destPrompts().length);
   ok('④ 두 번째 선택지에 첫 유닛 없음', !!second && !second.some(x=>x.movement&&x.movement.uid===d1.uid) && second.some(x=>x.movement&&x.movement.uid===d3.uid));
   ok('④ 둘 다 기지로', d1.loc==='base' && d2.loc==='base' && d3.loc===1, d1.loc+','+d2.loc+','+d3.loc);
-  // ⑤ 아군 유닛이 없으면 바람 타기 플레이 불가(352.8)
+  // ⑤ 아군 유닛이 없으면 바람을 타고 플레이 불가(352.8)
   fresh(); unit(210,1,0);
   r=await play(173);
   ok('⑤ 아군 없으면 플레이 불가', r===false && G.players[0].hand.length===1, 'r='+r+' hand='+G.players[0].hand.length);

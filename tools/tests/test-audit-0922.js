@@ -1,6 +1,6 @@
 // 2026-09-22 카드 효과·RiftJudge 판정 감사 수정 회귀 테스트 — 헤드리스(vm) 엔진 테스트
-//  ① 화염 폭풍 전장 사전 지정 ② 신난다 '이 해결의 버림' ③ 태양 원반 [군단] 자기 제외 ④ 코그모 기지 사망 ⑤ 수호자 응수 사망
-//  ⑥ 시간선 역전 버림 격발 ⑦ 카이사 힘 비용 ⑧ 게릴라전 동명 2장 ⑨ 마도서 카운터 소모 ⑩ 유망한 미래 LIFO ⑪ 둥지 제자리 준비
+//  ① 불의 폭풍 전장 사전 지정 ② 신난다 '이 해결의 버림' ③ 태양 원판 [군단] 자기 제외 ④ 코그모 기지 사망 ⑤ 수호자 응수 사망
+//  ⑥ 시간선 뒤집기 버림 격발 ⑦ 카이사 힘 비용 ⑧ 유격 전투 동명 2장 ⑨ 마도서 카운터 소모 ⑩ 유망한 미래 LIFO ⑪ 둥지 제자리 준비
 //  ⑫ 블리츠 기지 플레이 ⑬ 효과 플레이 유닛의 등장 격발 응수 창
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const JS = path.join(__dirname, '../../client/web/js');
@@ -51,10 +51,10 @@ const settle=async()=>{ for(let i=0;i<8;i++){ const sd=G.showdown; if(!sd) retur
 const find=(p,n)=>allUnits(p).find(u=>u.n===n);
 const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
 (async()=>{
-  // ══ ① 화염 폭풍(302) — 전장은 플레이 시점 대상(355.10.d · #12460) ══
+  // ══ ① 불의 폭풍(302) — 전장은 플레이 시점 대상(355.10.d · #12460) ══
   fresh(); G.bfs[0].controller=1; G.bfs[1].controller=1; const e1=unit(219,1,0), e2=unit(219,1,1); OPT=(t,o)=>{ if(/전장/.test(t)) return 0; return o[0].v; };
   await play(302);
-  ok('① 화염 폭풍: 사전 지정 전장0의 적만 피해 3', e1.dmg===3 && e2.dmg===0, 'e1='+e1.dmg+' e2='+e2.dmg);
+  ok('① 불의 폭풍: 사전 지정 전장0의 적만 피해 3', e1.dmg===3 && e2.dmg===0, 'e1='+e1.dmg+' e2='+e2.dmg);
 
   // ══ ② 신난다!(8) — '그 카드'는 이 해결에서 버린 카드뿐 ══
   fresh(); G.bfs[0].controller=1; const t2=unit(219,1,0); G._lastDiscard={p:0,n:92}; G.players[0].hand=[8];
@@ -64,12 +64,12 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await playCardFromHand(0,0,{});
   ok('② 신난다: 버린 렉스(6) 비용만큼 피해', t2b.dmg===6 || !onBoard(t2b), 'dmg='+t2b.dmg);
 
-  // ══ ③ 태양 원반(21) — [군단]은 '다른 카드'(812.1.c · 813.1) ══
+  // ══ ③ 태양 원판(21) — [군단]은 '다른 카드'(812.1.c · 813.1) ══
   fresh(); await play(21); const g21=G.players[0].gear.find(g=>g.n===21); const ab21=FX[21].activated[0];
   await activateAbility(0,{kind:'gear',g:g21},ab21);
-  ok('③ 태양 원반: 첫 카드로 내고 발동 → 군단 불성립', !TF().nextUnitReady[0] && !g21.ex, 'ready='+TF().nextUnitReady[0]+' ex='+g21.ex);
+  ok('③ 태양 원판: 첫 카드로 내고 발동 → 군단 불성립', !TF().nextUnitReady[0] && !g21.ex, 'ready='+TF().nextUnitReady[0]+' ex='+g21.ex);
   await play(210); await activateAbility(0,{kind:'gear',g:g21},ab21);
-  ok('③ 태양 원반: 다른 카드를 낸 뒤엔 발동', TF().nextUnitReady[0]===true && g21.ex===true, 'ready='+TF().nextUnitReady[0]+' ex='+g21.ex);
+  ok('③ 태양 원판: 다른 카드를 낸 뒤엔 발동', TF().nextUnitReady[0]===true && g21.ex===true, 'ready='+TF().nextUnitReady[0]+' ex='+g21.ex);
 
   // ══ ④ 코그모 - 부식(190) — 기지 사망 종소리는 '내 전장'이 없어 무효(#7905) ══
   fresh(); const kog=unit(190,0,'base'); const a4=unit(219,0,0), b4=unit(219,1,1);
@@ -79,7 +79,7 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await killUnit(kog2);
   ok('④ 코그모: 전장 사망 → 그 전장 전원 4', a5.dmg===4 && b5.dmg===4 && c5.dmg===0, [a5.dmg,b5.dmg,c5.dmg].join(','));
 
-  // ══ ⑤ 산봉우리 수호자(223) — 등장 격발 응수로 죽으면 '내가 전장에 있다면' 거짓(359.3.f) ══
+  // ══ ⑤ 봉우리 수호자(223) — 등장 격발 응수로 죽으면 '내가 전장에 있다면' 거짓(359.3.f) ══
   // (예전엔 상대가 통제하지 않는 전장의 숨김 카드로 응수했지만, 숨김 카드는 그 전장을 통제할 때만 공개할 수 있다 — 손패의 [반응] 갈취(33, 피해 6)로 응수)
   fresh(); G.bfs[0].controller=0; const ally=unit(219,0,0); G.players[1].hand=[33];
   OPT=(t,o)=>{ if(/배치|위치/.test(t)){ const x=o.find(x=>x.v===0); return x?x.v:o[0].v; } return o[0].v; };
@@ -89,22 +89,22 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('⑤ 수호자: 갈취 응수로 처치됨', !find(0,223), 'units='+allUnits(0).map(u=>u.n).join(','));
   ok('⑤ 수호자: 다른 아군 버프 없음', ally.buff===0, 'buff='+ally.buff);
 
-  // ══ ⑥ 시간선 역전(201) — 손패의 고철 더미(182)는 '버려질 때' 드로우(#11607) ══
+  // ══ ⑥ 시간선 뒤집기(201) — 손패의 고철 더미(182)는 '버려질 때' 드로우(#11607) ══
   fresh(); G.players[1].hand=[182,210]; G.players[0].hand=[201];
   await playCardFromHand(0,0,{});
-  ok('⑥ 시간선 역전: 고철 더미 버림 격발 → B 5장, A 4장', G.players[1].hand.length===5 && G.players[0].hand.length===4, 'B='+G.players[1].hand.length+' A='+G.players[0].hand.length);
+  ok('⑥ 시간선 뒤집기: 고철 더미 버림 격발 → B 5장, A 4장', G.players[1].hand.length===5 && G.players[0].hand.length===4, 'B='+G.players[1].hand.length+' A='+G.players[0].hand.length);
 
-  // ══ ⑦ 카이사 - 진화자(112) — 폐기장 주문의 힘 비용은 지불(#11602) ══
+  // ══ ⑦ 카이사 - 진화(112) — 폐기장 주문의 힘 비용은 지불(#11602) ══
   fresh(); openSd(0,false); unit(112,0,0); G.bfs[0].contestedBy=0; G.players[0].points=5; G.players[0].trash=[9]; unit(219,1,'base');
   Object.keys(G.players[0].power).forEach(k=>G.players[0].power[k]=0); G.players[0].runes=[];
   await resolve();
   ok('⑦ 카이사: 힘을 못 내면 폐기장 주문(마법공학 광선 힘1) 플레이 안 됨', G.players[0].trash.includes(9) && !G.players[0].deck.includes(9), 'trash='+G.players[0].trash.join(',')+' state='+G.state);
 
-  // ══ ⑧ 게릴라전(264) — 같은 이름 [숨겨짐] 2장 모두 회수 ══
+  // ══ ⑧ 유격 전투(264) — 같은 이름 [숨겨짐] 2장 모두 회수 ══
   fresh(); G.players[0].trash=[57,57]; await play(264);
-  ok('⑧ 게릴라전: 막기 2장 회수', G.players[0].hand.filter(n=>n===57).length===2 && !G.players[0].trash.includes(57), 'hand='+G.players[0].hand.join(',')+' trash='+G.players[0].trash.join(','));
+  ok('⑧ 유격 전투: 막기 2장 회수', G.players[0].hand.filter(n=>n===57).length===2 && !G.players[0].trash.includes(57), 'hand='+G.players[0].hand.join(',')+' trash='+G.players[0].trash.join(','));
 
-  // ══ ⑨ 갈까마귀 마도서(32) — 카운터당한 주문도 '다음 주문'(420.3.b) ══
+  // ══ ⑨ 레이븐본 고서(32) — 카운터당한 주문도 '다음 주문'(420.3.b) ══
   fresh(); const g32=gear(32,0); await activateAbility(0,{kind:'gear',g:g32},FX[32].activated[0]);
   ok('⑨ 마도서: 보너스 대기', TF().nextSpellBonus[0]===1, 'b='+TF().nextSpellBonus[0]);
   G.bfs[0].controller=1; const v9=unit(219,1,0); G.players[1].hand=[45];   // B가 통제하는 전장(클린업 결전 방지)
@@ -119,7 +119,7 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await play(115);
   ok('⑩ 유망한 미래: B의 열 광선이 A의 오로라 등장 뒤 해결 → 오로라 처치', !G.players[0].gear.some(g=>g.n===160) && G.players[0].trash.includes(160), 'gear='+G.players[0].gear.map(g=>g.n).join(',')+' trash='+G.players[0].trash.join(','));
 
-  // ══ ⑪ 바람 타기(173) + 바일마우의 둥지(295) — 기지 지정은 적법, 이동만 생략·준비(#11771) ══
+  // ══ ⑪ 바람을 타고(173) + 썩은 아귀 둥지(295) — 기지 지정은 적법, 이동만 생략·준비(#11771) ══
   fresh([295,297]); const w=unit(210,0,0,{ex:true}); PICK=u=>u===w; OPT=(t,o)=>{ if(/효과 이동|목적지/.test(t)){ const x=o.find(x=>x.movement&&x.movement.uid===w.uid&&/기지/.test(x.label)); return x?x.v:o[0].v; } return o[0].v; };   // 유닛+목적지는 플레이 시점(355.8)
   await play(173);
   ok('⑪ 둥지: 이동 없이 제자리에서 준비', w.loc===0 && w.ex===false, 'loc='+w.loc+' ex='+w.ex);
@@ -132,7 +132,7 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   // ══ ⑬ 차원문 구출(102) — 효과로 플레이된 렉스의 등장 격발은 효과가 끝난 뒤 체인·응수 창(#3110 · #383) ══
   fresh(); G.bfs[0].controller=1; const rex=unit(92,0,'base'); const tgt=unit(210,1,0); G.players[1].hand=[169]; PICK=(u,p)=>p===0?(u===rex||u===tgt):true;   // B에게 돌풍(응수 후보)이 있어야 창이 열린다
   await play(102);
-  ok('⑬ 차원문 구출: 렉스 등장 격발에 응수 창 열림', REACTS.some(t=>/격랑의 렉스 격발/.test(t)), REACTS.join('|'));
+  ok('⑬ 차원문 구출: 렉스 등장 격발에 응수 창 열림', REACTS.some(t=>/역조 렉스 격발/.test(t)), REACTS.join('|'));
   ok('⑬ 차원문 구출: 격발 해결(피해 6)', tgt.dmg===6 || !onBoard(tgt), 'dmg='+tgt.dmg);
 
   console.log(pass+'/'+(pass+fail)+' 통과'+(fail?' ← 실패 '+fail:''));

@@ -29,7 +29,7 @@ function fresh(){
   G.turn=0;G.phase='action';G.state='neutral';G.turnCount=5;G.actingPlayer=0;
   G.players.forEach(P=>{P.hand=[];P.energy=20;Object.keys(P.power).forEach(k=>P.power[k]=9);});
 }
-const REX=92, BLADE=213, SGT=219;   // 격랑의 렉스(플레이 시 전장의 적 유닛에 피해 6) · 숨겨진 칼날([숨겨짐] 유닛 처치, 통제자 2드로우) · 선봉대 하사(4⚔)
+const REX=92, BLADE=213, SGT=219;   // 역조 렉스(플레이 시 전장의 적 유닛에 피해 6) · 숨겨진 칼날([숨겨짐] 유닛 처치, 통제자 2드로우) · 선봉대 병장(4⚔)
 (async()=>{
   // ── ① 중립: 렉스 격발에 숨겨진 칼날로 응수 — 대상이 된 내 유닛을 처치해 피해 6 불발 + 2드로우 ──
   fresh();

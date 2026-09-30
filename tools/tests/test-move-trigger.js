@@ -1,5 +1,5 @@
-// 이동 격발(onMoveSelf)의 체인·응수 검증 (2026-09-22) — 녹서스 군악병(222): 응수로 죽거나 손패로 가면 '이곳'이 없어 토큰 없음
-//  ① 표준 이동 + 숨겨진 칼날 ② 응수 없음 ③ 돌풍 손패 복귀 ④ 효과 이동(바람 타기) 뒤 격발
+// 이동 격발(onMoveSelf)의 체인·응수 검증 (2026-09-22) — 녹서스 군악대(222): 응수로 죽거나 손패로 가면 '이곳'이 없어 토큰 없음
+//  ① 표준 이동 + 숨겨진 칼날 ② 응수 없음 ③ 돌풍 손패 복귀 ④ 효과 이동(바람을 타고) 뒤 격발
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const JS = path.join(__dirname, '../../client/web/js');
 const r = f => fs.readFileSync(path.join(JS, f), 'utf8');
@@ -55,7 +55,7 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   fresh(); G.bfs[0].controller=1; unit(219,1,0); G.bfs[0].hiddenCards.push({n:BLADE,by:1,turn:0});
   const d1=unit(DRUM,0,'base'); REACT=(p,t,o)=>{ const h=o.find(x=>x.v&&x.v.hidden); return h?h.v:null; }; PICK=(u,p)=>p===1?u.n===DRUM:true;
   await moveUnits(0,[d1],0);
-  ok('① 이동 격발에 응수 창 열림', REACTS.some(t=>/군악병 격발/.test(t)), REACTS.join('|'));
+  ok('① 이동 격발에 응수 창 열림', REACTS.some(t=>/군악대 격발/.test(t)), REACTS.join('|'));
   ok('① 군악병 처치됨 → 토큰 없음', !onBoard(d1) && tokens().length===0, 'onBoard='+onBoard(d1)+' tokens='+tokens().length);
 
   // ══ ② 응수 없음 → 토큰이 그 전장에 ══
@@ -69,11 +69,11 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await moveUnits(0,[d3],0);
   ok('③ 돌풍 응수 → 군악병 손패, 토큰 없음', G.players[0].hand.includes(DRUM) && tokens().length===0, 'hand='+G.players[0].hand.join(',')+' tokens='+tokens().length);
 
-  // ══ ④ 효과 이동(바람 타기 173) → 주문이 끝난 뒤 이동 격발 응수 창 → 토큰 ══
+  // ══ ④ 효과 이동(바람을 타고 173) → 주문이 끝난 뒤 이동 격발 응수 창 → 토큰 ══
   fresh(); G.bfs[0].controller=0; const d4=unit(DRUM,0,'base',{ex:true}); G.players[1].hand=[GUST]; PICK=(u,p)=>p===0?u===d4:false;   // B에게 돌풍(응수 후보)이 있어야 창이 열린다 — B는 응수하지 않음(REACT null)
   OPT=(t,o)=>{ if(/효과 이동/.test(t)){ const x=o.find(x=>x.movement&&x.movement.dest===0); return x?x.v:o[0].v; } return o[0].v; };
   await play(RIDE);
-  ok('④ 바람 타기 뒤 이동 격발 응수 창', REACTS.some(t=>/군악병 격발/.test(t)), REACTS.join('|'));
+  ok('④ 바람을 타고 뒤 이동 격발 응수 창', REACTS.some(t=>/군악대 격발/.test(t)), REACTS.join('|'));
   ok('④ 군악병 전장0·준비, 토큰 전장0', d4.loc===0 && d4.ex===false && tokens().length===1 && tokens()[0].loc===0, 'loc='+d4.loc+' ex='+d4.ex+' tokens='+tokens().map(t=>t.loc).join(','));
 
   console.log(pass+'/'+(pass+fail)+' 통과'+(fail?' ← 실패 '+fail:''));

@@ -57,3 +57,5 @@ fs.writeFileSync(path.join(ROOT, 'server', 'cards.json'),
 
 const altCount = db.reduce((s, c) => s + (c.alts ? c.alts.length : 0), 0);
 console.log(`생성 완료: client/web/js/cards.js (${db.length}장, 대체 일러스트 ${altCount}장), server/cards.json`);
+// 한글 카드명·텍스트 덮어쓰기(롤딱닷컴 표기·에라타 대조) — 재생성해도 유지되게 마지막에 적용
+require('./apply-ko-overrides.js');

@@ -245,7 +245,9 @@ function deckNameIndex(){
   if(_deckNameIndex) return _deckNameIndex;
   const idx = new Map();
   for(const c of CARDS){
-    for(const nm of [c.name, c.ko]){
+    // 옛 한글 표기(cardnames-alias.js, 2026-09-30 롤딱닷컴 표기로 바꾸기 전)로 적은 목록도 받아 준다
+    const olds = (typeof CARD_KO_ALIASES!=='undefined' && CARD_KO_ALIASES[c.n]) || [];
+    for(const nm of [c.name, c.ko, ...olds]){
       const k = nm && deckNameKey(nm);
       if(k && !idx.has(k)) idx.set(k, c);
     }
@@ -382,7 +384,7 @@ function buildDeck(legendN){
   const pool = CARDS.filter(c=>
     ['Unit','Spell','Gear'].includes(c.type) &&
     c.super!=='Token' &&
-    // 시그니처 카드는 같은 챔피언의 전설 덱에만 (OGS 티버스·최후의 전사 등)
+    // 시그니처 카드는 같은 챔피언의 전설 덱에만 (OGS 티버·최후의 전사 등)
     (c.super!=='Signature' || c.tags.includes(champTag)) &&
     c.n!==champN &&
     !isBanned(c.n) &&
@@ -1116,7 +1118,7 @@ function edAddCard(c, toSide){
     if(ED.bfs.length>=3){ UI.toast('전장은 3개까지입니다','warn'); return false; }
     ED.bfs.push(c.n); warnBan(); return true;
   }
-  // 시그니처 카드: 같은 챔피언의 전설이 선택된 덱에만 (예: 티버스 → 애니 전설)
+  // 시그니처 카드: 같은 챔피언의 전설이 선택된 덱에만 (예: 티버 → 애니 전설)
   if(c.super==='Signature'){
     const legend=edLegend();
     const tag=legend ? legend.name.split(' - ')[0] : null;

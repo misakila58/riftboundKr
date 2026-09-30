@@ -1,5 +1,5 @@
 // RiftJudge 감사 1차 묶음(work-1.json) 검증:
-//  ① 주문 '플레이할 때' 격발은 완전 해결 뒤(룰 407.3.a) — 레이븐블룸 학생·빙의·탈취(execAs) ② 카운터된 주문은
+//  ① 주문 '플레이할 때' 격발은 완전 해결 뒤(룰 407.3.a) — 레이븐블룸 학생·지배·탈취(execAs) ② 카운터된 주문은
 //  플레이 수에 안 셈(룰 408.2) — 숨김 onPlayFromHidden 포함 ③ 볼리베어 '위력적 유닛 플레이'는 등장 격발 전 판정
 //  ④ 오라의 수치 키워드 합산(룰 Shield/Assault Value summed) ⑤ 카운터 주문은 대상 없이는 플레이 불가(룰 352)
 //  ⑥ 토큰도 플레이된 유닛(룰 351.3) — 오라 [통찰]·'유닛 플레이' 리스너
@@ -49,7 +49,7 @@ const onBoard=u=>everyUnit().includes(u);
   fresh();
   placeUnit(makeUnit(15,0,{loc:0,ready:true}),0); placeUnit(makeUnit(15,0,{loc:0,ready:true}),0);
   const sgt=makeUnit(219,0,{loc:0,ready:true}); placeUnit(sgt,0);
-  ok('④ 패론 대위 2기 = [맹공 2] (4⚔→공격 시 6⚔)', might(sgt,'attacker')===6, 'm='+might(sgt,'attacker'));
+  ok('④ 파론 대위 2기 = [맹공 2] (4⚔→공격 시 6⚔)', might(sgt,'attacker')===6, 'm='+might(sgt,'attacker'));
   ok('④ 효과 키워드값 assault=2', effKw(sgt).assault===2, 'assault='+effKw(sgt).assault);
 
   // ── ① 학생 격발은 주문 완전 해결 뒤 — 자기 학생에게 피해 2 → 죽는다 ──
@@ -75,9 +75,9 @@ const onBoard=u=>everyUnit().includes(u);
   await playCardFromHand(0,0,{});
   // 2026-07-16판 420.3.b: 카운터된 주문도 파이널라이즈됐으므로 비격발 판정용 플레이 수(playedCards)에는 든다(학생 격발만 없음) — 예전 기대 0
   ok('② 카운터된 주문: 학생 +0, A 플레이 수 1(파이널라이즈 기준)', might(st3)===2 && G.players[0].playedCards===1 && G.players[0].playedSeq===0, 'm='+might(st3)+' played='+G.players[0].playedCards);
-  ok('② 카운터(저항)는 B가 플레이한 주문으로 셈', G.players[1].playedCards===1, 'B played='+G.players[1].playedCards);
+  ok('② 카운터(반항)는 B가 플레이한 주문으로 셈', G.players[1].playedCards===1, 'B played='+G.players[1].playedCards);
 
-  // ── ① 탈취(신비한 반전): 해결 시 통제자가 '플레이한' 사람 ──
+  // ── ① 탈취(신비한 전환): 해결 시 통제자가 '플레이한' 사람 ──
   fresh();
   const stA=makeUnit(103,0,{loc:0,ready:true}); placeUnit(stA,0);
   const stB=makeUnit(103,1,{loc:'base',ready:true}); placeUnit(stB,'base');
@@ -91,7 +91,7 @@ const onBoard=u=>everyUnit().includes(u);
   ok('① 탈취된 주문: 파이널라이즈 수는 A=1·B=1, 격발 순번은 B=2', G.players[1].playedCards===1 && G.players[0].playedCards===1 && G.players[1].playedSeq===2 && G.players[0].playedSeq===0,
      'B='+G.players[1].playedCards+' A='+G.players[0].playedCards);
 
-  // ── ② 숨김 주문 카운터 → 잉걸불 수도승 +2 없음 / 해결되면 +2 ──
+  // ── ② 숨김 주문 카운터 → 불꽃 수도승 +2 없음 / 해결되면 +2 ──
   fresh();
   const monk=makeUnit(167,0,{loc:0,ready:true}); placeUnit(monk,0);
   placeUnit(makeUnit(219,1,{loc:0,ready:true}),0);
@@ -120,10 +120,10 @@ const onBoard=u=>everyUnit().includes(u);
   const duo=makeUnit(16,0); G.players[0].hand=[16]; PICK=u=>u.n===16;
   await playCardFromHand(0,0,{playLoc:'base'});
   const duoU=G.players[0].base.find(u=>u.n===16);
-  ok('③ 위험한 2인조(3⚔, 자기 +2) → 5⚔지만 볼리베어 격발 없음', duoU && might(duoU)===5 && !G.players[0].legendEx,
+  ok('③ 위험한 듀오(3⚔, 자기 +2) → 5⚔지만 볼리베어 격발 없음', duoU && might(duoU)===5 && !G.players[0].legendEx,
      'm='+(duoU&&might(duoU))+' legendEx='+G.players[0].legendEx);
   fresh(249); CONFIRM=()=>true;
-  G.players[0].hand=[1];                            // 작열하는 화염룡 5⚔
+  G.players[0].hand=[1];                            // 타오르는 화염용 5⚔
   await playCardFromHand(0,0,{playLoc:'base'});
   ok('③ 인쇄 5⚔ 유닛은 볼리베어 격발', G.players[0].legendEx===true, 'legendEx='+G.players[0].legendEx);
 
@@ -144,9 +144,9 @@ const onBoard=u=>everyUnit().includes(u);
   const dar=makeUnit(27,1,{loc:0,ready:false}); placeUnit(dar,0);
   G.players[0].hand=[203];
   await playCardFromHand(0,0,{});
-  ok('① 빙의 뒤 다리우스: A 통제·준비·+2 (7⚔)', dar.ctrl===0 && dar.ex===false && might(dar)===7, 'ctrl='+dar.ctrl+' ex='+dar.ex+' m='+might(dar));
+  ok('① 지배 뒤 다리우스: A 통제·준비·+2 (7⚔)', dar.ctrl===0 && dar.ex===false && might(dar)===7, 'ctrl='+dar.ctrl+' ex='+dar.ex+' m='+might(dar));
 
-  // ── ⑥ 선봉대 소집 토큰: 오라 [통찰] 4회 + 시트리아 버프 ──
+  // ── ⑥ 선봉대 모집 토큰: 오라 [통찰] 4회 + 시트리아 버프 ──
   fresh();
   placeUnit(makeUnit(100,0,{loc:'base',ready:true}),'base');
   const cith=makeUnit(139,0,{loc:'base',ready:true}); placeUnit(cith,'base');

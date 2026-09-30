@@ -1,8 +1,8 @@
 // RiftJudge 감사 2차 묶음(work-2.json) 검증:
-//  ① 전용 op(돌풍·후퇴·질책·가르기·도전·앙 가르드·빙의·단두대·수렴 변이·신난다!·신사의 결투·안면 분쇄·용의 분노·쌍권총 난사)도
+//  ① 전용 op(돌풍·후퇴·처벌·쪼개기·도전·준비 태세·지배·단두대·수렴 변이·신난다!·신사의 결투·안면 강타·용의 분노·쌍권총 난사)도
 //     플레이 시점에 대상을 지정(룰 352.8.a)하고 해결 때 부적법하면 그 지시만 불발(356.3.e) — 재지정 없음
 //  ② 적법 대상이 없으면 대상 주문을 낼 수 없다(352.8) · 굴절(735) 거부/불가면 그 유닛은 못 고른다(다른 대상 없으면 플레이 취소)
-//  ③ 'Do this N번' 반사 격발 주문(떨어지는 별)은 플레이 시점 대상이 없다(352.8.b · 383)
+//  ③ 'Do this N번' 반사 격발 주문(유성)은 플레이 시점 대상이 없다(352.8.b · 383)
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const JS = path.join(__dirname, '../../client/web/js');
 const r = f => fs.readFileSync(path.join(JS, f), 'utf8');
@@ -70,21 +70,21 @@ const optUnit=u=>(t,o)=>{ const m=o.find(x=>x.returnHand&&x.returnHand.uid===u.u
   ok('후퇴: 대상 소실 → 룬 전개 없음', G.players[0].runes.length===runes0, 'runes '+runes0+'→'+G.players[0].runes.length);
   ok('후퇴: 다른 아군으로 재지정 없음', onBoard(r2) && G.players[0].hand.length===hand0, 'r2 gone');
 
-  // ── 질책(172): 대상 소실 → 재지정 없음 ──
+  // ── 처벌(172): 대상 소실 → 재지정 없음 ──
   fresh(); openSd();
   const q1=unit(210,1,0), q2=unit(219,1,0);
   OPT=optUnit(q1);
   await play(172); gone(q1); await resolve();
-  ok('질책: 대상 소실 → 다른 유닛 안 되돌림', onBoard(q2));
+  ok('처벌: 대상 소실 → 다른 유닛 안 되돌림', onBoard(q2));
 
-  // ── 가르기(4)·막기(57): grantKw 대상도 플레이 시점 지정 ──
+  // ── 쪼개기(4)·막기(57): grantKw 대상도 플레이 시점 지정 ──
   fresh(); openSd();
   const c1=unit(210,0,0), c2=unit(219,0,0);
   PICK=u=>u===c1;
   await play(4);
-  ok('가르기: 적재 시점에 [맹공 3] 대상 선택', PICKS.length===1 && /맹공 3/.test(PICKS[0]), JSON.stringify(PICKS));
+  ok('쪼개기: 적재 시점에 [맹공 3] 대상 선택', PICKS.length===1 && /맹공 3/.test(PICKS[0]), JSON.stringify(PICKS));
   gone(c1); await resolve();
-  ok('가르기: 대상 소실 → 다른 유닛에 부여 안 함', !c2.grants.assault && PICKS.length===1, JSON.stringify(c2.grants));
+  ok('쪼개기: 대상 소실 → 다른 유닛에 부여 안 함', !c2.grants.assault && PICKS.length===1, JSON.stringify(c2.grants));
   fresh(); openSd();
   ok('막기: 유닛이 없으면 플레이 불가', await play(57)===false && G.players[0].hand.length===1);
 
@@ -96,12 +96,12 @@ const optUnit=u=>(t,o)=>{ const m=o.find(x=>x.returnHand&&x.returnHand.uid===u.u
   await killUnit(d1); await resolve();
   ok('도전: 아군 소실 → 적도 피해 없음', d2.dmg===0 && PICKS.length===2, 'dmg='+d2.dmg);
 
-  // ── 앙 가르드(46) ──
+  // ── 준비 태세(46) ──
   fresh(); openSd();
   const e1=unit(210,0,0), e2=unit(219,0,0);
   PICK=u=>u===e1;
   await play(46); gone(e1); await resolve();
-  ok('앙 가르드: 대상 소실 → 다른 아군 위력 그대로', might(e2)===4 && PICKS.length===1, 'm='+might(e2));
+  ok('준비 태세: 대상 소실 → 다른 아군 위력 그대로', might(e2)===4 && PICKS.length===1, 'm='+might(e2));
 
   // ── 갈취(33): 적 유닛 없으면 플레이 불가 ──
   fresh(); openSd(); unit(210,0,0);
@@ -116,23 +116,23 @@ const optUnit=u=>(t,o)=>{ const m=o.find(x=>x.returnHand&&x.returnHand.uid===u.u
   await resolve();
   ok('수렴 변이: 위력 복사(2→4)', might(m1)===4 && PICKS.length===2, 'm='+might(m1));
 
-  // ── 빙의(203): 응수로 기지로 가면 불발 ──
+  // ── 지배(203): 응수로 기지로 가면 불발 ──
   fresh(); openSd(); const p1=unit(210,1,0);
   await play(203); toBase(p1); await resolve();
-  ok('빙의: 대상이 기지로 → 통제권 그대로', p1.ctrl===1);
+  ok('지배: 대상이 기지로 → 통제권 그대로', p1.ctrl===1);
 
   // ── 녹서스의 단두대(254) ──
   fresh(); openSd(); const n1=unit(210,1,0), n2=unit(219,1,0); PICK=u=>u===n1;
   await play(254); gone(n1); await resolve();
   ok('단두대: 대상 소실 → 다른 유닛에 표식 없음', !n2._guillotine && PICKS.length===1);
 
-  // ── 안면 분쇄(220): 같은 전장의 아군+적 쌍이 있어야 플레이 ──
+  // ── 안면 강타(220): 같은 전장의 아군+적 쌍이 있어야 플레이 ──
   fresh(); openSd(); const f1=unit(210,0,0), f2=unit(210,1,1);
-  ok('안면 분쇄: 같은 전장 쌍 없음 → 플레이 불가', await play(220)===false);
+  ok('안면 강타: 같은 전장 쌍 없음 → 플레이 불가', await play(220)===false);
   toBase(f2); const B=G.players[1].base; B.splice(B.indexOf(f2),1); f2.loc=0; G.bfs[0].units.push(f2);
-  ok('안면 분쇄: 쌍 있음 → 플레이 가능', await play(220)===true && PICKS.length===2, JSON.stringify(PICKS));
+  ok('안면 강타: 쌍 있음 → 플레이 가능', await play(220)===true && PICKS.length===2, JSON.stringify(PICKS));
   await resolve();
-  ok('안면 분쇄: 둘 다 기절', f1.stunned && f2.stunned);
+  ok('안면 강타: 둘 다 기절', f1.stunned && f2.stunned);
 
   // ── 용의 분노(258): 이동 유닛은 플레이 시점, 소실이면 이동·피해 없음 ──
   fresh(); const v1=unit(210,1,0), v2=unit(219,1,1);
@@ -166,13 +166,13 @@ const optUnit=u=>(t,o)=>{ const m=o.find(x=>x.returnHand&&x.returnHand.uid===u.u
   gone(s1); await resolve();
   ok('결투: 아군 소실 → 적 피해 없음', s2.dmg===0);
 
-  // ── 공허의 추적자(24)·혼미(95)·단결된 의지(53): 대상 없으면 플레이 불가 ──
+  // ── 공허추적자(24)·마비(95)·단결된 의지(53): 대상 없으면 플레이 불가 ──
   fresh(); openSd();
-  ok('공허의 추적자: 전장 유닛 없음 → 플레이 불가', await play(24)===false && G.players[0].hand.length===1 && G.players[0].energy===20);
+  ok('공허추적자: 전장 유닛 없음 → 플레이 불가', await play(24)===false && G.players[0].hand.length===1 && G.players[0].energy===20);
   ok('봇 polCanPlay도 같은 판정', polCanPlay(0,card(24))===false);
   const vs=unit(210,1,0);
-  ok('공허의 추적자: 대상 있으면 가능', polCanPlay(0,card(24))===true && await play(24)===true);
-  fresh(); ok('혼미: 유닛 없음 → 플레이 불가', await play(95)===false);
+  ok('공허추적자: 대상 있으면 가능', polCanPlay(0,card(24))===true && await play(24)===true);
+  fresh(); ok('마비: 유닛 없음 → 플레이 불가', await play(95)===false);
   fresh(); ok('단결된 의지: 아군 없음 → 플레이 불가', await play(53)===false);
   unit(210,0,'base'); ok('단결된 의지: 아군 있으면 가능', await play(53)===true);
 
@@ -192,11 +192,11 @@ const optUnit=u=>(t,o)=>{ const m=o.find(x=>x.returnHand&&x.returnHand.uid===u.u
   fresh(); openSd(); unit(13,1,0); Object.keys(G.players[0].power).forEach(k=>G.players[0].power[k]=0); G.players[0].runes=[];
   ok('굴절 지불 불가(유일한 대상) → 플레이 불가', await play(303)===false);
 
-  // ── 떨어지는 별(29): 반사 격발 — 플레이 시점 대상 없음, 유닛 없어도 플레이 가능 ──
+  // ── 유성(29): 반사 격발 — 플레이 시점 대상 없음, 유닛 없어도 플레이 가능 ──
   fresh();
   // 에라타(Spiritforged FAQ 2026-01-14): 반사 격발이 아니라 보통 주문 — 낼 때 대상 2개를 고르고(같은 유닛 가능), 유닛이 없으면 낼 수 없다
-  ok('떨어지는 별: 에라타 뒤 보통 주문 — 반사 격발 아님', !FX[29].reflexive && FX[29].playOps.length===2);
-  ok('떨어지는 별: 유닛이 없으면 플레이 불가(대상 필요)', await play(29)===false && !G.players[0].trash.includes(29));
+  ok('유성: 에라타 뒤 보통 주문 — 반사 격발 아님', !FX[29].reflexive && FX[29].playOps.length===2);
+  ok('유성: 유닛이 없으면 플레이 불가(대상 필요)', await play(29)===false && !G.players[0].trash.includes(29));
 
   // ── 숨김(737): 그 전장에 대상 없는 주문은 공개 불가 — playRestriction이 bfIdx로 본다 ──
   fresh(); unit(210,1,0);

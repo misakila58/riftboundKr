@@ -1,14 +1,14 @@
 // RiftJudge 감사 6차 묶음(work-6.json) 검증 — 카드 개별 항목(#83~#206):
-//  ① 과거에게 묻다(83) — 상대 턴 중립 응수 창에서 숨김 카드 공개(739.1) · 스프라이트 부름(94)+간수(70) — 토큰만 불발(#3977)
-//  ② 이케시아 소나기(248)+경계하는 보초(96) — 격발 사이 클린업으로 종소리 먼저(#272) · 후퇴(104)+빅토르(117) — 플레이 격발은 해결 뒤(#7951)
-//  ③ 성취자 아바(107) — 손패 플레이(수도승 +2 없음, 유닛은 아바의 전장)(#10475) · 카이사(112)+시간 왜곡(122) — 추방되면 재활용 없음(#4642)
-//  ④ 도전(128)+다리우스(27) — 도전 피해 뒤 +2(#5184) · 맞대결(129) — 토큰도 준비 등장(#8620) · 크라켄 사냥꾼(150) — 가속 힘까지 할인(#4836)
+//  ① 과거의 조언(83) — 상대 턴 중립 응수 창에서 숨김 카드 공개(739.1) · 정령 부름(94)+간수(70) — 토큰만 불발(#3977)
+//  ② 이케시아 폭우(248)+감시하는 보초(96) — 격발 사이 클린업으로 종소리 먼저(#272) · 후퇴(104)+빅토르(117) — 플레이 격발은 해결 뒤(#7951)
+//  ③ 열정 대원 에이바(107) — 손패 플레이(수도승 +2 없음, 유닛은 아바의 전장)(#10475) · 카이사(112)+시간 왜곡(122) — 추방되면 재활용 없음(#4642)
+//  ④ 도전(128)+다리우스(27) — 도전 피해 뒤 +2(#5184) · 정면 승부(129) — 토큰도 준비 등장(#8620) · 크라켄 사냥꾼(150) — 가속 힘까지 할인(#4836)
 //  ⑤ 파괴 공작(156) — 취소 불가(#4264) · 눈부신 오로라(160) — 플레이 불가면 추방 유지(#6096) · 죽음꽃 포식자(161)+티모(121) — 굴절 지불(#3529)
-//  ⑥ 타곤의 정상(289) — 종료 단계 중 정복은 룬 준비 없음(#5875) · 세트(164)+히라나(282) — 정복 버프로 비용 못 냄(#8738)
-//  ⑦ 질책(172)·사망 — 장착 도구 기지 회수(#1391) · 빙의(203) — 소유자 폐기장(#2250) · 은밀한 추적자(177) — 기지·탈진·효과 이동 동행(#6119 #2230)
-//  ⑧ 희미해지는 기억(180) — 도구 [일시적](#6709) · 경이의 꾸러미(181) — 장착 도구 회수(#10398) · 회오리바람(187) — 어느 유닛이든(#3563)
-//  ⑨ 괴롭히는 밤(198)+애니(310) — 먼저 폐기장에(#6899) · 물결을 바꾸는 자(199)+바일마우(295) — 부분 해결(#7241)
-//  ⑩ 시간선 역전(201) — 시전자 먼저 번아웃(#8457) · 등을 맞대고(206) — 아군 2기 필요(#1462)
+//  ⑥ 타곤의 봉우리(289) — 종료 단계 중 정복은 룬 준비 없음(#5875) · 세트(164)+히라나(282) — 정복 버프로 비용 못 냄(#8738)
+//  ⑦ 처벌(172)·사망 — 장착 도구 기지 회수(#1391) · 지배(203) — 소유자 폐기장(#2250) · 은밀한 추적자(177) — 기지·탈진·효과 이동 동행(#6119 #2230)
+//  ⑧ 바래지는 기억(180) — 도구 [일시적](#6709) · 불가사의한 꾸러미(181) — 장착 도구 회수(#10398) · 회오리바람(187) — 어느 유닛이든(#3563)
+//  ⑨ 해로윙(198)+애니(310) — 먼저 폐기장에(#6899) · 파도전환자(199)+바일마우(295) — 부분 해결(#7241)
+//  ⑩ 시간선 뒤집기(201) — 시전자 먼저 번아웃(#8457) · 등에 등을 맞대고(206) — 아군 2기 필요(#1462)
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const JS = path.join(__dirname, '../../client/web/js');
 const r = f => fs.readFileSync(path.join(JS, f), 'utf8');
@@ -56,30 +56,30 @@ const resolve=async()=>{ await showdownPass(); await showdownPass(); };
 const find=(p,n)=>allUnits(p).find(u=>u.n===n);
 const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
 (async()=>{
-  // ══ ① 과거에게 묻다(83) — 상대 턴 중립 상태 응수 창에서 숨김 카드 공개 (739.1 · #7188) ══
+  // ══ ① 과거의 조언(83) — 상대 턴 중립 상태 응수 창에서 숨김 카드 공개 (739.1 · #7188) ══
   fresh(); G.bfs[0].controller=1; G.bfs[0].hiddenCards.push({n:83,by:1,turn:1});
   REACT=(t,o)=>{ const h=o.find(x=>x.v&&x.v.hidden); return h?h.v:null; };
   await play(129,0);
-  ok('과거에게 묻다: 상대 주문에 숨김 공개 → 2장 드로우, 숨김 슬롯 비움', G.players[1].hand.length===2 && G.bfs[0].hiddenCards.length===0 && G.players[1].trash.includes(83),
+  ok('과거의 조언: 상대 주문에 숨김 공개 → 2장 드로우, 숨김 슬롯 비움', G.players[1].hand.length===2 && G.bfs[0].hiddenCards.length===0 && G.players[1].trash.includes(83),
     'hand='+G.players[1].hand.length+' hidden='+G.bfs[0].hiddenCards.length);
-  ok('과거에게 묻다: 응수 선택지에 숨김 카드 공개 항목', REACTS.length>=1 && REACTS[0].o.some(x=>/숨김 카드 공개/.test(x.label)), JSON.stringify(REACTS.map(x=>x.o.map(y=>y.label))));
+  ok('과거의 조언: 응수 선택지에 숨김 카드 공개 항목', REACTS.length>=1 && REACTS[0].o.some(x=>/숨김 카드 공개/.test(x.label)), JSON.stringify(REACTS.map(x=>x.o.map(y=>y.label))));
   // 공개가 봉쇄된 전장(blockReveal 유닛)의 숨김 카드는 후보에 나오지 않는다
   fresh(); G.bfs[0].controller=1; G.bfs[0].hiddenCards.push({n:83,by:1,turn:1}); const blocker=unit(210,0,0); FX[210].blockReveal=true;
   REACT=(t,o)=>{ const h=o.find(x=>x.v&&x.v.hidden); return h?h.v:null; };
   await play(129,0); delete FX[210].blockReveal;
-  ok('과거에게 묻다: 공개 봉쇄 전장의 숨김 카드는 응수 후보 아님', G.bfs[0].hiddenCards.length===1 && !REACTS.some(x=>x.o.some(y=>y.v&&y.v.hidden)), '');
+  ok('과거의 조언: 공개 봉쇄 전장의 숨김 카드는 응수 후보 아님', G.bfs[0].hiddenCards.length===1 && !REACTS.some(x=>x.o.some(y=>y.v&&y.v.hidden)), '');
 
-  // ── 스프라이트 부름(94) 숨김 + 마법사냥꾼 간수(70): 주문은 해결되되 토큰만 불발 (#3977) ──
+  // ── 정령 부름(94) 숨김 + 마력척결관 간수(70): 주문은 해결되되 토큰만 불발 (#3977) ──
   fresh(); G.bfs[0].controller=0; G.bfs[0].hiddenCards.push({n:94,by:0,turn:1}); unit(70,1,1);
   await playHidden(0,0);
-  ok('스프라이트 부름+간수: 토큰 없음, 주문은 폐기장으로', !everyUnit().some(u=>u.isToken) && G.players[0].trash.includes(94) && G.bfs[0].hiddenCards.length===0, 'tokens='+everyUnit().filter(u=>u.isToken).length);
+  ok('정령 부름+간수: 토큰 없음, 주문은 폐기장으로', !everyUnit().some(u=>u.isToken) && G.players[0].trash.includes(94) && G.bfs[0].hiddenCards.length===0, 'tokens='+everyUnit().filter(u=>u.isToken).length);
   fresh(); G.bfs[0].controller=0; G.bfs[0].hiddenCards.push({n:94,by:0,turn:1});
   await playHidden(0,0);
-  ok('스프라이트 부름 숨김(간수 없음): 그 전장에 토큰', G.bfs[0].units.some(u=>u.isToken&&u.tokenName==='Sprite'), '');
+  ok('정령 부름 숨김(간수 없음): 그 전장에 토큰', G.bfs[0].units.some(u=>u.isToken&&u.tokenName==='Sprite'), '');
 
-  // ══ ② 이케시아 소나기(248) + 경계하는 보초(96): 격발 사이 클린업 → 종소리가 남은 격발보다 먼저 (#272) ══
+  // ══ ② 이케시아 폭우(248) + 감시하는 보초(96): 격발 사이 클린업 → 종소리가 남은 격발보다 먼저 (#272) ══
   fresh(); const sentry=unit(96,1,0); unit(219,1,0); const handAt=[];
-  PICK=(u,t)=>{ if(String(t).includes('소나기')) handAt.push(G.players[1].hand.length); return u===sentry; };
+  PICK=(u,t)=>{ if(String(t).includes('폭우')) handAt.push(G.players[1].hand.length); return u===sentry; };
   await play(248,0);
   // 에라타(2026-01-14): 보통 주문 — 낼 때 대상 6개를 전부 고르고(이 동안 드로우 없음) 해결 때 한꺼번에 피해 → 보초 사망으로 1장 드로우
   ok('소나기: 낼 때 대상 6개 선택(드로우 없음) → 해결 후 보초 사망으로 1장 드로우', handAt.length===6 && handAt.every(x=>x===0) && G.players[1].hand.length===1, JSON.stringify(handAt)+' hand='+G.players[1].hand.length);
@@ -89,7 +89,7 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await play(104,0); await resolve();
   ok('후퇴+빅토르: 손패로 돌아간 뒤 격발 → 신병 토큰 없음', G.players[0].hand.includes(117) && !everyUnit().some(u=>u.isToken), 'tokens='+everyUnit().filter(u=>u.isToken).length);
 
-  // ══ ③ 성취자 아바(107): '손패에서' 플레이 — 잉걸불 수도승(167) +2 없음, 유닛은 아바의 전장에 (#10475 · #1893) ══
+  // ══ ③ 열정 대원 에이바(107): '손패에서' 플레이 — 불꽃 수도승(167) +2 없음, 유닛은 아바의 전장에 (#10475 · #1893) ══
   fresh(); const ava=unit(107,0,0); const monk=unit(167,0,'base'); G.players[0].hand=[94]; CONFIRM=()=>true;
   await EXTRA_OPS.avaHidden({}, {p:0, unit:ava}, null);
   ok('아바: 주문 플레이 — 수도승 +2 없음, 토큰 생성, 주문 플레이 수 반영', monk.tempM.length===0 && everyUnit().some(u=>u.isToken) && G.players[0].playedCards===1 && G.players[0].hand.length===0,
@@ -98,7 +98,7 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await EXTRA_OPS.avaHidden({}, {p:0, unit:ava2}, null);
   ok('아바: 유닛은 아바의 전장(미통제)에 등장', find(0,199) && find(0,199).loc===0, 'loc='+(find(0,199)||{}).loc);
 
-  // ── 카이사 - 진화자(112) + 시간 왜곡(122): 자기 추방 → 재활용 없음 (#4642) ──
+  // ── 카이사 - 진화(112) + 시간 왜곡(122): 자기 추방 → 재활용 없음 (#4642) ──
   fresh(); G.players[0].points=11; G.players[0].trash=[122]; CONFIRM=()=>true;
   await EXTRA_OPS.kaisaTrashSpell({}, {p:0}, null);
   ok('카이사+시간 왜곡: 추방 상태 유지, 덱 밑 재활용 없음, 추가 턴은 부여', G.players[0].banish.includes(122) && !G.players[0].deck.includes(122) && (G.extraTurns||[]).includes(0), 'banish='+JSON.stringify(G.players[0].banish));
@@ -112,12 +112,12 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await play(128,0);
   ok('도전+다리우스: 적은 5 피해(7 아님), 다리우스는 해결 뒤 +2', en.dmg===5 && might(dar)===7, 'dmg='+en.dmg+' m='+might(dar));
 
-  // ── 맞대결(129): 이번 턴 토큰도 준비 등장 (#8620) ──
+  // ── 정면 승부(129): 이번 턴 토큰도 준비 등장 (#8620) ──
   fresh(); await play(129,0);
   await execOps([{op:'token',count:1,might:1,name:'Recruit',where:'base'}], {p:0});
-  ok('맞대결: 신병 토큰 준비 등장', everyUnit().some(u=>u.isToken&&u.ex===false), '');
+  ok('정면 승부: 신병 토큰 준비 등장', everyUnit().some(u=>u.isToken&&u.ex===false), '');
   fresh(); await execOps([{op:'token',count:1,might:1,name:'Recruit',where:'base'}], {p:0});
-  ok('(대조) 맞대결 없이는 탈진 등장', everyUnit().some(u=>u.isToken&&u.ex===true), '');
+  ok('(대조) 정면 승부 없이는 탈진 등장', everyUnit().some(u=>u.isToken&&u.ex===true), '');
 
   // ── 크라켄 사냥꾼(150): 버프 할인이 [가속] 힘까지 (#4836) ──
   fresh(); const buffed=unit(210,0,'base',{buff:3}); G.players[0].runes=[]; Object.keys(G.players[0].power).forEach(k=>G.players[0].power[k]=0);
@@ -130,7 +130,7 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await play(156,0);
   ok('파괴 공작: 취소해도 비유닛 카드 재활용', !G.players[1].hand.includes(129) && G.players[1].deck[G.players[1].deck.length-1]===129, 'hand='+JSON.stringify(G.players[1].hand));
 
-  // ── 눈부신 오로라(160): 플레이할 수 없는 유닛(잔혹한 후원자 208 — 처치할 아군 없음)은 추방 유지 (#6096) ──
+  // ── 눈부신 오로라(160): 플레이할 수 없는 유닛(잔인한 후원자 208 — 처치할 아군 없음)은 추방 유지 (#6096) ──
   fresh(); gear(160,0); G.players[0].deck.unshift(208);
   await endTurn();
   ok('오로라: 강제 추가 비용 불가 → 추방 상태, 기지 배치 없음', G.players[0].banish.includes(208) && !find(0,208), 'banish='+JSON.stringify(G.players[0].banish)+' onBoard='+!!find(0,208));
@@ -143,7 +143,7 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await EXTRA_OPS.teemoDefend({}, {p:0, unit:teemo2}, null);
   ok('티모: 굴절 거부 시 피해 없음', pred.dmg===0, 'dmg='+pred.dmg);
 
-  // ══ ⑥ 타곤의 정상(289): 종료 단계 진입 후 정복은 룬 준비 없음 (#5875) ══
+  // ══ ⑥ 타곤의 봉우리(289): 종료 단계 진입 후 정복은 룬 준비 없음 (#5875) ══
   fresh(); G._endingTurn={p:0};
   await EXTRA_OPS.targonConquer({}, {p:0}, null);
   ok('타곤: 종료 단계 중 정복 → 플래그 없음', !(TF().readyRunesAtEnd[0]), 'flag='+TF().readyRunesAtEnd[0]);
@@ -159,35 +159,35 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await resolve();
   ok('세트+히라나: 기존 버프는 소모 가능 → 드로우', CONFIRMS.some(t=>/버프를 소모/.test(t)) && G.players[0].hand.length===1, JSON.stringify(CONFIRMS));
 
-  // ══ ⑦ 질책(172): 장착 도구는 분리되어 기지로 (#1391 · #9348) ══
+  // ══ ⑦ 처벌(172): 장착 도구는 분리되어 기지로 (#1391 · #9348) ══
   fresh(); const eq=unit(210,1,0,{gear:[160],gearCtrl:[1]}); PICK=u=>u===eq;
   await play(172,0);
-  ok('질책: 유닛은 손패, 장착 도구는 B 기지에 준비 상태', G.players[1].hand.includes(210) && G.players[1].gear.some(g=>g.n===160&&!g.ex) && !G.players[1].hand.includes(160), 'gear='+JSON.stringify(G.players[1].gear));
+  ok('처벌: 유닛은 손패, 장착 도구는 B 기지에 준비 상태', G.players[1].hand.includes(210) && G.players[1].gear.some(g=>g.n===160&&!g.ex) && !G.players[1].hand.includes(160), 'gear='+JSON.stringify(G.players[1].gear));
   fresh(); const dy=unit(210,1,0,{gear:[160],gearCtrl:[1]});
   await killUnit(dy);
   ok('사망: 장착 도구 폐기 아님 → 기지로 회수', G.players[1].gear.some(g=>g.n===160) && !G.players[1].trash.includes(160), 'gear='+JSON.stringify(G.players[1].gear)+' trash='+JSON.stringify(G.players[1].trash));
-  // ── 빙의(203)로 뺏은 유닛의 사망 → 원 소유자 폐기장 (#2250) ──
+  // ── 지배(203)로 뺏은 유닛의 사망 → 원 소유자 폐기장 (#2250) ──
   fresh(); const stolen=unit(210,0,0,{owner:1});
   await killUnit(stolen);
-  ok('빙의 유닛 사망: 소유자(B) 폐기장', G.players[1].trash.includes(210) && !G.players[0].trash.includes(210), '');
+  ok('지배 유닛 사망: 소유자(B) 폐기장', G.players[1].trash.includes(210) && !G.players[0].trash.includes(210), '');
 
-  // ── 은밀한 추적자(177): 기지에서 탈진 상태여도 동행 (#2230) · 효과 이동(바람 타기)에도 동행 (#6119) ──
+  // ── 은밀한 추적자(177): 기지에서 탈진 상태여도 동행 (#2230) · 효과 이동(바람을 타고)에도 동행 (#6119) ──
   fresh(); const pur=unit(177,0,'base',{ex:true}); const mv=unit(210,0,'base'); CONFIRM=t=>/함께 이동/.test(t);
   await moveUnits(0,[mv],0);
   ok('추적자: 기지 출발·탈진 상태에서도 동행', pur.loc===0 && mv.loc===0, 'pur='+pur.loc);
   fresh(); const pur2=unit(177,0,0,{ex:true}); const rider=unit(210,0,0); CONFIRM=t=>/함께 이동/.test(t); PICK=u=>u===rider;
   OPT=(t,o)=>{ const m=o.find(x=>x.movement&&x.movement.uid===rider.uid&&x.movement.dest===1); return m?m.v:o[0].v; };
   await play(173,0);
-  ok('추적자: 바람 타기 효과 이동에도 동행', rider.loc===1 && pur2.loc===1, 'rider='+rider.loc+' pur='+pur2.loc);
+  ok('추적자: 바람을 타고 효과 이동에도 동행', rider.loc===1 && pur2.loc===1, 'rider='+rider.loc+' pur='+pur2.loc);
 
-  // ══ ⑧ 희미해지는 기억(180): 도구에 [일시적] → 통제자 개시 단계에 처치 (#6709) ══
+  // ══ ⑧ 바래지는 기억(180): 도구에 [일시적] → 통제자 개시 단계에 처치 (#6709) ══
   fresh(); gear(181,1); OPT=(t,o)=>{ const g=o.find(x=>/도구/.test(x.label)); return g?g.v:o[0].v; };
   await play(180,0);
-  ok('희미해지는 기억: 도구에 [일시적] 부여', G.players[1].gear[0] && G.players[1].gear[0].temporary===true, '');
+  ok('바래지는 기억: 도구에 [일시적] 부여', G.players[1].gear[0] && G.players[1].gear[0].temporary===true, '');
   G.turn=1; await startTurn();
-  ok('희미해지는 기억: B 개시 단계에 도구 처치', G.players[1].gear.length===0 && G.players[1].trash.includes(181), 'gear='+G.players[1].gear.length);
+  ok('바래지는 기억: B 개시 단계에 도구 처치', G.players[1].gear.length===0 && G.players[1].trash.includes(181), 'gear='+G.players[1].gear.length);
 
-  // ── 경이의 꾸러미(181): 장착 도구도 회수 (#10398) ──
+  // ── 불가사의한 꾸러미(181): 장착 도구도 회수 (#10398) ──
   fresh(); gear(181,0); const wearer=unit(210,0,'base',{gear:[160],gearCtrl:[0]}); OPT=(t,o)=>{ const g=o.find(x=>/장착 도구/.test(x.label)); return g?g.v:o[0].v; };
   await EXTRA_OPS.wonderBundle({}, {p:0}, null);
   ok('꾸러미: 장착 도구를 분리해 손패로', G.players[0].hand.includes(160) && wearer.gear.length===0, 'hand='+JSON.stringify(G.players[0].hand));
@@ -198,30 +198,30 @@ const powerSum=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   await play(187,0);
   ok('회오리바람: 상대가 내 포식자를 되돌림, 굴절 프롬프트 없음', G.players[0].hand.includes(161) && !onBoard(myPred) && !CONFIRMS.some(t=>/굴절/.test(t)), 'hand='+JSON.stringify(G.players[0].hand));
 
-  // ══ ⑨ 괴롭히는 밤(198) + 애니 - 고집쟁이(310): 밤이 먼저 폐기장에 → 애니가 회수 가능 (#6899) ══
+  // ══ ⑨ 해로윙(198) + 애니 - 고집쟁이(310): 밤이 먼저 폐기장에 → 애니가 회수 가능 (#6899) ══
   fresh(); G.players[0].trash=[310]; OPT=(t,o)=>{ if(/손패로 가져올/.test(t)){ const x=o.find(x=>x.v===198); return x?x.v:o[0].v; } return o[0].v; };
   await play(198,0);
-  ok('괴롭히는 밤+애니: 밤을 손패로 회수, 폐기장에 이중 사본 없음', find(0,310) && G.players[0].hand.includes(198) && !G.players[0].trash.includes(198), 'hand='+JSON.stringify(G.players[0].hand)+' trash='+JSON.stringify(G.players[0].trash));
+  ok('해로윙+애니: 밤을 손패로 회수, 폐기장에 이중 사본 없음', find(0,310) && G.players[0].hand.includes(198) && !G.players[0].trash.includes(198), 'hand='+JSON.stringify(G.players[0].hand)+' trash='+JSON.stringify(G.players[0].trash));
 
-  // ── 물결을 바꾸는 자(199) + 바일마우의 둥지(295): 부분 해결 (#7241) ──
+  // ── 파도전환자(199) + 썩은 아귀 둥지(295): 부분 해결 (#7241) ──
   fresh([295,297]); const lair=unit(210,0,0);
   OPT=(t,o)=>{ const m=o.find(x=>x.movement); return m?m.v:o[0].v; };
   await play(199,0);
-  ok('물결을 바꾸는 자: 자신은 둥지로 이동, 상대 유닛은 기지로 못 나감', find(0,199) && find(0,199).loc===0 && lair.loc===0, 'tt='+(find(0,199)||{}).loc+' u='+lair.loc);
+  ok('파도전환자: 자신은 둥지로 이동, 상대 유닛은 기지로 못 나감', find(0,199) && find(0,199).loc===0 && lair.loc===0, 'tt='+(find(0,199)||{}).loc+' u='+lair.loc);
 
-  // ══ ⑩ 시간선 역전(201): 시전자부터 번아웃 → 7:7이면 시전자가 진다 (#8457) ══
+  // ══ ⑩ 시간선 뒤집기(201): 시전자부터 번아웃 → 7:7이면 시전자가 진다 (#8457) ══
   fresh(); G.turn=1; G.actingPlayer=1; G.players[0].points=G.victory-1; G.players[1].points=G.victory-1;
   G.players[0].deck=[210,210,210]; G.players[1].deck=[210,210,210]; G.players[0].trash=[210,210,210,210,210]; G.players[1].trash=[210,210,210,210,210];
   await play(201,1);
-  ok('시간선 역전: B 시전 → B가 먼저 번아웃 → A 승리', G.winner===0, 'winner='+G.winner);
+  ok('시간선 뒤집기: B 시전 → B가 먼저 번아웃 → A 승리', G.winner===0, 'winner='+G.winner);
 
-  // ── 등을 맞대고(206): 아군 2기 미만이면 플레이 불가, 2기면 둘 다 +2 (#1462) ──
+  // ── 등에 등을 맞대고(206): 아군 2기 미만이면 플레이 불가, 2기면 둘 다 +2 (#1462) ──
   fresh(); unit(210,0,0);
   const r1=await play(206,0);
-  ok('등을 맞대고: 아군 1기 → 플레이 불가', r1===false && G.players[0].hand.includes(206), 'r='+r1);
+  ok('등에 등을 맞대고: 아군 1기 → 플레이 불가', r1===false && G.players[0].hand.includes(206), 'r='+r1);
   fresh(); const b1=unit(210,0,0), b2=unit(219,0,'base'); PICK=(u,t)=>/1\\/2/.test(t)?u===b1:u===b2;
   const r2=await play(206,0);
-  ok('등을 맞대고: 아군 2기 → 각각 +2', r2===true && might(b1)===4 && might(b2)===6, 'm='+might(b1)+','+might(b2));
+  ok('등에 등을 맞대고: 아군 2기 → 각각 +2', r2===true && might(b1)===4 && might(b2)===6, 'm='+might(b1)+','+might(b2));
 
   console.log(pass+'/'+(pass+fail)+' 통과'+(fail?' ← 실패 '+fail:''));
 })().catch(e=>console.log('CRASH',e.stack||e.message));
