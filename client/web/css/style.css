@@ -451,6 +451,10 @@ button { cursor:pointer; font-family:inherit; }
 .card-mini:hover { transform:scale(1.06); z-index:3; border-color:#d8c27a; }
 .card-mini.selected { border-color:#7fe07f; box-shadow:0 0 10px #7fe07f88; }
 .card-mini.exhausted { transform:rotate(90deg) scale(0.82); margin:0 14px; }
+/* 카드 확대 미리보기 (ui.js showMagnify) — 표시 전용 사본, 입력은 아래 카드로 통과 */
+#card-magnify { position:fixed; display:none; pointer-events:none; z-index:95; }
+#card-magnify .card-mini { position:absolute; left:0; top:0; pointer-events:none; transform-origin:center center;
+  border-color:#d8c27a; box-shadow:0 12px 32px rgba(0,0,0,.65); z-index:auto; cursor:default; }
 .card-mini.exhausted:hover { transform:rotate(90deg) scale(0.9); }
 /* 회전 후 실제로 보이는 크기만 차지하게 해 기지의 가로/세로 빈칸을 줄인다. */
 .base-zone > .card-mini { width:var(--base-card-width); height:var(--base-card-height); }

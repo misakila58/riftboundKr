@@ -158,7 +158,7 @@ function accessCodeOK(code) {
 
 const LIMITS = {
   MAX_DECKS: 20,
-  MAX_USERS: 5000,
+  MAX_USERS: 20000,         // 2026-10-01 5000→20000 (546명·주 200여 명 가입 — 몇 달 안에 차던 상한)
   MIN_PW: 8,
   MAX_PW: 128,
   BODY_BYTES: 64 * 1024,
@@ -169,10 +169,14 @@ const LIMITS = {
   MAX_SIDE: 10,             // 사이드덱 최대 (2026-07-24 대회 규정)
   MAX_ROOM_NAME: 24,
   MAX_CHAT: 200,
+  // 가입·로그인 속도 제한 (IP 기준 — 통신사 공유 IP·PC방·학교는 여러 사람이 한 IP를 쓴다, 2026-10-01 정리)
+  //   실패한 로그인 15분 20회 · 가입/로그인 전체 시도 15분 60회(해시 연산 보호) · 성공한 가입 1시간 10회
+  //   예전엔 아이디 중복·형식 오류 같은 실패한 가입도 '1시간 5회'를 깎아, 아이디 몇 번 바꿔 보면 1시간 막혔다
   AUTH_WINDOW_MS: 15 * 60 * 1000,
-  AUTH_MAX: 20,
+  AUTH_MAX: 20,             // 실패한 로그인만 센다
+  AUTH_TRY_MAX: 60,         // 가입·로그인 전체 시도 (scrypt 해시 부하 보호)
   REG_WINDOW_MS: 60 * 60 * 1000,
-  REG_MAX: 5,
+  REG_MAX: 10,              // 성공한 가입만 센다
   WS_MSG_WINDOW_MS: 10 * 1000,
   WS_MSG_MAX: 120,
   REJOIN_GRACE_MS: +process.env.RB_REJOIN_GRACE_MS || 60 * 1000,    // 소켓이 끊긴 좌석을 이만큼 비워 둔다 — 그 안에 같은 계정이 rejoin 하면 이어서 둔다 (2026-09-28: 2분 → 1분)
@@ -298,19 +302,30 @@ scryptAsync('dummy-password', DUMMY_SALT).then(h => DUMMY_HASH = h);
 
 // ---------- Rate limit ----------
 const rl = new Map();
+const RL_MAX_WINDOW_MS = 60 * 60 * 1000;   // 쓰는 창 중 가장 긴 것 (가입 1시간·리플레이 1시간)
 function rateHit(key, windowMs, max) {
-  const now = Date.now();
-  let arr = rl.get(key);
-  if (!arr) { arr = []; rl.set(key, arr); }
-  while (arr.length && arr[0] <= now - windowMs) arr.shift();
-  if (arr.length >= max) return false;
-  arr.push(now);
+  if (rateFull(key, windowMs, max)) return false;
+  rateAdd(key);
   return true;
 }
+// 세기만 하고 기록하지 않는다 — 성공·실패를 본 뒤에 rateAdd로 남길 때 쓴다
+function rateFull(key, windowMs, max) {
+  const now = Date.now();
+  const arr = rl.get(key);
+  if (!arr) return false;
+  while (arr.length && arr[0] <= now - windowMs) arr.shift();
+  return arr.length >= max;
+}
+function rateAdd(key) {
+  let arr = rl.get(key);
+  if (!arr) { arr = []; rl.set(key, arr); }
+  arr.push(Date.now());
+}
+function rateDenied(kind, ip) { console.log(`[속도 제한] ${kind} 거부 — ${ip}`); }
 setInterval(() => {
   const now = Date.now();
   for (const [k, arr] of rl) {
-    while (arr.length && arr[0] <= now - LIMITS.AUTH_WINDOW_MS) arr.shift();
+    while (arr.length && arr[0] <= now - RL_MAX_WINDOW_MS) arr.shift();   // 가장 긴 창(1시간) 기준 — 15분으로 지우면 '1시간' 제한이 15~25분 만에 풀렸다
     if (!arr.length) rl.delete(k);
   }
 }, 10 * 60 * 1000).unref?.();
@@ -672,9 +687,14 @@ const server = http.createServer(async (req, res) => {
   const ip = clientIp(req);
   try {
     if (p === '/api/register' && req.method === 'POST') {
-      if (!rateHit('auth:' + ip, LIMITS.AUTH_WINDOW_MS, LIMITS.AUTH_MAX) ||
-          !rateHit('reg:' + ip, LIMITS.REG_WINDOW_MS, LIMITS.REG_MAX))
+      if (!rateHit('authtry:' + ip, LIMITS.AUTH_WINDOW_MS, LIMITS.AUTH_TRY_MAX)) {
+        rateDenied('가입 시도', ip);
         return json(res, 429, { error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' });
+      }
+      if (rateFull('reg:' + ip, LIMITS.REG_WINDOW_MS, LIMITS.REG_MAX)) {
+        rateDenied('가입(성공 횟수)', ip);
+        return json(res, 429, { error: '이 네트워크에서 가입이 너무 많습니다. 1시간 뒤 다시 시도하세요.' });
+      }
       const { id, pw, invite } = await readBody(req);
       if (!accessCodeOK(invite)) return json(res, 403, { error: '접근 코드가 올바르지 않습니다. 방장에게 받은 코드를 입력하세요.' });
       if (typeof id !== 'string' || !ID_RE.test(id)) return json(res, 400, { error: '아이디는 2~16자 (한글/영문/숫자/_)' });
@@ -687,12 +707,15 @@ const server = http.createServer(async (req, res) => {
       try { hash = await hashPw(pw, salt); } catch (e) { return json(res, 503, { error: '서버가 혼잡합니다. 잠시 후 다시 시도하세요.' }); }
       if (db.users[id]) return json(res, 409, { error: '이미 존재하는 아이디입니다' });
       db.users[id] = { id, salt, hash, decks: [], created: Date.now() };
+      rateAdd('reg:' + ip);   // 성공한 가입만 센다
       saveDB();
       return json(res, 200, { token: issueToken(id), id });
     }
     if (p === '/api/login' && req.method === 'POST') {
-      if (!rateHit('auth:' + ip, LIMITS.AUTH_WINDOW_MS, LIMITS.AUTH_MAX))
+      if (rateFull('auth:' + ip, LIMITS.AUTH_WINDOW_MS, LIMITS.AUTH_MAX) || !rateHit('authtry:' + ip, LIMITS.AUTH_WINDOW_MS, LIMITS.AUTH_TRY_MAX)) {
+        rateDenied('로그인', ip);
         return json(res, 429, { error: '로그인 시도가 너무 많습니다. 15분 후 다시 시도하세요.' });
+      }
       const { id, pw } = await readBody(req);
       const u = (typeof id === 'string') ? db.users[id] : null;
       let ok = false;
@@ -701,7 +724,7 @@ const server = http.createServer(async (req, res) => {
         const h = await hashPw(typeof pw === 'string' ? pw : '', salt);
         ok = !!u && safeEqualHex(h, u.hash);
       } catch (e) { return json(res, 503, { error: '서버가 혼잡합니다. 잠시 후 다시 시도하세요.' }); }
-      if (!ok) return json(res, 401, { error: '아이디 또는 비밀번호가 올바르지 않습니다' });
+      if (!ok) { rateAdd('auth:' + ip); return json(res, 401, { error: '아이디 또는 비밀번호가 올바르지 않습니다' }); }   // 실패한 로그인만 센다
       return json(res, 200, { token: issueToken(id), id });
     }
 

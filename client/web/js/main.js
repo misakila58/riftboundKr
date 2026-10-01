@@ -2154,6 +2154,9 @@ function openSystemMenu(){
     value=>{ UI.setChatMuted(!value); UI.render(); });
 
   const display=section('화면 설정');
+  toggle(display,'setting-card-magnify','카드 확대 미리보기',
+    '게임 화면에서 카드에 마우스를 올리면 1.5배로 크게 보여 줍니다.',
+    UI.magnifyOn, value=>UI.setMagnify(value));
   if(typeof hasKoCardImages==='function' && hasKoCardImages()) toggle(display,'setting-card-img-ko','한글판 카드 이미지',
     '카드 그림을 한글판으로 표시합니다 (롤딱닷컴 카드 DB의 한글판 이미지). 끄면 영문판으로 표시합니다.',
     CARD_IMG_LANG==='ko', value=>{ setCardImgLang(value?'ko':'en'); try{ if(typeof G!=='undefined' && G) UI.render(); }catch(e){} });

@@ -1948,6 +1948,52 @@ function hoverPlace(x, y, w, h, vw, vh){
   if(top < m) top = m;
   return { left, top };
 }
+// ---------- 카드 확대 미리보기 (하스스톤식, 2026-10-01) ----------
+// 게임 화면의 카드(손패·보드·기지·전장·전설 칸 등)에 마우스를 올리면 그 카드를 1.5배로 겹쳐 띄운다.
+// 원래 요소를 복제해 그리므로 위력·피해·버프 표시도 그대로 보이고, 표시 전용이라 입력은 통과한다(pointer-events:none).
+// 눕힌(탈진) 카드는 세워서 보여 준다. 터치 기기는 hover가 없어 attachZoom 롱프레스를 그대로 쓴다. 설정 rb_card_magnify
+const MAGNIFY_SCALE = 1.5;
+UI.magnifyOn = (()=>{ try{ return localStorage.getItem('rb_card_magnify')!=='off'; }catch(e){ return true; } })();
+UI.setMagnify = function(on){ UI.magnifyOn=!!on; try{ localStorage.setItem('rb_card_magnify', on?'on':'off'); }catch(e){} if(!on) UI.hideMagnify(); };
+let _magSrc=null, _magHeld=false;
+UI.hideMagnify = function(){
+  _magSrc=null;
+  const box=document.getElementById('card-magnify');
+  if(box){ box.style.display='none'; box.textContent=''; }
+};
+function magnifyTarget(t){
+  const el = t && t.closest ? t.closest('.card-mini') : null;
+  if(!el || !el._card || el.classList.contains('card-back') || !el.closest('#game-screen')) return null;
+  return el;
+}
+function showMagnify(el){
+  const w=el.offsetWidth, h=el.offsetHeight;   // 회전·hover 확대 전의 레이아웃 크기
+  if(!w || !h){ UI.hideMagnify(); return; }
+  let box=document.getElementById('card-magnify');
+  if(!box){ box=document.createElement('div'); box.id='card-magnify'; document.body.appendChild(box); }
+  const clone=el.cloneNode(true);
+  clone.classList.remove('exhausted','selected','targetable','move-pending','dragging');
+  clone.removeAttribute('data-uid'); clone.removeAttribute('id');
+  Object.assign(clone.style, { width:w+'px', height:h+'px', transform:'none', scale:String(MAGNIFY_SCALE), margin:'0' });
+  box.textContent=''; box.appendChild(clone);
+  box.style.display='block'; box.style.width=w+'px'; box.style.height=h+'px';
+  // 원래 카드 한가운데에 겹치되, 커진 크기가 화면 밖으로 나가면 안쪽으로 민다 (손패는 위로 솟아오른다)
+  const r=el.getBoundingClientRect(), sp=fixedLayoutSpace(r.left+r.width/2, r.top+r.height/2);
+  const vw=w*MAGNIFY_SCALE, vh=h*MAGNIFY_SCALE, m=6;
+  const cx=Math.min(Math.max(sp.x, vw/2+m), sp.width-vw/2-m), cy=Math.min(Math.max(sp.y, vh/2+m), sp.height-vh/2-m);
+  box.style.left=(cx-w/2)+'px'; box.style.top=(cy-h/2)+'px';
+  _magSrc=el;
+}
+document.addEventListener('mouseover', e=>{
+  if(!UI.magnifyOn || _magHeld || window.matchMedia('(hover: none)').matches) return;
+  const el=magnifyTarget(e.target);
+  if(el===_magSrc) return;
+  if(el) showMagnify(el); else UI.hideMagnify();
+});
+document.addEventListener('mousemove', ()=>{ if(_magSrc && !_magSrc.isConnected) UI.hideMagnify(); }, { passive:true });   // 재렌더로 원래 카드가 사라짐
+document.addEventListener('mousedown', ()=>{ _magHeld=true; UI.hideMagnify(); }, true);   // 누르거나 끄는 동안(드래그 이동)은 가린다
+document.addEventListener('mouseup', ()=>{ _magHeld=false; }, true);
+document.addEventListener('wheel', ()=>UI.hideMagnify(), { passive:true, capture:true });
 UI.hideHover = function(){
   const el = document.getElementById('card-hover');
   if(el){ el.style.display = 'none'; el._for = null; }
