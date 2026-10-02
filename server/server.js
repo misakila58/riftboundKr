@@ -830,7 +830,7 @@ function persistRooms() {
     const out = [...rooms.values()].filter(r => r.started).map(r => ({
       id: r.id, name: r.name, seed: r.seed, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
       ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null, rankSeats: r.rankSeats || null, rankLeftAfterReport: !!r.rankLeftAfterReport,
-      password: r.password, startedAt: r.startedAt, seq: r.seq, log: r.log || [],
+      password: r.password, startedAt: r.startedAt, seq: r.seq, log: r.log || [], turnTimer: r.turnTimer, undo: r.undo,
       players: r.players.map(pl => ({ id: pl.id, deck: pl.deck, seat: pl.seat, ver: pl.ver })),
     }));
     const tmp = ROOMS_FILE + '.tmp';
@@ -932,15 +932,20 @@ function closeMismatchRoom(r, how) {
   console.log(`[버전 불일치] 방 ${r.id} 닫음 (${r.players.map(pl => pl.id + ' v' + pl.ver).join(' / ')}) — ${how}`);
   broadcastLobby(); persistRooms();
 }
+// 등급전은 턴 제한 시간 항상 켬·되돌리기 항상 끔 (방장이 고를 수 없다)
+function roomTurnTimer(r) { return r.ranked ? true : r.turnTimer !== false; }
+function roomUndo(r) { return !r.ranked && r.undo === true; }
 function roomInfo(r) {
   return { id: r.id, name: r.name, host: r.players[0]?.id, count: r.players.length, started: r.started, banRule: !!r.banRule,
-    allowSpectate: !!r.allowSpectate, spectators: (r.spectators || []).length, locked: !!r.password, format: r.format || 'bo1' };
+    allowSpectate: !!r.allowSpectate, spectators: (r.spectators || []).length, locked: !!r.password, format: r.format || 'bo1',
+    turnTimer: roomTurnTimer(r), undo: roomUndo(r) };
 }
 // 로비에 보이는 방: 아직 시작 전이거나, 시작했어도 관전을 허용한 방
 function lobbyRooms() { return [...rooms.values()].filter(r => !r.started || r.allowSpectate).map(roomInfo); }
 // 게임 시작 메시지 — 플레이어는 자기 좌석, 관전자는 좌석 -1
 function startMsg(r, seat) {
   return { t: 'start', seed: r.seed, yourSeat: seat, spectate: seat < 0, manual: r.manual !== false, banRule: !!r.banRule, format: r.format || 'bo1',
+    turnTimer: roomTurnTimer(r), undo: roomUndo(r),
     ranked: !!r.ranked, season: RANK_SEASON,
     // 사이드덱은 본인만 쓰는 비공개 정보 — 상대 클라이언트로 보내지 않는다. 등급·칭호는 공개 정보(아이디 옆 표시)
     players: r.players.map(q => ({ id: q.id, deck: deckWithoutSide(q.deck), rank: rankPublic(q.id, r.format) })) };
@@ -1184,6 +1189,7 @@ wss.on('connection', (ws, req) => {
         const password = (typeof m.password === 'string' && m.password.trim()) ? m.password.trim().slice(0, 32) : null;
         const r = { id: 'r' + (roomSeq++), name: nm, players: [], started: false, seq: 0, manual: m.manual !== false, banRule: wantBan,
           allowSpectate: m.allowSpectate === true, password, spectators: [], log: [],
+          turnTimer: m.turnTimer !== false, undo: m.undo === true,   // 방 옵션: 턴 제한 시간(기본 켬)·되돌리기(기본 끔) — 등급전은 startMsg에서 강제
           format: m.format === 'bo3' ? 'bo3' : 'bo1' };   // Bo3: 2선승, 게임 사이 사이드보딩·전장 교체·패자 선후공 선택 (클라가 진행)
         rooms.set(r.id, r);
         r.players.push({ ws, id: ws._userId, deck, seat: 0, ver: String(m.ver || '?').slice(0, 20) });
@@ -1286,6 +1292,7 @@ wss.on('connection', (ws, req) => {
         const r = ws._room; if (!r || !r.started) return;
         const me = r.players.find(pl => pl.ws === ws);
         if (!me) return;
+        if (m.t === 'act' && m.action && m.action.k === 'undo' && !roomUndo(r)) return;   // 되돌리기를 허용하지 않는 방(등급전 포함)
         const out = { t: m.t, seq: ++r.seq, from: ws._userId, seat: me.seat };
         if (!(m.t === 'act' && m.action && m.action.k === 'playmat')) me.lastAct = Date.now();   // 시작 단계 무효 판정용 (외형 정보는 제외)
         if (m.t === 'act') out.action = m.action;

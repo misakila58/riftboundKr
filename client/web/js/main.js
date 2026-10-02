@@ -1481,8 +1481,8 @@ function renderRooms(roomsArr){
   }
   roomsArr.forEach(r=>{
     const div=document.createElement('div'); div.className='deck-card room-card';
-    const flags=[r.format==='bo3'?'<span style="font-size:12px;color:#d8c27a" title="2선승 · 게임 사이 사이드보딩">Bo3</span>':'', r.banRule?'<span class="ban-flag" style="font-size:12px">🚫 밴 적용</span>':'', r.locked?'<span style="font-size:12px">🔒</span>':'', r.allowSpectate?'<span style="font-size:12px" title="관전 허용">👁'+(r.spectators?' '+r.spectators:'')+'</span>':''].filter(Boolean).join(' ');
-    div.innerHTML=`<h3>${esc(r.name)}${flags?' '+flags:''}</h3><div class="dk-info">방장: ${esc(r.host)} · ${r.started?'진행 중':r.count+'/2'}${r.banRule?' · 🚫 밴 적용 방 — 밴 카드가 없는 덱으로만 입장할 수 있습니다':''}${r.locked?' · 🔒 비밀번호 방':''}${r.allowSpectate?' · 👁 관전 가능':''}</div>`;
+    const flags=[r.format==='bo3'?'<span style="font-size:12px;color:#d8c27a" title="2선승 · 게임 사이 사이드보딩">Bo3</span>':'', r.banRule?'<span class="ban-flag" style="font-size:12px">🚫 밴 적용</span>':'', r.locked?'<span style="font-size:12px">🔒</span>':'', r.turnTimer===false?'<span style="font-size:12px" title="턴 제한 시간 없음">⏱ 없음</span>':'', r.undo?'<span style="font-size:12px" title="되돌리기 허용">↩</span>':'', r.allowSpectate?'<span style="font-size:12px" title="관전 허용">👁'+(r.spectators?' '+r.spectators:'')+'</span>':''].filter(Boolean).join(' ');
+    div.innerHTML=`<h3>${esc(r.name)}${flags?' '+flags:''}</h3><div class="dk-info">방장: ${esc(r.host)} · ${r.started?'진행 중':r.count+'/2'}${r.banRule?' · 🚫 밴 적용 방 — 밴 카드가 없는 덱으로만 입장할 수 있습니다':''}${r.locked?' · 🔒 비밀번호 방':''}${r.allowSpectate?' · 👁 관전 가능':''}${r.turnTimer===false?' · ⏱ 턴 제한 시간 없음':''}${r.undo?' · ↩ 되돌리기 허용':''}</div>`;
     const btns=document.createElement('div'); btns.className='dk-btns';
     // 비밀번호 방이면 먼저 묻는다 (prompt는 exe에서 안 뜨므로 모달)
     const withPw=async fn=>{ let password=''; if(r.locked){ password=await askPassword(r.name); if(password===null) return; } fn(password); };
@@ -1524,9 +1524,11 @@ function initLobby(){
     const allowSpectate=!!document.getElementById('lobby-spectate')?.checked;
     const password=(document.getElementById('lobby-password')?.value||'').trim();
     const format=document.getElementById('lobby-format')?.value==='bo3'?'bo3':'bo1';
+    const turnTimer=document.getElementById('lobby-timer')?.checked!==false;   // 턴 제한 시간 (기본 켬)
+    const undo=!!document.getElementById('lobby-undo')?.checked;              // 되돌리기 허용 (기본 끔)
     MATCH.rememberDeck(lobbySelectedDeck());
     UI.chatReset?.();
-    NET.send({t:'createRoom', ...pay, manual, banRule:ban, allowSpectate, password, format, name:document.getElementById('lobby-room-name').value.trim(), ver:NET.clientVersion()});
+    NET.send({t:'createRoom', ...pay, manual, banRule:ban, allowSpectate, password, format, turnTimer, undo, name:document.getElementById('lobby-room-name').value.trim(), ver:NET.clientVersion()});
   };
   NET.onRooms=renderRooms;
   NET.onSpectating=(room)=>{
@@ -2266,7 +2268,7 @@ async function startOnlineGame(m){
       return;
     }
     const nm=i=>{ const p=m.players[i]; if(!p) return '(퇴장)'; return (typeof RANK!=='undefined')?RANK.nameHTML(p.id, p.rank):esc(p.id); };
-    el.innerHTML=`${m.ranked?'🏆 등급전':'🌐 온라인'}(${modeLabel}${m.banRule?' · 🚫밴':''}${MATCH.active()?' · '+MATCH.label():''}) — 나: ${nm(NET.seat)} (${G.phase==='setup'&&!G.turnOrderDone?'선후공 결정 중':(G.turn===NET.seat?'선공':'후공')}) · 상대: ${nm(opp(NET.seat))}`;
+    el.innerHTML=`${m.ranked?'🏆 등급전':'🌐 온라인'}(${modeLabel}${m.banRule?' · 🚫밴':''}${m.turnTimer?' · ⏱1분':''}${m.undo?' · ↩되돌리기':''}${MATCH.active()?' · '+MATCH.label():''}) — 나: ${nm(NET.seat)} (${G.phase==='setup'&&!G.turnOrderDone?'선후공 결정 중':(G.turn===NET.seat?'선공':'후공')}) · 상대: ${nm(opp(NET.seat))}`;
   };
   UI.turnOrderDecided=()=>{ G.turnOrderDone=true; netInfo(); };
   netInfo();

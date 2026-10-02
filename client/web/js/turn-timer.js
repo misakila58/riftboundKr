@@ -5,7 +5,7 @@
 //    열린 선택은 기본값(패스·건너뛰기 우선, 없으면 첫 후보)으로 답하고, 결전이면 패스, 내 턴이면 턴 종료.
 // ② 첫 게임 시작 단계(주사위·선후공·사이드보딩·멀리건)에서 상대 선택을 1분 넘게 기다리면 "이번 경기를 무효로 할까요?"를 묻는다.
 //    확인하면 서버(voidMatch)가 상대의 마지막 응답 시각을 확인해 무효 처리(등급 미반영, 양쪽 로비로), 취소하면 1분 더 기다린 뒤 다시 묻는다.
-// 관전자는 밧줄만 본다. 봇전·핫시트·리플레이는 해당 없음. 재접속 따라잡기 중에는 멈춘다.
+// 턴 제한 시간은 방을 만들 때 고른다(기본 켬, 등급전은 항상 켬 — 서버 start.turnTimer). P2P 직결은 끔. 관전자는 밧줄만 본다. 봇전·핫시트·리플레이는 해당 없음. 재접속 따라잡기 중에는 멈춘다.
 const TURN_TIMER = {
   LIMIT_MS: 60 * 1000,      // 무행동 제한
   ROPE_MS: 20 * 1000,       // 밧줄이 보이는 마지막 구간
@@ -25,6 +25,7 @@ const TURN_TIMER = {
   if(typeof rc === 'function') NET._resolveChoice = function(m){ TURN_TIMER.bump(); return rc.apply(this, arguments); };
 })();
 
+// 턴 제한 시간은 방 설정(start.turnTimer — 등급전은 서버가 항상 켬)을 따른다
 function ttActive(){
   return typeof G !== 'undefined' && G && G.winner === null && NET.online
     && !NET.catchingUp && !NET.reconnecting && !NET.startPending
@@ -32,7 +33,7 @@ function ttActive(){
 }
 // 지금 누구의 응답을 기다리는가 (행동 단계에서만 — 시작 단계는 ②가 맡는다)
 function ttWaitingSeat(){
-  if(!ttActive() || !['action', 'ending'].includes(G.phase)) return null;
+  if(!ttActive() || !NET.lastStart?.turnTimer || !['action', 'ending'].includes(G.phase)) return null;
   const pend = Object.values(NET.pendingChoices || {});
   let seat = pend.length ? pend[0].p : (G.state === 'showdown' ? G.actingPlayer : G.turn);
   if(typeof seat !== 'number' || seat < 0) return null;
