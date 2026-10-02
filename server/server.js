@@ -829,7 +829,7 @@ function persistRooms() {
   roomsSaveTimer = setTimeout(() => {
     const out = [...rooms.values()].filter(r => r.started).map(r => ({
       id: r.id, name: r.name, seed: r.seed, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
-      ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null, rankSeats: r.rankSeats || null, rankLeftAfterReport: !!r.rankLeftAfterReport,
+      ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null, rankSeats: r.rankSeats || null, rankDecks: r.rankDecks || null, rankLeftAfterReport: !!r.rankLeftAfterReport,
       password: r.password, startedAt: r.startedAt, seq: r.seq, log: r.log || [], turnTimer: r.turnTimer, undo: r.undo,
       players: r.players.map(pl => ({ id: pl.id, deck: pl.deck, seat: pl.seat, ver: pl.ver })),
     }));
@@ -1034,11 +1034,27 @@ function rankSettle(r, winnerSeat, how) {
   const res = rankApply(r.format, w.id, l.id);
   if (!res) return;
   console.log(`[등급전] ${r.format} ${w.id}(승) vs ${l.id} — ${how}`);
+  rankRecordMatch(r, w, l, how);
   r.rankResultMsgs = {};   // 좌석별 결과 — 재접속(새로고침) 시 다시 보내 결과 창이 '반영 중'에 머물지 않게
   for (const pl of r.players) { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', ...res[pl.id], format: r.format, how }; if (pl.ws) wsSend(pl.ws, r.rankResultMsgs[pl.seat]); }
   // 보고를 마치고 먼저 떠난 쪽에게도 결과를 보낸다 (아직 접속 중이면)
   for (const [id, m] of Object.entries(res)) if (!r.players.some(pl => pl.id === id)) wss.clients.forEach(c => { if (c._authed && c._userId === id) wsSend(c, { t: 'rankUpdate', ...m, format: r.format, how }); });
   persistRooms();
+}
+// 덱별 승률 통계용 기록 — 확정된 등급전마다 한 줄(JSON)을 data/rank-matches.jsonl에 덧붙인다 (운영자 통계, 2026-10-02).
+// 덱은 매칭 때 등록한 덱 그대로(Bo3 게임 사이 사이드보딩 변화는 담지 않음). 분석: tools/rank-deck-stats.js
+const RANK_MATCHES_FILE = path.join(DATA_DIR, 'rank-matches.jsonl');
+function rankRecordMatch(r, w, l, how) {
+  try {
+    const decks = r.rankDecks || {};
+    const deckOf = seat => { const d = decks[seat] || (r.players.find(pl => pl.seat === seat) || {}).deck; return d ? { legendN: d.legendN, champN: d.champN, main: d.main, runes: d.runes, bfs: d.bfs, side: d.side || [] } : null; };
+    const verOf = seat => (r.players.find(pl => pl.seat === seat) || {}).ver || null;
+    const rec = { at: new Date().toISOString(), season: RANK_SEASON, format: r.format, room: r.id, how,
+      winner: { id: w.id, seat: w.seat, ver: verOf(w.seat), deck: deckOf(w.seat) },
+      loser:  { id: l.id, seat: l.seat, ver: verOf(l.seat), deck: deckOf(l.seat) },
+      match: r.match ? { wins: r.match.wins, game: r.match.game } : null };
+    fs.appendFile(RANK_MATCHES_FILE, JSON.stringify(rec) + '\n', () => {});
+  } catch (e) { console.log('등급전 기록 실패:', e.message); }
 }
 // 클라이언트 보고: 양쪽이 같은 승자를 말해야 반영 (락스텝이라 정상이면 항상 같다)
 function rankReport(ws, m) {
@@ -1102,6 +1118,7 @@ function rankStartMatch(format, a, b) {
   r.players.push({ ws: first.ws, id: first.id, deck: first.deck, seat: 0, ver: first.ver });
   r.players.push({ ws: second.ws, id: second.id, deck: second.deck, seat: 1, ver: second.ver });
   r.rankSeats = { 0: first.id, 1: second.id };   // 결과 정산용(떠난 뒤에도 좌석→아이디)
+  r.rankDecks = { 0: first.deck, 1: second.deck };   // 덱별 승률 기록용 (떠나거나 재시작해도 남게 — persistRooms가 저장)
   r.seed = crypto.randomBytes(4).readUInt32LE(0);
   rooms.set(r.id, r);
   r.players.forEach(pl => { pl.ws._room = r; wsSend(pl.ws, startMsg(r, pl.seat)); });
