@@ -758,6 +758,20 @@ body.mulligan-open #inspector {
 }
 .arcane-button.primary:not(:disabled)::before,
 .arcane-button.primary:not(:disabled)::after { animation-play-state:running; }
+/* 턴 종료(.end-turn-mode — ui.js updateButtons가 '턴 종료'일 때만 붙임)는 차분한 적갈색, 결전·응수 [패스]는 푸른색 그대로 */
+.act-btn.arcane-button.end-turn-mode { background:#3a1f22; border-color:#7a4b4b; color:#e3c7c4; }
+.act-btn.arcane-button.end-turn-mode.primary:not(:disabled) {
+  color:#fff4f0; border-color:#d8c27a;
+  background:radial-gradient(ellipse at 25% 5%,#c0645a 0%,#a24c45 30%,#7e3533 62%,#4a1d20 100%);
+  box-shadow:inset 0 1px 2px #f0b3a866,inset 0 -2px 7px #2a0b0ecc,0 2px 6px #0007;
+}
+.arcane-button.end-turn-mode::before, .arcane-button.end-turn-mode::after,
+.arcane-button.end-turn-mode .arcane-filaments { filter:hue-rotate(150deg) saturate(.75); }
+@media (hover:hover) {
+  .act-btn.arcane-button.end-turn-mode.primary:hover:not(:disabled) {
+    border-color:#f3e1a7; box-shadow:inset 0 1px 3px #f0b3a880,inset 0 -2px 7px #2a0b0ecc,0 0 10px #ff6a4a40;
+  }
+}
 @keyframes arcane-current {
   0% { transform:translate(-22%,12%) rotate(-8deg) scale(1.1); opacity:0; }
   18% { opacity:.3; }
@@ -1148,9 +1162,11 @@ body.modal-peeking #inspector { z-index:auto; }
 
 /* ══════════ 튜토리얼 패널 ══════════ */
 /* 데스크톱은 예전(430px·13px)의 2배 — 글자가 작아 잘 안 보인다는 요청(2026-09-14). 작은 화면은 mobile-popups.css가 따로 정한다. */
+/* 2026-10-02: 860px·80vh였을 때 긴 안내가 왼쪽 전장·손패까지 덮었다 → 폭·높이를 줄이고(넘치면 스크롤), 접기 버튼과
+   단계별 오른쪽 배치(tutorial.js TUT.place)를 더했다. 글자 크기는 2026-09-14 요청대로 크게 유지 */
 #tut-panel {
   position:absolute; top:12px; left:12px; z-index:90;
-  width:860px; max-width:60vw; max-height:80vh; overflow-y:auto;
+  width:720px; max-width:calc(50vw - 24px); max-height:56vh; overflow-y:auto;
   background:#141c30f2; border:2px solid #d8c27a; border-radius:20px;
   padding:28px 32px; box-shadow:0 8px 30px #000b; font-size:26px;
 }
@@ -1173,6 +1189,12 @@ body.modal-peeking #inspector { z-index:auto; }
 .tut-btn.primary { background:#6a4a1a; border-color:#d8c27a; color:#ffe6a0; font-weight:bold; }
 .tut-btn:hover { filter:brightness(1.2); }
 .tut-wait { color:#8a94b0; font-size:24px; flex:1; }
+.tut-fold { float:right; margin:-8px -10px 0 12px; padding:6px 14px; border-radius:12px; border:1px solid #4a6a9a;
+  background:#22335a; color:#cfd8ee; font-size:18px; cursor:pointer; }
+.tut-fold:hover { filter:brightness(1.2); }
+#tut-panel.collapsed { padding:14px 20px; overflow:hidden; }
+#tut-panel.collapsed .tut-head { margin-bottom:0; font-size:22px; }
+#tut-panel.collapsed :is(.tut-body,.tut-hint,.tut-btns) { display:none; }
 
 /* ══════════ 페이즈 시작 배너 ══════════ */
 #phase-banner {

@@ -3138,6 +3138,7 @@ function updateButtons(){
   const labelNode=[...btnEnd.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);
   if(labelNode) labelNode.textContent=endLabel;
   btnEnd.setAttribute('aria-label',endLabel);
+  btnEnd.classList.toggle('end-turn-mode', endLabel==='턴 종료');   // 턴 종료만 적갈색 (패스·확인은 푸른색)
   btnEnd.title=(reactionPass?'이 체인에 반응하지 않고 패스합니다':'턴 종료')+((reactionPass||canEndTurn)?' (Space)':'');
   btnEnd.classList.toggle('primary',reactionPass || canEndTurn);
   btnEnd.disabled=!reactionPass && !canEndTurn;

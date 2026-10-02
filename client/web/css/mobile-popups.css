@@ -120,6 +120,9 @@
   .tut-hint { margin-top:6px; padding:6px; font-size:11px; }
   .tut-btns { margin-top:8px; gap:6px; flex-wrap:wrap; }
   .tut-btn { min-height:40px; padding:6px 10px; font-size:12px; }
+  .tut-fold { font-size:11px; padding:4px 8px; margin:-4px -4px 0 6px; min-height:32px; }
+  #tut-panel.collapsed { padding:8px 10px; }
+  #tut-panel.collapsed .tut-head { font-size:13px; }
   #toast-area { top:8px; width:calc(100% - 16px); }
   .toast { max-width:100%; padding:7px 12px; font-size:12px; line-height:1.4; overflow-wrap:anywhere; }
   .pb-inner { max-width:100%; gap:8px; padding:10px 14px; flex-wrap:wrap; justify-content:center; }
