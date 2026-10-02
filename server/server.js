@@ -829,7 +829,7 @@ function persistRooms() {
   roomsSaveTimer = setTimeout(() => {
     const out = [...rooms.values()].filter(r => r.started).map(r => ({
       id: r.id, name: r.name, seed: r.seed, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
-      ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null, rankSeats: r.rankSeats || null, rankDecks: r.rankDecks || null, rankLeftAfterReport: !!r.rankLeftAfterReport,
+      ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null, rankSeats: r.rankSeats || null, rankDecks: r.rankDecks || null, rankGames: r.rankGames || null, rankLeftAfterReport: !!r.rankLeftAfterReport,
       password: r.password, startedAt: r.startedAt, seq: r.seq, log: r.log || [], turnTimer: r.turnTimer, undo: r.undo,
       players: r.players.map(pl => ({ id: pl.id, deck: pl.deck, seat: pl.seat, ver: pl.ver })),
     }));
@@ -1035,6 +1035,7 @@ function rankSettle(r, winnerSeat, how) {
   if (!res) return;
   console.log(`[등급전] ${r.format} ${w.id}(승) vs ${l.id} — ${how}`);
   rankRecordMatch(r, w, l, how);
+  setTimeout(() => rankFlushGames(r), 5000);   // 한쪽만 보고한 게임도 남긴다 (나간 쪽 등) — 상대 보고가 늦게 올 여유
   r.rankResultMsgs = {};   // 좌석별 결과 — 재접속(새로고침) 시 다시 보내 결과 창이 '반영 중'에 머물지 않게
   for (const pl of r.players) { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', ...res[pl.id], format: r.format, how }; if (pl.ws) wsSend(pl.ws, r.rankResultMsgs[pl.seat]); }
   // 보고를 마치고 먼저 떠난 쪽에게도 결과를 보낸다 (아직 접속 중이면)
@@ -1056,6 +1057,49 @@ function rankRecordMatch(r, w, l, how) {
     fs.appendFile(RANK_MATCHES_FILE, JSON.stringify(rec) + '\n', () => {});
   } catch (e) { console.log('등급전 기록 실패:', e.message); }
 }
+// ── 게임별 실제 덱(사이드보딩 반영)·매치업 기록 (운영 통계, 2026-10-02) ──
+// 각 클라이언트가 게임이 끝날 때 자기 실제 덱(main 40·선발·전장)을 보고한다(rank.js reportGame). 서버는 등록 덱(main+side)으로
+// 만들 수 있는 구성인지 확인하고(valid), 등록 main과의 차이를 사이드보딩 교체(in/out)로 계산해 data/rank-games.jsonl에 게임당 한 줄.
+const RANK_GAMES_FILE = path.join(DATA_DIR, 'rank-games.jsonl');
+function multisetDiff(a, b) { const m = new Map(); for (const x of a) m.set(x, (m.get(x) || 0) + 1); const out = []; for (const x of b) { const c = m.get(x) || 0; if (c > 0) m.set(x, c - 1); else out.push(x); } return out; }   // b에만 있는 것
+function rankGameReport(ws, m) {
+  const r = ws._room; if (!r || !r.ranked || !r.started) return;
+  const me = r.players.find(pl => pl.ws === ws); if (!me) return;
+  const game = Number(m.game); if (!Number.isInteger(game) || game < 1 || game > 3) return;
+  const d = m.deck || {}; const main = Array.isArray(d.main) ? d.main.map(Number).filter(Number.isInteger).slice(0, 60) : [];
+  const reg = (r.rankDecks || {})[me.seat] || me.deck || {};
+  const pool = [...(reg.main || []), ...(reg.side || [])];
+  const valid = main.length === 40 && multisetDiff(pool, main).length === 0 && main.includes(Number(d.champN)) && Number(d.legendN) === reg.legendN;
+  r.rankGames = r.rankGames || {};
+  const g = r.rankGames[game] = r.rankGames[game] || { reports: {}, written: false };
+  if (g.written || g.reports[me.seat]) return;
+  g.reports[me.seat] = { id: me.id, winner: (m.winner === 0 || m.winner === 1) ? m.winner : null, first: (m.first === 0 || m.first === 1) ? m.first : null,
+    turns: Number(m.turns) || 0, bf: Number.isInteger(m.bf) ? m.bf : null, legendN: Number(d.legendN) || null, champN: Number(d.champN) || null, main, valid };
+  if (g.reports[0] && g.reports[1]) rankWriteGame(r, game);
+  else persistRooms();
+}
+function rankWriteGame(r, game) {
+  const g = r.rankGames && r.rankGames[game]; if (!g || g.written) return;
+  g.written = true;
+  try {
+    const seats = r.rankSeats || {};
+    const side = seat => {
+      const rep = g.reports[seat], reg = (r.rankDecks || {})[seat] || {};
+      const main = rep && rep.valid ? rep.main : (reg.main || []);
+      return { seat, id: (rep && rep.id) || seats[seat] || null, reported: !!rep, valid: !!(rep && rep.valid),
+        legendN: (rep && rep.legendN) || reg.legendN || null, champN: (rep && rep.valid && rep.champN) || reg.champN || null, bf: rep ? rep.bf : null,
+        main, sbIn: multisetDiff(reg.main || [], main), sbOut: multisetDiff(main, reg.main || []) };
+    };
+    const reps = [g.reports[0], g.reports[1]].filter(Boolean);
+    const winner = reps.length && reps.every(x => x.winner === reps[0].winner) ? reps[0].winner : null;
+    const first = reps.map(x => x.first).find(x => x === 0 || x === 1);
+    const rec = { at: new Date().toISOString(), season: RANK_SEASON, format: r.format, room: r.id, game, winner, first: first === undefined ? null : first,
+      turns: Math.max(0, ...reps.map(x => x.turns || 0)), players: [side(0), side(1)] };
+    fs.appendFile(RANK_GAMES_FILE, JSON.stringify(rec) + '\n', () => {});
+  } catch (e) { console.log('등급전 게임 기록 실패:', e.message); }
+  persistRooms();
+}
+function rankFlushGames(r) { for (const k of Object.keys(r.rankGames || {})) { const g = r.rankGames[k]; if (!g.written && (g.reports[0] || g.reports[1])) rankWriteGame(r, Number(k)); } }
 // 클라이언트 보고: 양쪽이 같은 승자를 말해야 반영 (락스텝이라 정상이면 항상 같다)
 function rankReport(ws, m) {
   const r = ws._room; if (!r || !r.ranked || !r.started || r.rankSettled) return;
@@ -1280,6 +1324,7 @@ wss.on('connection', (ws, req) => {
       }
       case 'rankCancel': rankDequeue(ws); wsSend(ws, { t: 'rankCancelled' }); break;
       case 'rankResult': rankReport(ws, m); break;
+      case 'rankGame': rankGameReport(ws, m); break;
       case 'rejoin': {
         // 같은 계정의 빈 좌석이 있는 시작된 방을 찾아 소켓을 다시 붙이고, start + 그동안의 행동/선택 로그를 보내 따라잡게 한다
         if (ws._room) return;

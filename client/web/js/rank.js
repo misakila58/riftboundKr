@@ -137,11 +137,22 @@ const RANK = {
   // 단판: 게임 승자. Bo3: 매치가 끝났을 때(2승) 매치 승자. 양쪽 클라이언트가 같은 값을 보내야 서버가 반영한다.
   onGameEnd(winner){
     if(!RANK.isRankedGame() || NET.spectating) return;
+    RANK.reportGame(winner);
     const bo3 = typeof MATCH!=='undefined' && MATCH.active();
     if(bo3 && !MATCH.finished()) return;
     const w = bo3 ? (MATCH.wins[0]>MATCH.wins[1]?0:1) : winner;
     NET.send({t:'rankResult', winner:w});
     RANK._pendingLine=true;
+  },
+  // 게임마다 내가 실제로 쓴 덱(사이드보딩 반영)·선발·전장·선후공을 서버에 알린다 — 운영 통계(덱별·매치업별 사이드보딩) 전용, 등급 계산과 무관
+  reportGame(winner){
+    try{
+      if(typeof G==='undefined' || !G || !G.players || typeof NET.seat!=='number' || NET.seat<0) return;
+      const P=G.players[NET.seat], bf=(G.bfs||[]).find(b=>b.owner===NET.seat);
+      const game=(typeof MATCH!=='undefined' && MATCH.active()) ? (MATCH.game||1) : 1;
+      NET.send({t:'rankGame', game, winner, first:(G.firstPlayer===0||G.firstPlayer===1)?G.firstPlayer:null, turns:G.turnCount||0,
+        deck:{legendN:P.legendN, champN:P.champN, main:[...(P.deckList||[])]}, bf:bf?bf.n:null});
+    }catch(e){ console.warn('rank game report', e); }
   },
   // 승리 창 꾸미기: 재대결 버튼 제거, 등급 변화 자리 마련
   decorateVictory(box){

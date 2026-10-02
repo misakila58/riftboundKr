@@ -753,7 +753,7 @@ function powerPips(c){
 async function decideFirstPlayer(){
   if(G.quickStart && !NET.online){
     const first=Math.floor(rng()*2);
-    G.turn=first; G.actingPlayer=first;
+    G.turn=first; G.actingPlayer=first; G.firstPlayer=first;
     UI.log(`빠른 시작 — 선공: ${pname(first)}, 후공: ${pname(opp(first))}`, 'sys');
     if(typeof UI.turnOrderDecided==='function') UI.turnOrderDecided();
     UI.render();
@@ -769,7 +769,7 @@ async function decideFirstPlayer(){
       '이전 게임 패자 — 선공과 후공 중 선택하세요 (후공은 첫 전개 단계에 룬을 1개 더 전개)',
       [{label:'⚔️ 선공', v:'first'}, {label:'🛡️ 후공 (첫 전개 룬 +1)', v:'second'}]);
     const first = (v==='second') ? opp(w) : w;
-    G.turn=first; G.actingPlayer=first;
+    G.turn=first; G.actingPlayer=first; G.firstPlayer=first;
     UI.log(`${pname(w)}: ${v==='second'?'후공':'선공'} 선택 → 선공: ${pname(first)} — 후공은 첫 전개 단계에 룬을 1개 더 전개합니다`, 'sys');
     if(typeof UI.turnOrderDecided==='function') UI.turnOrderDecided();
     UI.render();
@@ -801,7 +801,7 @@ async function decideFirstPlayer(){
     `🎲 주사위 ${Math.max(d0,d1)} : ${Math.min(d0,d1)} 승리! 선공과 후공 중 선택하세요 (후공은 첫 전개 단계에 룬을 1개 더 전개)`,
     [{label:'⚔️ 선공', v:'first'}, {label:'🛡️ 후공 (첫 전개 룬 +1)', v:'second'}]);
   const first = (v==='second') ? opp(w) : w;
-  G.turn=first; G.actingPlayer=first;
+  G.turn=first; G.actingPlayer=first; G.firstPlayer=first;
   if(typeof UI.playMatchmakingProfileDropSound==='function') UI.playMatchmakingProfileDropSound();
   UI.log(`${instant?'즉시 무작위 결정':pname(w)+': '+(v==='second'?'후공':'선공')+' 선택'} → 선공: ${pname(first)} — 후공은 첫 전개 단계에 룬을 1개 더 전개합니다`, 'sys');
   if(instant) UI.toast(`즉시 결정 — 선공: ${pname(first)}, 후공: ${pname(opp(first))}`);
