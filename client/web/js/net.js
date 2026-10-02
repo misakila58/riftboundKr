@@ -105,7 +105,8 @@ NET.connect = function(){
         case 'opponentAway': NET.oppAway=true; UI.toast('상대 연결이 끊겼습니다 — 재접속을 기다립니다 (최대 1분)','warn'); UI.promptForState?.(); break;
         case 'opponentBack': NET.oppAway=false; UI.toast('상대가 다시 접속했습니다'); UI.promptForState?.(); break;
         case 'err': NET.onErr && NET.onErr(m.msg); break;
-        case 'opponentLeft': NET.oppAway=false; NET.clearRejoinFlag(); NET.onOppLeft && NET.onOppLeft(); break;
+        case 'opponentLeft': NET.oppAway=false; NET.clearRejoinFlag(); if(!NET.voided) NET.onOppLeft && NET.onOppLeft(); break;
+        case 'matchVoided': NET.voided=true; NET.clearRejoinFlag(); NET.onMatchVoided && NET.onMatchVoided(m); break;   // 시작 단계 무응답 무효 (turn-timer.js)
         case 'chat':
           if(NET._verIntercept(m)) break;    // 버전 확인 메시지는 채팅으로 표시하지 않고 가로챈다
           NET.onChat && NET.onChat(m);

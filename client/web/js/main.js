@@ -1541,6 +1541,12 @@ function initLobby(){
   };
   NET.onErr=(msg)=>UI.toast(msg,'warn');
   NET.onServerUpdate=()=>serverUpdateNotice();
+  // 시작 단계 무응답으로 경기가 무효 처리됨 (turn-timer.js 질문 → 서버 voidMatch) — 승패·리플레이 없이 로비로
+  NET.onMatchVoided=m=>{
+    alert(m.byMe ? '경기를 무효로 처리했습니다'+(NET.lastStart?.ranked?' (등급 미반영)':'')+'. 로비로 돌아갑니다.'
+                 : '시작 단계에서 1분 넘게 응답이 없어 상대가 경기를 무효로 처리했습니다'+(NET.lastStart?.ranked?' (등급 미반영)':'')+'. 로비로 돌아갑니다.');
+    location.reload();
+  };
   NET.onOppLeft=async()=>{
     if(NET.spectating){ alert('플레이어가 나가서 게임이 끝났습니다. 로비로 돌아갑니다.'); location.reload(); return; }
     if(typeof STATS!=='undefined' && typeof NET!=='undefined') STATS.gameEnd(NET.seat, 'left');

@@ -183,6 +183,7 @@ const LIMITS = {
   REJOIN_GRACE_RESTART_MS: 60 * 1000,   // 서버 재시작 뒤 복원된 방도 같은 유예 (클라이언트는 몇 초 안에 재접속을 시도한다)
   CONCURRENT_HASH: 4,
   AUTH_DEADLINE_MS: 15000,
+  VOID_IDLE_MS: +process.env.RB_VOID_IDLE_MS || 50 * 1000,  // 시작 단계 무효 요청: 상대가 이만큼 아무것도 보내지 않았어야 한다 (클라이언트는 1분 기다린 뒤 묻는다)
 };
 
 // ---------- 카드 검증 데이터 로드 ----------
@@ -302,6 +303,7 @@ scryptAsync('dummy-password', DUMMY_SALT).then(h => DUMMY_HASH = h);
 
 // ---------- Rate limit ----------
 const rl = new Map();
+const SERVER_STARTED_AT = Date.now();   // 재시작 뒤 복원된 방은 마지막 응답 시각을 모르므로 여기서부터 잰다
 const RL_MAX_WINDOW_MS = 60 * 60 * 1000;   // 쓰는 창 중 가장 긴 것 (가입 1시간·리플레이 1시간)
 function rateHit(key, windowMs, max) {
   if (rateFull(key, windowMs, max)) return false;
@@ -902,6 +904,25 @@ try {
   }
 } catch (e) { console.log('방 복원 실패:', e.message); }
 // 두 플레이어의 앱 버전이 다른 방은 락스텝이 어긋나 진행할 수 없다 (이 검사 이전 서버가 만든 등급전 방만 해당 — 일반 방은 joinRoom, 등급전은 rankMatchmake가 막는다)
+// 경기 무효: 등급 미반영으로 확정하고 방을 닫는다. 요청자는 matchVoided만, 상대는 matchVoided 뒤 opponentLeft(옛 클라이언트용 — 새 클라이언트는 무시)
+function voidRoom(r, by, how) {
+  if (r.ranked && !r.rankSettled) {
+    r.rankSettled = true; r.rankResultMsgs = {};
+    r.players.forEach(pl => { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', void: true, format: r.format, how }; });
+    console.log(`[등급전] ${r.id} 무효 — ${how} (요청 ${by.id})`);
+  }
+  rooms.delete(r.id);
+  r.players.forEach(pl => {
+    clearTimeout(pl.timer);
+    if (!pl.ws) return;
+    pl.ws._room = null;
+    if (r.rankResultMsgs && r.rankResultMsgs[pl.seat]) wsSend(pl.ws, r.rankResultMsgs[pl.seat]);
+    wsSend(pl.ws, { t: 'matchVoided', how, byMe: pl === by });
+    if (pl !== by) wsSend(pl.ws, { t: 'opponentLeft' });
+  });
+  (r.spectators || []).forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); });
+  broadcastLobby(); persistRooms();
+}
 function roomVerMismatch(r) { return r.players.length === 2 && String(r.players[0].ver) !== String(r.players[1].ver); }
 function closeMismatchRoom(r, how) {
   if (r.ranked && !r.rankSettled) { r.rankSettled = true; r.rankResultMsgs = {}; r.players.forEach(pl => { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', void: true, format: r.format, how }; }); }
@@ -1266,6 +1287,7 @@ wss.on('connection', (ws, req) => {
         const me = r.players.find(pl => pl.ws === ws);
         if (!me) return;
         const out = { t: m.t, seq: ++r.seq, from: ws._userId, seat: me.seat };
+        if (!(m.t === 'act' && m.action && m.action.k === 'playmat')) me.lastAct = Date.now();   // 시작 단계 무효 판정용 (외형 정보는 제외)
         if (m.t === 'act') out.action = m.action;
         else { out.id = m.id; out.data = m.data; }
         // 등급전: 항복은 서버가 직접 본다 (Bo3는 매치 승자가 정해질 때 클라이언트 보고로 확정하므로 단판만 즉시)
@@ -1274,6 +1296,19 @@ wss.on('connection', (ws, req) => {
         r.log = r.log || []; r.log.push(out); if (r.log.length > 20000) r.log.splice(0, r.log.length - 20000);   // 관전 따라잡기 + 재접속 재생용 (모든 방)
         persistRooms();
         roomEveryone(r).forEach(pl => wsSend(pl.ws, out));
+        break;
+      }
+      case 'voidMatch': {
+        // 첫 게임 시작 단계에서 상대가 1분 넘게 응답이 없을 때 남은 쪽이 경기를 무효로 한다 (turn-timer.js 질문, 2026-10-02)
+        const r = ws._room; if (!r || !r.started || ws._spectator) return;
+        const me = r.players.find(pl => pl.ws === ws); if (!me) return;
+        const opp = r.players.find(pl => pl !== me);
+        if (r.rankSettled) return wsSend(ws, { t: 'err', msg: '이미 결과가 정해진 경기입니다' });
+        if ((r.log || []).some(o => o.t === 'act' && o.action && o.action.k === 'endTurn'))
+          return wsSend(ws, { t: 'err', msg: '이미 진행된 경기는 무효로 할 수 없습니다' });
+        const quiet = Date.now() - Math.max((opp && opp.lastAct) || 0, r.startedAt || 0, SERVER_STARTED_AT);
+        if (opp && quiet < LIMITS.VOID_IDLE_MS) return wsSend(ws, { t: 'err', msg: '상대가 방금 응답했습니다 — 조금 더 기다려 주세요' });
+        voidRoom(r, me, '상대 무응답(시작 단계)');
         break;
       }
       case 'chat': {

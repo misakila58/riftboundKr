@@ -156,7 +156,7 @@ const RANK = {
   },
   onUpdate(m){
     let text;
-    if(m.void){ text='⚠ 양쪽 결과 보고가 달라 등급에 반영하지 않았습니다.'; }
+    if(m.void){ text=m.how ? `⚠ 등급에 반영하지 않았습니다 (${esc(m.how)}).` : '⚠ 양쪽 결과 보고가 달라 등급에 반영하지 않았습니다.'; }
     else {
       const d=m.after-m.before, sign=d>=0?'+':'';
       const tierMsg = m.tierBefore && m.tier && m.tierBefore.label!==m.tier.label ? ` · ${m.tierBefore.label} → <b>${esc(m.tier.label)}</b>` : ` · ${esc(m.tier.label)}`;
