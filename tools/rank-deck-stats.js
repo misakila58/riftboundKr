@@ -7,6 +7,8 @@
 //   node tools/rank-deck-stats.js --matches a.jsonl --games b.jsonl   받아 둔 파일 분석
 //   옵션: --format bo1|bo3 · --min N(덱·플레이어 최소 판수, 기본 3) · --top N(기본 10) · --since YYYY-MM-DD
 //         --lists(상위 덱 카드 목록) · --matchup "카이사"(이 이름이 들어간 아키타입의 매치업만)
+//         --casual(일반 온라인 방 게임만) · --all(등급전+일반) — 기본은 등급전 게임만
+// 게임 기록에는 낸 카드·멀리건·최종 점수·게임 시간·시간 초과, 매치 기록에는 MMR 전후·대기 시간·매치 시간·재접속 횟수도 있다.
 'use strict';
 const fs = require('fs'), path = require('path'), os = require('os'), { execFileSync } = require('child_process');
 const { cardName } = require('./replay-extract.js');
@@ -28,7 +30,9 @@ function load(file, remote) {
     .filter(r => r && (!fmt || r.format === fmt) && (!since || r.at >= since));
 }
 const matches = load(opt('--matches', null), 'rank-matches.jsonl').filter(r => r.winner && r.loser);
-const games = load(opt('--games', null), 'rank-games.jsonl').filter(r => r.players && r.players.length === 2);
+const casualOnly = args.includes('--casual'), allGames = args.includes('--all');
+const games = load(opt('--games', null), 'rank-games.jsonl').filter(r => r.players && r.players.length === 2)
+  .filter(r => allGames ? true : casualOnly ? r.ranked === false : r.ranked !== false);
 
 const short = n => cardName(n).split(' - ')[0];
 const archOf = (legendN, champN) => legendN ? `${short(legendN)} / ${cardName(champN)}` : '(알 수 없음)';
@@ -39,7 +43,15 @@ const cardsTxt = ns => { const c = {}; for (const n of ns) c[n] = (c[n] || 0) + 
 const span = rs => rs.length ? `${rs[0].at.slice(0, 10)} ~ ${rs[rs.length - 1].at.slice(0, 10)}` : '';
 
 // ══ 1. 매치 단위 (등록 덱) ══
-console.log(`■ 매치 ${matches.length}개${fmt ? ' (' + fmt + ')' : ''} ${span(matches)} · 게임 ${games.length}개 ${span(games)}`);
+console.log(`■ 매치 ${matches.length}개${fmt ? ' (' + fmt + ')' : ''} ${span(matches)} · 게임 ${games.length}개${casualOnly ? '(일반 방)' : allGames ? '(등급전+일반)' : '(등급전)'} ${span(games)}`);
+{ const mm = matches.filter(r => r.mmr && r.mmr.winner && r.mmr.loser);
+  if (mm.length) {
+    const avg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length) : 0;
+    const upset = mm.filter(r => r.mmr.winner[0] < r.mmr.loser[0]).length;
+    const waits = matches.flatMap(r => r.waitSec ? [r.waitSec.winner, r.waitSec.loser] : []).filter(Number.isFinite);
+    const durs = matches.map(r => r.durationSec).filter(Number.isFinite);
+    console.log(`  MMR 차이 평균 ${avg(mm.map(r => Math.abs(r.mmr.winner[0] - r.mmr.loser[0]))).toFixed(0)} · 낮은 MMR 쪽 승리 ${pct(upset, mm.length)} · 매칭 대기 평균 ${avg(waits).toFixed(0)}초 · 매치 시간 평균 ${(avg(durs) / 60).toFixed(1)}분 · 재접속 있었던 매치 ${matches.filter(r => r.rejoins > 0).length}개`);
+  } }
 if (matches.length) {
   const tally = keyOf => { const m = new Map(); for (const r of matches) for (const [s, won] of [[r.winner, 1], [r.loser, 0]]) { const k = keyOf(s); if (k == null) continue; let e = m.get(k); if (!e) m.set(k, e = { key: k, g: 0, w: 0, players: new Set(), deck: s.deck, arch: {} }); e.g++; e.w += won; e.players.add(s.id); const a = arch(s.deck); e.arch[a] = (e.arch[a] || 0) + 1; } return [...m.values()]; };
   console.log('\n■ 아키타입(전설 / 선발 챔피언)별 매치 승률 — 등록 덱 기준');
@@ -84,6 +96,31 @@ if (games.length) {
     const base = mu.get(e.k);
     console.log(`  ${e.k} — 교체한 게임 ${e.g}개 승률 ${pct(e.w, e.g)} (이 매치업 전체 ${base ? pct(base.w, base.g) : '-'})`);
     for (const [plan, p] of [...e.plans.entries()].sort((a, b) => b[1].g - a[1].g).slice(0, 5)) console.log(`     ${p.g}게임 ${pct(p.w, p.g).padStart(6)} · ${plan} · ${[...p.who].join(', ')}`);
+  }
+  // 선후공 · 멀리건 · 게임 길이 · 시간 초과
+  const known = rows.filter(x => x.won !== null);
+  const fr = known.filter(x => x.first === true), mul = {};
+  for (const x of known) { const k = x.me.mulligan; if (k === null || k === undefined) continue; (mul[k] = mul[k] || { g: 0, w: 0 }); mul[k].g++; mul[k].w += x.won; }
+  const secs = games.map(g => g.secs).filter(Number.isFinite), turns = games.map(g => g.turns).filter(Number.isFinite);
+  const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+  const tos = rows.filter(x => (x.me.timeouts || 0) > 0);
+  console.log(`
+■ 게임 일반: 선공 승률 ${pct(fr.reduce((s, x) => s + x.won, 0), fr.length)} (${fr.length}게임) · 평균 ${(avg(secs) / 60).toFixed(1)}분 · ${avg(turns).toFixed(1)}턴 · 시간 초과 나온 좌석 ${tos.length}건(그 좌석 승률 ${pct(tos.reduce((s, x) => s + (x.won || 0), 0), tos.length)})`);
+  console.log('  멀리건 장수별 승률: ' + Object.entries(mul).sort().map(([k, e]) => `${k}장 ${e.g}게임 ${pct(e.w, e.g)}`).join(' · '));
+
+  // 카드별: 낸 게임 수(플레이율)와 낸 게임의 승률 — 그 카드를 넣은 덱 기준
+  const cs = new Map();
+  for (const x of known) {
+    const inDeck = new Set(x.me.main || []), playedSet = new Set(x.me.played || []);
+    for (const n of inDeck) { let e = cs.get(n); if (!e) cs.set(n, e = { n, deck: 0, deckW: 0, played: 0, playedW: 0 }); e.deck++; e.deckW += x.won; if (playedSet.has(n)) { e.played++; e.playedW += x.won; } }
+  }
+  const cards = [...cs.values()].filter(e => e.played >= MIN);
+  if (cards.length) {
+    console.log(`
+■ 카드별 (낸 게임 ${MIN}회 이상) — 덱에 넣은 게임 · 실제로 낸 비율 · 낸 게임 승률 / 안 낸 게임 승률`);
+    const line = e => `  ${cardName(e.n).padEnd(16)} 덱 ${String(e.deck).padStart(3)}게임 · 냄 ${pct(e.played, e.deck).padStart(6)} · 낸 게임 ${pct(e.playedW, e.played).padStart(6)} / 안 낸 게임 ${pct(e.deckW - e.playedW, e.deck - e.played).padStart(6)}`;
+    console.log('  ▲ 낸 게임 승률 상위'); for (const e of [...cards].sort((a, b) => b.playedW / b.played - a.playedW / a.played || b.played - a.played).slice(0, TOP)) console.log(line(e));
+    console.log('  ▼ 낸 게임 승률 하위'); for (const e of [...cards].sort((a, b) => a.playedW / a.played - b.playedW / b.played || b.played - a.played).slice(0, TOP)) console.log(line(e));
   }
   const bad = games.filter(g => g.players.some(p => p.reported && !p.valid)).length, partial = games.filter(g => g.players.some(p => !p.reported)).length;
   if (bad || partial) console.log(`\n  (참고: 보고한 덱이 등록 덱(메인+사이드)과 맞지 않아 등록 덱으로 대신한 게임 ${bad}개 · 한쪽만 보고한 게임 ${partial}개)`);

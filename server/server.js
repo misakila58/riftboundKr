@@ -829,7 +829,7 @@ function persistRooms() {
   roomsSaveTimer = setTimeout(() => {
     const out = [...rooms.values()].filter(r => r.started).map(r => ({
       id: r.id, name: r.name, seed: r.seed, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
-      ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null, rankSeats: r.rankSeats || null, rankDecks: r.rankDecks || null, rankGames: r.rankGames || null, rankLeftAfterReport: !!r.rankLeftAfterReport,
+      ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null, rankSeats: r.rankSeats || null, rankDecks: r.rankDecks || null, rankGames: r.rankGames || null, rankMeta: r.rankMeta || null, rejoins: r.rejoins || 0, rankLeftAfterReport: !!r.rankLeftAfterReport,
       password: r.password, startedAt: r.startedAt, seq: r.seq, log: r.log || [], turnTimer: r.turnTimer, undo: r.undo,
       players: r.players.map(pl => ({ id: pl.id, deck: pl.deck, seat: pl.seat, ver: pl.ver })),
     }));
@@ -1034,7 +1034,7 @@ function rankSettle(r, winnerSeat, how) {
   const res = rankApply(r.format, w.id, l.id);
   if (!res) return;
   console.log(`[등급전] ${r.format} ${w.id}(승) vs ${l.id} — ${how}`);
-  rankRecordMatch(r, w, l, how);
+  rankRecordMatch(r, w, l, how, res);
   setTimeout(() => rankFlushGames(r), 5000);   // 한쪽만 보고한 게임도 남긴다 (나간 쪽 등) — 상대 보고가 늦게 올 여유
   r.rankResultMsgs = {};   // 좌석별 결과 — 재접속(새로고침) 시 다시 보내 결과 창이 '반영 중'에 머물지 않게
   for (const pl of r.players) { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', ...res[pl.id], format: r.format, how }; if (pl.ws) wsSend(pl.ws, r.rankResultMsgs[pl.seat]); }
@@ -1045,7 +1045,7 @@ function rankSettle(r, winnerSeat, how) {
 // 덱별 승률 통계용 기록 — 확정된 등급전마다 한 줄(JSON)을 data/rank-matches.jsonl에 덧붙인다 (운영자 통계, 2026-10-02).
 // 덱은 매칭 때 등록한 덱 그대로(Bo3 게임 사이 사이드보딩 변화는 담지 않음). 분석: tools/rank-deck-stats.js
 const RANK_MATCHES_FILE = path.join(DATA_DIR, 'rank-matches.jsonl');
-function rankRecordMatch(r, w, l, how) {
+function rankRecordMatch(r, w, l, how, res) {
   try {
     const decks = r.rankDecks || {};
     const deckOf = seat => { const d = decks[seat] || (r.players.find(pl => pl.seat === seat) || {}).deck; return d ? { legendN: d.legendN, champN: d.champN, main: d.main, runes: d.runes, bfs: d.bfs, side: d.side || [] } : null; };
@@ -1053,7 +1053,11 @@ function rankRecordMatch(r, w, l, how) {
     const rec = { at: new Date().toISOString(), season: RANK_SEASON, format: r.format, room: r.id, how,
       winner: { id: w.id, seat: w.seat, ver: verOf(w.seat), deck: deckOf(w.seat) },
       loser:  { id: l.id, seat: l.seat, ver: verOf(l.seat), deck: deckOf(l.seat) },
-      match: r.match ? { wins: r.match.wins, game: r.match.game } : null };
+      match: r.match ? { wins: r.match.wins, game: r.match.game } : null,
+      mmr: res ? { winner: [res[w.id]?.before ?? null, res[w.id]?.after ?? null], loser: [res[l.id]?.before ?? null, res[l.id]?.after ?? null] } : null,
+      waitSec: r.rankMeta ? { winner: r.rankMeta.waitSec[w.seat], loser: r.rankMeta.waitSec[l.seat] } : null,
+      durationSec: r.startedAt ? Math.round((Date.now() - r.startedAt) / 1000) : null, rejoins: r.rejoins || 0,
+      games: Object.keys(r.rankGames || {}).length };
     fs.appendFile(RANK_MATCHES_FILE, JSON.stringify(rec) + '\n', () => {});
   } catch (e) { console.log('등급전 기록 실패:', e.message); }
 }
@@ -1063,43 +1067,56 @@ function rankRecordMatch(r, w, l, how) {
 const RANK_GAMES_FILE = path.join(DATA_DIR, 'rank-games.jsonl');
 function multisetDiff(a, b) { const m = new Map(); for (const x of a) m.set(x, (m.get(x) || 0) + 1); const out = []; for (const x of b) { const c = m.get(x) || 0; if (c > 0) m.set(x, c - 1); else out.push(x); } return out; }   // b에만 있는 것
 function rankGameReport(ws, m) {
-  const r = ws._room; if (!r || !r.ranked || !r.started) return;
+  const r = ws._room; if (!r || !r.started || r.players.length !== 2 && !r.ranked) return;   // 등급전 + 일반 온라인 방(2인)
   const me = r.players.find(pl => pl.ws === ws); if (!me) return;
   const game = Number(m.game); if (!Number.isInteger(game) || game < 1 || game > 3) return;
+  const seed = Number.isFinite(Number(m.seed)) ? Number(m.seed) : null;
+  const key = r.ranked ? String(game) : game + ':' + seed;   // 일반 방은 '다시 하기'로 같은 번호가 반복되므로 시드로 구분
   const d = m.deck || {}; const main = Array.isArray(d.main) ? d.main.map(Number).filter(Number.isInteger).slice(0, 60) : [];
   const reg = (r.rankDecks || {})[me.seat] || me.deck || {};
   const pool = [...(reg.main || []), ...(reg.side || [])];
   const valid = main.length === 40 && multisetDiff(pool, main).length === 0 && main.includes(Number(d.champN)) && Number(d.legendN) === reg.legendN;
   r.rankGames = r.rankGames || {};
-  const g = r.rankGames[game] = r.rankGames[game] || { reports: {}, written: false };
+  const g = r.rankGames[key] = r.rankGames[key] || { reports: {}, written: false, game, seed };
   if (g.written || g.reports[me.seat]) return;
+  const nums = (a, max) => Array.isArray(a) ? a.map(Number).filter(Number.isInteger).slice(0, max) : [];
   g.reports[me.seat] = { id: me.id, winner: (m.winner === 0 || m.winner === 1) ? m.winner : null, first: (m.first === 0 || m.first === 1) ? m.first : null,
-    turns: Number(m.turns) || 0, bf: Number.isInteger(m.bf) ? m.bf : null, legendN: Number(d.legendN) || null, champN: Number(d.champN) || null, main, valid };
-  if (g.reports[0] && g.reports[1]) rankWriteGame(r, game);
+    turns: Number(m.turns) || 0, bf: Number.isInteger(m.bf) ? m.bf : null, legendN: Number(d.legendN) || null, champN: Number(d.champN) || null, main, valid,
+    played: nums(m.played, 200), mulligan: Number.isInteger(m.mulligan) ? m.mulligan : null, points: nums(m.points, 2),
+    secs: Number.isFinite(Number(m.secs)) ? Math.round(Number(m.secs)) : null, timeouts: Number(m.timeouts) || 0 };
+  if (g.reports[0] && g.reports[1]) rankWriteGame(r, key);
   else persistRooms();
 }
-function rankWriteGame(r, game) {
-  const g = r.rankGames && r.rankGames[game]; if (!g || g.written) return;
+function rankWriteGame(r, key) {
+  const g = r.rankGames && r.rankGames[key]; if (!g || g.written) return;
+  const game = g.game || Number(key) || 1;
   g.written = true;
   try {
     const seats = r.rankSeats || {};
     const side = seat => {
-      const rep = g.reports[seat], reg = (r.rankDecks || {})[seat] || {};
-      const main = rep && rep.valid ? rep.main : (reg.main || []);
+      const rep = g.reports[seat], reg = (r.rankDecks || {})[seat] || (r.players.find(pl => pl.seat === seat) || {}).deck || {};
+      // 등급전은 등록 덱으로 만들 수 없는 보고를 믿지 않는다. 일반 방은 '다시 하기'로 덱을 바꿀 수 있어 보고 덱(40장)을 쓴다
+      const main = rep && rep.main.length === 40 && (rep.valid || !r.ranked) ? rep.main : (reg.main || []);
       return { seat, id: (rep && rep.id) || seats[seat] || null, reported: !!rep, valid: !!(rep && rep.valid),
         legendN: (rep && rep.legendN) || reg.legendN || null, champN: (rep && rep.valid && rep.champN) || reg.champN || null, bf: rep ? rep.bf : null,
-        main, sbIn: multisetDiff(reg.main || [], main), sbOut: multisetDiff(main, reg.main || []) };
+        main, sbIn: multisetDiff(reg.main || [], main), sbOut: multisetDiff(main, reg.main || []),
+        played: rep ? rep.played : null, mulligan: rep ? rep.mulligan : null, timeouts: rep ? rep.timeouts : null };
     };
     const reps = [g.reports[0], g.reports[1]].filter(Boolean);
     const winner = reps.length && reps.every(x => x.winner === reps[0].winner) ? reps[0].winner : null;
     const first = reps.map(x => x.first).find(x => x === 0 || x === 1);
-    const rec = { at: new Date().toISOString(), season: RANK_SEASON, format: r.format, room: r.id, game, winner, first: first === undefined ? null : first,
-      turns: Math.max(0, ...reps.map(x => x.turns || 0)), players: [side(0), side(1)] };
+    const pts = reps.map(x => x.points).find(p => p && p.length === 2) || null;
+    const secs = reps.map(x => x.secs).filter(x => Number.isFinite(x));
+    const rec = { at: new Date().toISOString(), season: RANK_SEASON, ranked: !!r.ranked, format: r.format, room: r.id, game, seed: g.seed ?? null,
+      opts: r.ranked ? null : { manual: r.manual !== false, banRule: !!r.banRule, turnTimer: r.turnTimer !== false, undo: !!r.undo },
+      winner, first: first === undefined ? null : first, turns: Math.max(0, ...reps.map(x => x.turns || 0)), points: pts,
+      secs: secs.length ? Math.max(...secs) : null, players: [side(0), side(1)] };
     fs.appendFile(RANK_GAMES_FILE, JSON.stringify(rec) + '\n', () => {});
   } catch (e) { console.log('등급전 게임 기록 실패:', e.message); }
+  g.reports = {};   // 기록했으니 덱 목록은 방 저장 파일에서 덜어 낸다
   persistRooms();
 }
-function rankFlushGames(r) { for (const k of Object.keys(r.rankGames || {})) { const g = r.rankGames[k]; if (!g.written && (g.reports[0] || g.reports[1])) rankWriteGame(r, Number(k)); } }
+function rankFlushGames(r) { for (const k of Object.keys(r.rankGames || {})) { const g = r.rankGames[k]; if (!g.written && (g.reports[0] || g.reports[1])) rankWriteGame(r, k); } }
 // 클라이언트 보고: 양쪽이 같은 승자를 말해야 반영 (락스텝이라 정상이면 항상 같다)
 function rankReport(ws, m) {
   const r = ws._room; if (!r || !r.ranked || !r.started || r.rankSettled) return;
@@ -1163,6 +1180,7 @@ function rankStartMatch(format, a, b) {
   r.players.push({ ws: second.ws, id: second.id, deck: second.deck, seat: 1, ver: second.ver });
   r.rankSeats = { 0: first.id, 1: second.id };   // 결과 정산용(떠난 뒤에도 좌석→아이디)
   r.rankDecks = { 0: first.deck, 1: second.deck };   // 덱별 승률 기록용 (떠나거나 재시작해도 남게 — persistRooms가 저장)
+  r.rankMeta = { waitSec: [Math.round((Date.now() - first.since) / 1000), Math.round((Date.now() - second.since) / 1000)], mmr: [Math.round(first.mmr), Math.round(second.mmr)] };   // 매칭 대기·시작 MMR (통계)
   r.seed = crypto.randomBytes(4).readUInt32LE(0);
   rooms.set(r.id, r);
   r.players.forEach(pl => { pl.ws._room = r; wsSend(pl.ws, startMsg(r, pl.seat)); });
@@ -1317,7 +1335,7 @@ wss.on('connection', (ws, req) => {
         if (deckBannedNs(deck).length) return wsSend(ws, { t: 'err', msg: '🚫 등급전은 밴 리스트가 적용됩니다 — 밴 카드가 없는 덱으로 참가하세요' });
         rankDequeue(ws);
         const s = rankOf(db.users[ws._userId])[format];
-        rankQueue[format].push({ ws, id: ws._userId, deck, mmr: s.mmr, since: Date.now(), ver: String(m.ver || '?').slice(0, 20) });
+        rankQueue[format].push({ ws, id: ws._userId, deck, mmr: s.mmr, since: Date.now(), ver: String(m.ver || '?').slice(0, 20) });   // since: 매칭 대기 시간 통계에도 씀
         wsSend(ws, { t: 'rankQueued', format, mmr: Math.round(s.mmr), waiting: rankQueue[format].length, live: rankLive(), webVer: WEB_VERSION || null });
         rankMatchmake();
         break;
@@ -1341,6 +1359,7 @@ wss.on('connection', (ws, req) => {
           return wsSend(ws, { t: 'rejoinNone' });
         }
         clearTimeout(seat.timer); seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false;
+        found.rejoins = (found.rejoins || 0) + 1;   // 통계: 매치 중 재접속 횟수
         wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true });
         (found.log || []).forEach(o => wsSend(ws, o));
         wsSend(ws, { t: 'rejoinDone' });

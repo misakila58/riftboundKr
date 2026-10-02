@@ -136,8 +136,9 @@ const RANK = {
   // ── 결과 보고 (승리 창에서) ──
   // 단판: 게임 승자. Bo3: 매치가 끝났을 때(2승) 매치 승자. 양쪽 클라이언트가 같은 값을 보내야 서버가 반영한다.
   onGameEnd(winner){
+    // 게임별 덱·매치업 통계는 서버 온라인 대전 전체(등급전·일반 방)를 보고한다 — P2P 직결·관전은 제외
+    if(NET.online && !NET.spectating && !(typeof P2P!=='undefined' && P2P.active)) RANK.reportGame(winner);
     if(!RANK.isRankedGame() || NET.spectating) return;
-    RANK.reportGame(winner);
     const bo3 = typeof MATCH!=='undefined' && MATCH.active();
     if(bo3 && !MATCH.finished()) return;
     const w = bo3 ? (MATCH.wins[0]>MATCH.wins[1]?0:1) : winner;
@@ -150,10 +151,15 @@ const RANK = {
       if(typeof G==='undefined' || !G || !G.players || typeof NET.seat!=='number' || NET.seat<0) return;
       const P=G.players[NET.seat], bf=(G.bfs||[]).find(b=>b.owner===NET.seat);
       const game=(typeof MATCH!=='undefined' && MATCH.active()) ? (MATCH.game||1) : 1;
-      NET.send({t:'rankGame', game, winner, first:(G.firstPlayer===0||G.firstPlayer===1)?G.firstPlayer:null, turns:G.turnCount||0,
-        deck:{legendN:P.legendN, champN:P.champN, main:[...(P.deckList||[])]}, bf:bf?bf.n:null});
+      NET.send({t:'rankGame', game, seed:NET.lastStart?.seed??null, winner, first:(G.firstPlayer===0||G.firstPlayer===1)?G.firstPlayer:null, turns:G.turnCount||0,
+        deck:{legendN:P.legendN, champN:P.champN, main:[...(P.deckList||[])]}, bf:bf?bf.n:null,
+        played:[...(P.playLog||[])], mulligan:P.mulliganCount??null, points:G.players.map(x=>x.points||0),
+        secs:RANK._gameT0?Math.round((Date.now()-RANK._gameT0)/1000):null,
+        timeouts:(typeof TURN_TIMER!=='undefined'?TURN_TIMER.timeouts||0:0)});
     }catch(e){ console.warn('rank game report', e); }
   },
+  // 게임 시작 시각·시간 초과 횟수 초기화 (통계 보고용)
+  _gameT0:0,
   // 승리 창 꾸미기: 재대결 버튼 제거, 등급 변화 자리 마련
   decorateVictory(box){
     if(!RANK.isRankedGame()) return;
@@ -238,3 +244,6 @@ const RANK = {
     NET.onRankUpdate=m=>RANK.onUpdate(m);
   },
 };
+
+// 게임마다 시작 시각·턴 제한 시간 초과 횟수를 새로 센다 (통계 보고용 — rankGame의 secs·timeouts)
+(function(){ if(typeof newGame!=='function') return; const ng=newGame; newGame=function(){ RANK._gameT0=Date.now(); if(typeof TURN_TIMER!=='undefined') TURN_TIMER.timeouts=0; return ng.apply(this, arguments); }; })();

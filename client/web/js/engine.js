@@ -849,10 +849,12 @@ async function mulliganPhase(){
 }
 function applyMulligan(p, idxs){
   const P=G.players[p];
+  P.mulliganCount=0;   // 통계 보고용
   if(!P.hand.length) return;
   if(idxs && idxs.length){
     const back=[];
     [...idxs].slice(0,2).sort((a,b)=>b-a).forEach(i=>{ const n=P.hand.splice(i,1)[0]; if(n!==undefined) back.push(n); });
+    P.mulliganCount=back.length;
     for(let i=0;i<back.length;i++) drawCard(p, true);  // 먼저 뽑고
     P.deck.push(...shuffle(back));                     // 빼둔 카드는 무작위 순서로 덱 맨 아래로 (공식: 동시 재활용은 무작위)
     UI.log(`${pname(p)} 멀리건: ${back.length}장 교체 (덱 아래로 재활용)`, 'sys');
@@ -1698,6 +1700,7 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
   if(pre && pre._units) pre._units.forEach(u=>noteSpellPick(p, u, 'spell'));
 
   UI.log(`${pname(p)} 「${c.ko}」 ${opts.fromTrash?'폐기장에서 ':''}플레이`, 'p'+p);
+  (P.playLog||(P.playLog=[])).push(c.n);   // 이번 게임에 실제로 낸 카드 (등급전·온라인 통계 보고용)
 
   // 유닛·도구는 응수 창 없이 즉시 해결된다 — 공식 규칙 333.1.c: "자원을 추가하는 능력·유닛·도구는
   // 확정(Finalize) 즉시 해결되며 Execute 단계로 진행하지 않는다" ([반응]으로 응수 불가).

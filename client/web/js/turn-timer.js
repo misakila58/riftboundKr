@@ -139,7 +139,7 @@ function ttTick(){
   if(seat === null || seat !== NET.seat || NET.spectating || remain > 0) return;
   // 내 시간이 다 됐다 — 차례가 넘어갈 때까지 자동 진행
   T.forced = true;
-  if(!T._toasted){ T._toasted = true; UI.toast('⏰ 시간 초과 — 자동으로 진행합니다', 'warn'); }
+  if(!T._toasted){ T._toasted = true; T.timeouts = (T.timeouts || 0) + 1; UI.toast('⏰ 시간 초과 — 자동으로 진행합니다', 'warn'); }
   if(now - T._forcedAt < 700) return;
   T._forcedAt = now;
   try{ ttForceStep(); }catch(e){ console.warn('turn timeout step', e); }
