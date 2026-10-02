@@ -105,7 +105,9 @@ setInterval(()=>{
 async function botShowdown(){
   const p=BOT.seat;
   botSync();
+  const guard = typeof polRealGuard==='function' ? polRealGuard('결전 응수') : null;
   const act = await POLICY.showdownAction(p);
+  if(guard && guard.check()) return;   // 판단 중 실제 상태가 바뀌어 되돌렸다 — 다음 틱에 다시 판단
   if(act){
     const ok = await POLICY.runAction(p, act);
     if(ok !== false) return;      // 우선권 전환은 엔진(playCardFromHand/activateAbility)이 처리

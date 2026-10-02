@@ -4076,7 +4076,42 @@ POLICY.runAction = async function(p, act){
 // 한 번 호출에 행동 하나. true를 반환하면 더 할 게 없다는 뜻(호출자가 턴을 끝낸다).
 // 실패한 행동은 같은 턴에 다시 고르지 않는다 — 엔진이 토스트만 띄우고 끝나는 수가 있어
 // 재시도 차단이 없으면 봇이 그 자리에서 무한히 맴돈다.
+// ── 판단 단계 무결성 가드 (2026-10-02) ──
+// 판단(턴 플랜·다음 행동 고르기)은 샌드박스에서만 엔진을 돌리고 실제 G는 바꾸지 않아야 한다. 그런데 봇전에서
+// 봇 턴 시작 직후 사람 유닛이 로그 없이 피해 12를 입고 실제 정리 단계에서 죽은 제보가 있었다(리플레이로 확인, 헤드리스 재현은 안 됨 —
+// 리플레이는 '_' 내부 필드가 빠져 있다). 판단 전 실제 G를 지문·사본으로 남기고, 판단 뒤 달라졌으면 사본으로 되돌린다.
+// 바뀐 경로는 콘솔에 남겨 다음 제보 때 원인을 바로 짚을 수 있게 한다. 시뮬레이션 안(SIM)과 온라인에서는 쓰지 않는다.
+POLICY.guardStats = { checks:0, restored:0 };
+function polJson(g){ try{ return JSON.stringify(g,(k,v)=>typeof v==='function'?undefined:(v instanceof Map?[...v]:v instanceof Set?[...v]:v)); }catch(e){ return null; } }
+function polDiffPaths(a,b,path='',out=[]){
+  if(out.length>=12) return out;
+  if(JSON.stringify(a)===JSON.stringify(b)) return out;
+  if(!a||!b||typeof a!=='object'||typeof b!=='object'){ out.push(path+': '+JSON.stringify(a)?.slice(0,80)+' → '+JSON.stringify(b)?.slice(0,80)); return out; }
+  for(const k of new Set([...Object.keys(a),...Object.keys(b)])) polDiffPaths(a[k],b[k],path+'.'+k,out);
+  return out;
+}
+function polRealGuard(label){
+  if(typeof SIM==='undefined' || SIM.active || SIM.lock || (typeof NET!=='undefined' && NET.online) || typeof cloneG!=='function' || !G) return null;
+  const json=polJson(G); if(json===null) return null;
+  const backup=cloneG(G), uid=(typeof UID!=='undefined'?UID:null), rng=(typeof _rngState!=='undefined'?_rngState:null);
+  return {
+    // 달라졌으면 되돌리고 true
+    check(){
+      POLICY.guardStats.checks++;
+      const now=polJson(G);
+      if(now===json) return false;
+      let paths=[]; try{ paths=polDiffPaths(JSON.parse(json),JSON.parse(now)); }catch(e){}
+      console.warn('[BOT] '+label+' 판단 중 실제 게임 상태가 바뀌어 되돌립니다', paths);
+      G=backup; if(uid!==null) UID=uid; if(rng!==null) _rngState=rng;
+      POLICY.guardStats.restored++;
+      try{ UI.log('⚠ 봇 판단 중 게임 상태가 잘못 바뀐 것을 감지해 되돌렸습니다 (제보해 주시면 원인 분석에 도움이 됩니다)', 'sys'); UI.render(); }catch(e){}
+      return true;
+    }
+  };
+}
+
 POLICY.step = async function(p, ctx, onPlay){
+  const guard = polRealGuard('턴 행동');
   // 탐색 티어: 턴 시작에 '턴 플랜'(기본/공격 자제/집중 공격)을 롤아웃으로 비교해 하나 고른다.
   // 예전의 행동 단위 탐색은 롤아웃 미래 평가를 현재 정적 평가와 비교하는 결함(조기 턴 종료 남발)과
   // 평가 노이즈에 묻히는 미시 후보 문제로 두 번 실패했다 — 플랜 단위 비교는 기준선(기본 플랜)도
@@ -4085,6 +4120,7 @@ POLICY.step = async function(p, ctx, onPlay){
   // another macro search first or suppress the moves it has actually verified.
   if(!polKaisaDeck(p) && polTier().think && POLICY.ab.think && !POLICY.race(p).oppLethal) await polPlanTurn(p, ctx);
   let act = await POLICY.nextAction(p, ctx);
+  if(guard && guard.check()) return false;   // 되돌렸다 — 고른 행동은 오염된 상태 기준이므로 버리고 다음 틱에 다시 판단
   if(!act || act.kind === 'end') return true;
   const P = G.players[p];
   const hadHand = P.hand.length, hadChamp = P.champInZone;
