@@ -54,7 +54,7 @@ NET.api = async function(path, method='GET', body){
   return data;
 };
 NET.requiresAccess=false; // 서버가 접근 코드를 요구하는지 (health에서 갱신)
-NET.register = (id,pw,invite)=>NET.api('/api/register','POST',{id,pw,invite}).then(d=>{NET.token=d.token;NET.userId=d.id;localStorage.setItem('rb_token',d.token);localStorage.setItem('rb_id',d.id);return d;});
+NET.register = (id,pw,invite,email)=>NET.api('/api/register','POST',{id,pw,invite,email}).then(d=>{NET.token=d.token;NET.userId=d.id;localStorage.setItem('rb_token',d.token);localStorage.setItem('rb_id',d.id);return d;});
 NET.login    = (id,pw)=>NET.api('/api/login','POST',{id,pw}).then(d=>{NET.token=d.token;NET.userId=d.id;localStorage.setItem('rb_token',d.token);localStorage.setItem('rb_id',d.id);return d;});
 NET.getDecks = ()=>NET.api('/api/decks').then(d=>d.decks);
 NET.saveDeck = (deck,index)=>NET.api('/api/decks','POST',{deck,index}).then(d=>d.decks);

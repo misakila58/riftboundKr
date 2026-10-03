@@ -86,6 +86,14 @@ button { cursor:pointer; font-family:inherit; }
 
 /* 로그인 */
 .login-box { max-width:320px; margin:0 auto; display:flex; flex-direction:column; gap:8px; }
+.login-email-note { font-size:12px; line-height:1.5; color:#c9d2e4; text-align:left; background:#1a2440; border-left:3px solid #d8c27a; padding:6px 8px; border-radius:6px; }
+.login-email-note b { color:#ffd27a; }
+.acct-email { margin-top:10px; padding:10px; border-radius:8px; background:#141c30; border:1px solid #2c3a5c; font-size:13px; }
+.acct-email h4 { margin:0 0 6px; }
+.acct-email .row { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+.acct-email input { flex:1; min-width:160px; padding:6px 8px; border-radius:6px; border:1px solid #3a4a70; background:#0e1626; color:#e8e6e0; }
+.acct-email .warn { color:#ffd27a; }
+.acct-email .ok { color:#8fe08f; }
 .login-box input {
   padding:11px; border-radius:8px; border:1px solid #3a4a70;
   background:#0e1626; color:#e8e6e0; font-size:15px;

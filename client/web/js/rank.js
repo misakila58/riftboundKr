@@ -199,7 +199,9 @@ const RANK = {
         <div class="hint" style="font-size:12px;margin-top:4px">현재 시즌 ${esc(me.season)}. 시즌이 끝나면 최종 등급이 칭호로 남습니다.</div>
       </div>
       <h4 style="margin:10px 0 4px">🎖 시즌 칭호 (장착하면 상대에게 아이디 옆에 보입니다)</h4>
-      <div id="profile-titles"></div>`;
+      <div id="profile-titles"></div>
+      <div id="profile-email"></div>`;
+    if(typeof ACCOUNT!=='undefined') ACCOUNT.renderSection(box.querySelector('#profile-email'));
     const list=box.querySelector('#profile-titles');
     const opt=(key,label,html)=>{ const l=document.createElement('label'); l.className='profile-title-opt'; l.innerHTML=`<input type="radio" name="profile-title" value="${esc(key)}"${key===cur?' checked':''}> ${html}`; list.appendChild(l); };
     opt('', '없음', '<span>칭호 없음</span>');

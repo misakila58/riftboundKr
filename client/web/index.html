@@ -111,12 +111,16 @@
     <div class="login-box">
       <input id="login-id" type="text" placeholder="아이디 (2~16자)" maxlength="16">
       <input id="login-pw" type="password" placeholder="비밀번호 (8자 이상)" maxlength="128">
+      <input id="login-email" type="email" placeholder="이메일 (선택 · 회원가입할 때만)" maxlength="254" autocomplete="email">
+      <div class="login-email-note">📧 이메일은 <b>선택</b>입니다. 이메일을 등록하지 않으면 <b>비밀번호를 잃어버렸을 때 계정을 찾을 수 없습니다.</b> 가입 뒤에도 프로필 관리에서 등록할 수 있습니다.</div>
+      <div id="login-email-off" class="login-email-note" style="display:none">⚠ 이 서버는 아직 이메일 발송이 준비되지 않아 지금은 이메일을 등록할 수 없습니다.</div>
       <label class="save-id"><input type="checkbox" id="login-save-id" checked> 아이디 저장</label>
       <div class="login-btns">
         <button id="btn-login" class="big-btn">로그인</button>
         <button id="btn-register" class="mid-btn">회원가입</button>
       </div>
       <div id="login-msg" class="err-msg"></div>
+      <button id="btn-forgot-pw" class="link-btn" type="button">비밀번호를 잊으셨나요?</button>
     </div>
     <p class="hint">계정마다 덱을 <b>20개</b>까지 저장할 수 있습니다.<br>
     <button id="btn-change-server" class="link-btn">← 다른 서버에 접속</button></p>

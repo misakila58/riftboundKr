@@ -339,6 +339,58 @@ function rateAdd(key) {
   if (!arr) { arr = []; rl.set(key, arr); }
   arr.push(Date.now());
 }
+// ══════════ 이메일 (선택 기입 · 인증 · 비밀번호 찾기, 2026-10-03) ══════════
+// 발송 설정: data/mail.json {host, port, secure, user, pass, from} 또는 환경변수 MAIL_HOST/MAIL_PORT/MAIL_SECURE/MAIL_USER/MAIL_PASS/MAIL_FROM.
+// 설정이 없으면 이메일 기능은 꺼진 상태로 안내만 한다. RB_MAIL_DEBUG=1이면 실제로 보내지 않고 data/mail-outbox.jsonl에 남긴다(테스트용).
+// 계정 필드: email(인증된 주소) · emailPending{addr, codeHash, exp, tries} · pwReset{codeHash, exp, tries}. 코드는 6자리·15분·5회까지.
+const MAIL = { CODE_TTL_MS: 15 * 60 * 1000, MAX_TRIES: 5, SEND_GAP_MS: 60 * 1000, SEND_HOUR_MAX: 5, IP_HOUR_MAX: 15 };
+const EMAIL_RE = /^[^\s@<>()",;:]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/;
+let mailer = null, mailCfg = null;
+function mailConfig() {
+  if (mailCfg !== null) return mailCfg;
+  let c = null;
+  try { c = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'mail.json'), 'utf8')); } catch (e) {}
+  if (!c && process.env.MAIL_HOST) c = { host: process.env.MAIL_HOST, port: +process.env.MAIL_PORT || 465, secure: process.env.MAIL_SECURE !== '0',
+    user: process.env.MAIL_USER, pass: process.env.MAIL_PASS, from: process.env.MAIL_FROM };
+  mailCfg = (c && c.host && c.user && c.pass) ? c : (process.env.RB_MAIL_DEBUG === '1' ? { debug: true } : false);
+  return mailCfg;
+}
+function mailEnabled() { return !!mailConfig(); }
+async function sendMail(to, subject, text) {
+  const c = mailConfig(); if (!c) throw new Error('이메일 발송이 설정되지 않았습니다');
+  if (c.debug) { fs.appendFileSync(path.join(DATA_DIR, 'mail-outbox.jsonl'), JSON.stringify({ at: Date.now(), to, subject, text }) + '\n'); return; }
+  if (!mailer) mailer = require('nodemailer').createTransport({ host: c.host, port: c.port || 465, secure: c.secure !== false, auth: { user: c.user, pass: c.pass } });
+  await mailer.sendMail({ from: c.from || c.user, to, subject, text });
+}
+const mailCode = () => String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+const codeHash = (id, code) => crypto.createHash('sha256').update(id + ':' + code).digest('hex');
+function maskEmail(e) { const [a, d] = String(e).split('@'); return (a.length <= 2 ? a[0] + '*' : a.slice(0, 2) + '*'.repeat(Math.min(6, a.length - 2))) + '@' + d; }
+// 같은 계정·같은 IP의 발송 간격·시간당 횟수 제한
+function mailSendAllowed(id, ip, kind) {   // kind: verify | reset (발송 간격은 용도별)
+  if (rateFull('mailgap:' + kind + ':' + id, MAIL.SEND_GAP_MS, 1)) return '잠시 후(1분) 다시 시도하세요';
+  if (rateFull('mailhr:' + id, 60 * 60 * 1000, MAIL.SEND_HOUR_MAX)) return '이 계정으로 보낸 메일이 너무 많습니다. 1시간 뒤 다시 시도하세요';
+  if (rateFull('mailip:' + ip, 60 * 60 * 1000, MAIL.IP_HOUR_MAX)) return '요청이 너무 많습니다. 잠시 후 다시 시도하세요';
+  rateAdd('mailgap:' + kind + ':' + id); rateAdd('mailhr:' + id); rateAdd('mailip:' + ip);
+  return null;
+}
+async function sendEmailVerification(u, addr, ip) {
+  const why = mailSendAllowed(u.id, ip, 'verify'); if (why) return why;
+  const code = mailCode();
+  u.emailPending = { addr, codeHash: codeHash(u.id, code), exp: Date.now() + MAIL.CODE_TTL_MS, tries: 0 };
+  saveDB();
+  await sendMail(addr, '[리프트바운드 시뮬레이터] 이메일 인증 코드',
+    `아이디 「${u.id}」의 이메일 인증 코드입니다.\n\n    ${code}\n\n15분 안에 게임의 프로필 관리(또는 가입 직후 창)에 입력하세요.\n본인이 요청하지 않았다면 이 메일은 무시해도 됩니다.`);
+  return null;
+}
+function checkCode(u, slot, code) {
+  const s = u[slot];
+  if (!s) return '먼저 인증 코드를 요청하세요';
+  if (Date.now() > s.exp) { delete u[slot]; saveDB(); return '코드가 만료되었습니다. 다시 요청하세요'; }
+  if (s.tries >= MAIL.MAX_TRIES) { delete u[slot]; saveDB(); return '틀린 횟수가 너무 많습니다. 다시 요청하세요'; }
+  const given = Buffer.from(codeHash(u.id, String(code || '').trim())), want = Buffer.from(s.codeHash);
+  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) { s.tries++; saveDB(); return `코드가 맞지 않습니다 (${MAIL.MAX_TRIES - s.tries}회 남음)`; }
+  return null;
+}
 function rateDenied(kind, ip) { console.log(`[속도 제한] ${kind} 거부 — ${ip}`); }
 setInterval(() => {
   const now = Date.now();
@@ -731,8 +783,10 @@ const server = http.createServer(async (req, res) => {
         rateDenied('가입(성공 횟수)', ip);
         return json(res, 429, { error: '이 네트워크에서 가입이 너무 많습니다. 1시간 뒤 다시 시도하세요.' });
       }
-      const { id, pw, invite } = await readBody(req);
+      const { id, pw, invite, email } = await readBody(req);
       if (!accessCodeOK(invite)) return json(res, 403, { error: '접근 코드가 올바르지 않습니다. 방장에게 받은 코드를 입력하세요.' });
+      const emailIn = typeof email === 'string' ? email.trim() : '';
+      if (emailIn && !EMAIL_RE.test(emailIn)) return json(res, 400, { error: '이메일 형식이 올바르지 않습니다 (비워 두면 이메일 없이 가입합니다)' });
       if (typeof id !== 'string' || !ID_RE.test(id)) return json(res, 400, { error: '아이디는 2~16자 (한글/영문/숫자/_)' });
       if (typeof pw !== 'string' || pw.length < LIMITS.MIN_PW || pw.length > LIMITS.MAX_PW)
         return json(res, 400, { error: `비밀번호는 ${LIMITS.MIN_PW}~${LIMITS.MAX_PW}자` });
@@ -745,7 +799,47 @@ const server = http.createServer(async (req, res) => {
       db.users[id] = { id, salt, hash, decks: [], created: Date.now() };
       rateAdd('reg:' + ip);   // 성공한 가입만 센다
       saveDB();
-      return json(res, 200, { token: issueToken(id), id });
+      // 이메일을 적었으면 인증 코드를 보낸다 (가입 자체는 메일 발송 성공 여부와 무관)
+      let emailSent = false, emailNote = null;
+      if (emailIn) {
+        if (!mailEnabled()) emailNote = '이 서버는 아직 이메일 발송이 설정되지 않아 인증 메일을 보내지 못했습니다';
+        else { try { emailNote = await sendEmailVerification(db.users[id], emailIn, ip); emailSent = !emailNote; } catch (e) { emailNote = '인증 메일을 보내지 못했습니다'; console.log('메일 실패:', e.message); } }
+      }
+      return json(res, 200, { token: issueToken(id), id, emailSent, emailNote });
+    }
+    if (p === '/api/mail-status' && req.method === 'GET') return json(res, 200, { enabled: mailEnabled() });
+    // 비밀번호 찾기 1단계: 아이디 → 인증된 이메일로 재설정 코드 (계정 유무·이메일 유무를 응답으로 드러내지 않는다)
+    if (p === '/api/password/forgot' && req.method === 'POST') {
+      if (!rateHit('authtry:' + ip, LIMITS.AUTH_WINDOW_MS, LIMITS.AUTH_TRY_MAX)) return json(res, 429, { error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' });
+      if (!mailEnabled()) return json(res, 503, { error: '이 서버는 이메일 발송이 설정되지 않아 비밀번호를 찾을 수 없습니다. 운영자에게 문의하세요.' });
+      const { id } = await readBody(req);
+      const u = typeof id === 'string' ? db.users[id.trim()] : null;
+      const generic = { ok: true, msg: '그 아이디에 인증된 이메일이 있으면 재설정 코드를 보냈습니다. 메일함(스팸함 포함)을 확인하세요.' };
+      if (!u || !u.email) return json(res, 200, generic);
+      const why = mailSendAllowed(u.id, ip, 'reset'); if (why) return json(res, 429, { error: why });
+      const code = mailCode();
+      u.pwReset = { codeHash: codeHash(u.id, code), exp: Date.now() + MAIL.CODE_TTL_MS, tries: 0 }; saveDB();
+      try { await sendMail(u.email, '[리프트바운드 시뮬레이터] 비밀번호 재설정 코드',
+        `아이디 「${u.id}」의 비밀번호 재설정 코드입니다.\n\n    ${code}\n\n15분 안에 로그인 화면의 [비밀번호 찾기]에 입력하고 새 비밀번호를 정하세요.\n본인이 요청하지 않았다면 이 메일은 무시해도 됩니다 (비밀번호는 바뀌지 않습니다).`); }
+      catch (e) { console.log('메일 실패:', e.message); return json(res, 502, { error: '메일을 보내지 못했습니다. 잠시 후 다시 시도하세요.' }); }
+      return json(res, 200, generic);
+    }
+    // 비밀번호 찾기 2단계: 코드 + 새 비밀번호 → 변경·기존 로그인 모두 끊기
+    if (p === '/api/password/reset' && req.method === 'POST') {
+      if (!rateHit('authtry:' + ip, LIMITS.AUTH_WINDOW_MS, LIMITS.AUTH_TRY_MAX)) return json(res, 429, { error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' });
+      const { id, code, pw } = await readBody(req);
+      const u = typeof id === 'string' ? db.users[id.trim()] : null;
+      if (!u) return json(res, 400, { error: '코드가 맞지 않습니다' });
+      if (typeof pw !== 'string' || pw.length < LIMITS.MIN_PW || pw.length > LIMITS.MAX_PW) return json(res, 400, { error: `비밀번호는 ${LIMITS.MIN_PW}~${LIMITS.MAX_PW}자` });
+      const bad = checkCode(u, 'pwReset', code); if (bad) return json(res, 400, { error: bad });
+      const salt = crypto.randomBytes(16).toString('hex');
+      let hash; try { hash = await hashPw(pw, salt); } catch (e) { return json(res, 503, { error: '서버가 혼잡합니다. 잠시 후 다시 시도하세요.' }); }
+      u.salt = salt; u.hash = hash; delete u.pwReset; saveDB();
+      let killed = 0; for (const [t, s] of sessions) if (s.userId === u.id) { sessions.delete(t); killed++; }
+      persistSessions();
+      wss.clients.forEach(c => { if (c._authed && c._userId === u.id) { wsSend(c, { t: 'err', msg: '비밀번호가 바뀌어 다시 로그인해야 합니다' }); try { c.close(); } catch (e) {} } });
+      console.log(`[계정] 이메일로 비밀번호 재설정: ${u.id} (끊은 세션 ${killed}개)`);
+      return json(res, 200, { ok: true });
     }
     if (p === '/api/login' && req.method === 'POST') {
       if (rateFull('auth:' + ip, LIMITS.AUTH_WINDOW_MS, LIMITS.AUTH_MAX) || !rateHit('authtry:' + ip, LIMITS.AUTH_WINDOW_MS, LIMITS.AUTH_TRY_MAX)) {
@@ -816,6 +910,24 @@ const server = http.createServer(async (req, res) => {
           const t = rankTier(rk[f].mmr, rk[f].games); return { id: u.id, mmr: Math.round(rk[f].mmr), label: t.label, tier: t.key, games: rk[f].games, win: rk[f].win }; })
         .filter(Boolean).sort((a, b) => b.mmr - a.mmr).slice(0, 50);
       return json(res, 200, { format: f, season: RANK_SEASON, rows });
+    }
+    if (p === '/api/account' && req.method === 'GET')
+      return json(res, 200, { id: user.id, email: user.email || null, pending: user.emailPending && Date.now() <= user.emailPending.exp ? user.emailPending.addr : null, mailEnabled: mailEnabled() });
+    if (p === '/api/account/email' && req.method === 'POST') {
+      const { email } = await readBody(req);
+      const e = typeof email === 'string' ? email.trim() : '';
+      if (!e) { delete user.email; delete user.emailPending; saveDB(); return json(res, 200, { ok: true, removed: true }); }   // 비우면 이메일 삭제
+      if (!EMAIL_RE.test(e)) return json(res, 400, { error: '이메일 형식이 올바르지 않습니다' });
+      if (!mailEnabled()) return json(res, 503, { error: '이 서버는 아직 이메일 발송이 설정되지 않았습니다' });
+      try { const why = await sendEmailVerification(user, e, ip); if (why) return json(res, 429, { error: why }); }
+      catch (err) { console.log('메일 실패:', err.message); return json(res, 502, { error: '인증 메일을 보내지 못했습니다. 주소를 확인하고 다시 시도하세요.' }); }
+      return json(res, 200, { ok: true, sent: true });
+    }
+    if (p === '/api/account/email/verify' && req.method === 'POST') {
+      const { code } = await readBody(req);
+      const bad = checkCode(user, 'emailPending', code); if (bad) return json(res, 400, { error: bad });
+      user.email = user.emailPending.addr; user.emailVerifiedAt = Date.now(); delete user.emailPending; saveDB();
+      return json(res, 200, { ok: true, email: user.email });
     }
     if (p === '/api/profile' && req.method === 'POST') {
       const b = await readBody(req);

@@ -530,10 +530,86 @@ function enterLogin(){
   document.getElementById('login-server-label').textContent =
     '서버: '+NET.base + (secure?' 🔒':' ⚠️ 암호화 안 됨');
   showScreen('login-screen');
+  // 이메일 발송이 설정되지 않은 서버면 이메일 칸을 숨기고 그 사실을 안내한다 (안내 문구의 '찾을 수 없음'은 그대로)
+  NET.api('/api/mail-status').then(d=>{ const on=!!(d&&d.enabled); document.getElementById('login-email').style.display=on?'':'none';
+    document.getElementById('login-email-off').style.display=on?'none':''; }).catch(()=>{});
   // 아이디가 이미 채워져 있으면 비밀번호부터 입력하게 한다
   const idEl=document.getElementById('login-id');
   (idEl.value ? document.getElementById('login-pw') : idEl).focus();
 }
+
+// ---------- 계정 이메일 (선택 기입·인증·비밀번호 찾기, 2026-10-03) ----------
+// 서버: /api/register(email) · /api/account · /api/account/email · /api/account/email/verify · /api/password/forgot · /api/password/reset
+const ACCOUNT = {
+  // 가입 직후: 이메일을 적었으면 인증 코드 입력 창, 발송 못 했으면 안내
+  afterRegister(d){
+    if(d.emailSent) ACCOUNT.openVerify(d.email);
+    else if(d.emailNote) UI.toast(d.emailNote+' — 프로필 관리에서 다시 시도할 수 있습니다','warn');
+  },
+  openVerify(addr, onDone){
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>📧 이메일 인증</h3><div class="modal-copy" style="font-size:13px">
+      <b>${esc(addr||'')}</b>(으)로 6자리 인증 코드를 보냈습니다 (15분 동안 유효 · 스팸함도 확인하세요).<br>인증해야 비밀번호를 잃어버렸을 때 이 이메일로 찾을 수 있습니다.</div>
+      <div class="acct-email"><div class="row"><input id="acct-code" inputmode="numeric" maxlength="6" placeholder="인증 코드 6자리" autocomplete="one-time-code"></div><div id="acct-msg" style="margin-top:6px"></div></div>`;
+    const btns=document.createElement('div'); btns.className='modal-btns';
+    const ok=document.createElement('button'); ok.className='primary'; ok.textContent='인증';
+    ok.onclick=async()=>{ const m=box.querySelector('#acct-msg');
+      try{ await NET.api('/api/account/email/verify','POST',{code:box.querySelector('#acct-code').value}); UI.toast('✅ 이메일 인증을 마쳤습니다'); closeModal(); onDone&&onDone(); }
+      catch(e){ m.textContent=e.message; m.className='warn'; } };
+    const later=document.createElement('button'); later.textContent='나중에 (프로필 관리에서)'; later.onclick=closeModal;
+    btns.append(ok,later); box.appendChild(btns); openModal(); box.querySelector('#acct-code').focus();
+  },
+  // 프로필 관리 안의 이메일 칸 — container에 그린다
+  async renderSection(container){
+    let a; try{ a=await NET.api('/api/account'); }catch(e){ container.innerHTML='<div class="acct-email">이메일 정보를 불러오지 못했습니다 — '+esc(e.message)+'</div>'; return; }
+    const status = a.email ? `<span class="ok">✅ 인증됨: <b>${esc(a.email)}</b></span>`
+      : a.pending ? `<span class="warn">⏳ 인증 대기: <b>${esc(a.pending)}</b> — 메일의 코드를 입력하세요</span>`
+      : '<span class="warn">⚠ 등록된 이메일이 없습니다 — 비밀번호를 잃어버렸을 때 계정을 찾을 수 없습니다.</span>';
+    container.innerHTML=`<div class="acct-email"><h4>📧 이메일 (선택 · 비밀번호 찾기용)</h4><div>${status}</div>
+      ${a.mailEnabled?'':'<div class="warn" style="margin-top:4px">이 서버는 아직 이메일 발송이 설정되지 않았습니다.</div>'}
+      <div class="row"><input id="acct-email-in" type="email" maxlength="254" placeholder="${a.email?'바꿀 이메일':'이메일 주소'}" value="${esc(a.pending||'')}"><button id="acct-send">인증 코드 보내기</button></div>
+      ${a.pending?'<div class="row"><input id="acct-code2" inputmode="numeric" maxlength="6" placeholder="인증 코드 6자리"><button id="acct-verify">인증</button></div>':''}
+      ${a.email?'<div class="row"><button id="acct-remove">이메일 삭제</button></div>':''}
+      <div id="acct-msg2" style="margin-top:6px"></div></div>`;
+    const msg=(t,cls)=>{ const m=container.querySelector('#acct-msg2'); m.textContent=t; m.className=cls||''; };
+    container.querySelector('#acct-send').onclick=async()=>{
+      const e=container.querySelector('#acct-email-in').value.trim(); if(!e){ msg('이메일을 입력하세요','warn'); return; }
+      try{ await NET.api('/api/account/email','POST',{email:e}); msg('인증 코드를 보냈습니다 — 메일함(스팸함 포함)을 확인하세요','ok'); await ACCOUNT.renderSection(container); }
+      catch(err){ msg(err.message,'warn'); } };
+    const v=container.querySelector('#acct-verify');
+    if(v) v.onclick=async()=>{ try{ await NET.api('/api/account/email/verify','POST',{code:container.querySelector('#acct-code2').value}); UI.toast('✅ 이메일 인증을 마쳤습니다'); await ACCOUNT.renderSection(container); } catch(err){ msg(err.message,'warn'); } };
+    const rm=container.querySelector('#acct-remove');
+    if(rm) rm.onclick=async()=>{ if(!confirm('이메일을 삭제할까요?\n삭제하면 비밀번호를 잃어버렸을 때 계정을 찾을 수 없습니다.')) return;
+      try{ await NET.api('/api/account/email','POST',{email:''}); UI.toast('이메일을 삭제했습니다'); await ACCOUNT.renderSection(container); } catch(err){ msg(err.message,'warn'); } };
+  },
+  // 로그인 화면: 비밀번호 찾기 (아이디 → 이메일로 코드 → 코드+새 비밀번호)
+  openForgot(prefillId){
+    const box=document.getElementById('modal-box');
+    box.innerHTML=`<h3>🔑 비밀번호 찾기</h3><div class="modal-copy" style="font-size:13px">
+      아이디에 <b>인증된 이메일</b>이 있어야 찾을 수 있습니다. 이메일을 등록하지 않은 계정은 찾을 수 없으니 운영자에게 문의하세요.</div>
+      <div class="acct-email"><div class="row"><input id="fp-id" maxlength="16" placeholder="아이디" value="${esc(prefillId||'')}"><button id="fp-send">재설정 코드 보내기</button></div>
+      <div class="row"><input id="fp-code" inputmode="numeric" maxlength="6" placeholder="메일로 받은 코드 6자리" autocomplete="one-time-code"></div>
+      <div class="row"><input id="fp-pw" type="password" maxlength="128" placeholder="새 비밀번호 (8자 이상)" autocomplete="new-password"></div>
+      <div class="row"><input id="fp-pw2" type="password" maxlength="128" placeholder="새 비밀번호 확인" autocomplete="new-password"></div>
+      <div id="fp-msg" style="margin-top:6px"></div></div>`;
+    const msg=(t,cls)=>{ const m=box.querySelector('#fp-msg'); m.textContent=t; m.className=cls||''; };
+    box.querySelector('#fp-send').onclick=async()=>{
+      const id=box.querySelector('#fp-id').value.trim(); if(id.length<2){ msg('아이디를 입력하세요','warn'); return; }
+      try{ const d=await NET.api('/api/password/forgot','POST',{id}); msg(d.msg||'코드를 보냈습니다','ok'); box.querySelector('#fp-code').focus(); }
+      catch(e){ msg(e.message,'warn'); } };
+    const btns=document.createElement('div'); btns.className='modal-btns';
+    const ok=document.createElement('button'); ok.className='primary'; ok.textContent='비밀번호 바꾸기';
+    ok.onclick=async()=>{
+      const id=box.querySelector('#fp-id').value.trim(), code=box.querySelector('#fp-code').value.trim(), pw=box.querySelector('#fp-pw').value, pw2=box.querySelector('#fp-pw2').value;
+      if(pw.length<8){ msg('비밀번호는 8자 이상이어야 합니다','warn'); return; }
+      if(pw!==pw2){ msg('두 비밀번호가 다릅니다','warn'); return; }
+      try{ await NET.api('/api/password/reset','POST',{id,code,pw}); closeModal(); UI.toast('✅ 비밀번호를 바꿨습니다 — 새 비밀번호로 로그인하세요');
+        document.getElementById('login-id').value=id; document.getElementById('login-pw').value=''; document.getElementById('login-pw').focus(); }
+      catch(e){ msg(e.message,'warn'); } };
+    const cl=document.createElement('button'); cl.textContent='닫기'; cl.onclick=closeModal;
+    btns.append(ok,cl); box.appendChild(btns); openModal(); markModalDismissable();
+  },
+};
 
 // ---------- 로그인 ----------
 function initLogin(){
@@ -550,8 +626,14 @@ function initLogin(){
       doAuth._warned=true;
       if(!confirm('⚠️ 이 서버는 암호화되지 않은(HTTP) 연결입니다.\n비밀번호가 노출될 수 있으니 다른 곳과 다른 비밀번호를 사용하세요.\n계속할까요?')) { doAuth._warned=false; return; }
     }
-    try{ await fn(id,pw); rememberId(id); await enterMenu(); }
+    try{ const d=await fn(id,pw); rememberId(id); await enterMenu(); if(d && d._register) ACCOUNT.afterRegister(d); }
     catch(e){ msg.textContent=e.message; }
+  };
+  // 회원가입: 이메일은 선택 — 비워 두면 비밀번호 분실 시 계정을 찾을 수 없다는 점을 한 번 더 확인한다
+  const register=(id,pw,code)=>{
+    const email=(document.getElementById('login-email').value||'').trim();
+    if(!email && !confirm('이메일 없이 가입할까요?\n\n이메일을 등록하지 않으면 비밀번호를 잃어버렸을 때 계정을 찾을 수 없습니다.\n(가입 뒤에도 프로필 관리에서 등록할 수 있습니다)')) return Promise.reject(new Error('가입을 취소했습니다'));
+    return NET.register(id,pw,code,email||undefined).then(d=>({...d,_register:true,email}));
   };
   // 아이디 저장 — 비밀번호는 저장하지 않는다 (아이디만 채워두고 커서를 비밀번호로 옮긴다).
   // rb_saved_id: 없음=아직 정한 적 없음(기본 켜짐) · ''=저장 안 함 · 그 외=저장된 아이디
@@ -572,10 +654,11 @@ function initLogin(){
     if(NET.requiresAccess){
       const code=(prompt('이 서버는 접근 코드가 필요합니다.\n방장에게 받은 접근 코드를 입력하세요.')||'').trim();
       if(!code){ document.getElementById('login-msg').textContent='접근 코드가 필요합니다.'; return; }
-      doAuth((id,pw)=>NET.register(id,pw,code));
-    } else doAuth(NET.register);
+      doAuth((id,pw)=>register(id,pw,code));
+    } else doAuth((id,pw)=>register(id,pw));
   };
   document.getElementById('login-pw').addEventListener('keydown',e=>{ if(e.key==='Enter') doAuth(NET.login); });
+  document.getElementById('btn-forgot-pw').onclick=()=>ACCOUNT.openForgot(document.getElementById('login-id').value.trim());
   document.getElementById('btn-change-server').onclick=()=>{
     NET.token=null; localStorage.removeItem('rb_token');
     showScreen('online-screen');
