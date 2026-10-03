@@ -2227,6 +2227,13 @@ function openSystemMenu(){
     button.textContent=label; button.onclick=fn; actions.appendChild(button);
   };
 
+  // 로그인한 상태의 메뉴 화면: 계정(이메일·칭호)으로 바로 가는 칸 (2026-10-03)
+  if(!inGame && NET.token && typeof RANK!=='undefined'){
+    const acct=section('계정','settings-wide');
+    const note=document.createElement('p'); note.className='settings-note'; note.textContent=NET.userId+' — 이메일을 등록해 두면 비밀번호를 잃어버렸을 때 찾을 수 있습니다.';
+    acct.appendChild(note);
+    add(acct,'👤 프로필 관리 (이메일 · 칭호)',()=>{ closeModal(); RANK.openProfile(); },'primary');
+  }
   const play=section('플레이 옵션','settings-wide');
   toggle(play,'setting-confirm-end-turn','남은 룬 · 자원 확인',
     '사용하지 않은 룬이나 에너지·힘이 남아 있으면 턴 종료 전에 확인합니다.',
@@ -2559,6 +2566,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     inp.select();
   };
   document.getElementById('btn-goto-replays').onclick=()=>REPLAY.openLibrary('menu-screen');
+  document.getElementById('btn-menu-settings').onclick=()=>openSystemMenu();
   document.getElementById('btn-banlist-decks').onclick=showBanlist;
   document.getElementById('btn-banlist-editor').onclick=showBanlist;
   document.getElementById('btn-tourney-decks').onclick=showTourneyDecks;

@@ -385,3 +385,5 @@ body.start-menu-visible #build-tag { top:76px; right:31px; bottom:auto; color:#d
   #modal-shell #modal-box:has(> .bot-dialog) { animation:none; }
   .offline-choice:hover { transform:none; }
 }
+/* 설정 창 계정 칸 안내 (main.js openSystemMenu) */
+.settings-note { margin:0 0 8px; font-size:13px; line-height:1.5; color:#c9d2e4; }
