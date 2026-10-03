@@ -129,6 +129,22 @@ const SERVE_WEB = fs.existsSync(path.join(WEB_ROOT, 'index.html'));
 // 지금 서비스 중인 웹 클라이언트의 버전. 데스크톱 exe와 이 값이 다르면 서로 방에 못 들어가므로
 // (입장 시 버전 검사) 배포가 밀렸는지 한눈에 보이도록 상태에 함께 싣는다.
 let draining = false;   // 배포 예약 중 (새 경기 시작 차단) — /api/admin/drain
+// 관리 엔드포인트는 이 컴퓨터에서 직접 보낸 요청만 받는다. Caddy 같은 역방향 프록시는 인터넷 요청도 127.0.0.1에서 보내므로
+// 소켓 주소만으로는 부족하다 — 프록시가 붙이는 X-Forwarded-* 헤더가 있으면 거부한다.
+function isLocalAdmin(req) {
+  const sock = String(req.socket && req.socket.remoteAddress || '');
+  if (!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(sock)) return false;
+  return !Object.keys(req.headers).some(h => /^x-forwarded-|^forwarded$|^x-real-ip$/i.test(h));
+}
+// 비밀번호 재설정 같은 민감한 관리 작업은 서버 컴퓨터에만 있는 비밀값도 요구한다 (data/admin-secret.txt, 첫 실행 때 생성 — reset-password.js가 읽는다)
+let ADMIN_SECRET = null;
+function adminSecret() {
+  if (ADMIN_SECRET) return ADMIN_SECRET;
+  const f = path.join(DATA_DIR, 'admin-secret.txt');
+  try { ADMIN_SECRET = fs.readFileSync(f, 'utf8').trim(); } catch (e) {}
+  if (!ADMIN_SECRET) { ADMIN_SECRET = crypto.randomBytes(32).toString('hex'); try { fs.writeFileSync(f, ADMIN_SECRET + '\n', { mode: 0o600 }); } catch (e) {} }
+  return ADMIN_SECRET;
+}
 const WEB_VERSION = (() => {
   try {
     const m = fs.readFileSync(path.join(WEB_ROOT, 'js', 'buildinfo.js'), 'utf8').match(/version:"([^"]+)"/);
@@ -548,9 +564,27 @@ const server = http.createServer(async (req, res) => {
   // 배포 예약(드레인): deploy/update.sh가 재시작 전에 같은 VM 안에서 호출한다 — 루프백에서만 받는다.
   // 켜지면 모든 접속자에게 serverUpdate를 알리고 새 방 만들기·입장·관전·등급전 매칭을 막는다. 진행 중인 경기는 그대로 끝까지 둔다.
   // update.sh는 /api/status의 PLAYING이 0이 될 때까지 기다렸다가 재시작한다. ?off=1 이면 해제.
+  // 운영자용 비밀번호 재설정 — 서버 컴퓨터에서 reset-password.js로만 (비밀번호는 원문 저장이 아니라 해시라 '알려 주기'는 불가)
+  if (p === '/api/admin/reset-password' && req.method === 'POST') {
+    if (!isLocalAdmin(req)) return json(res, 403, { error: 'loopback only' });
+    const given = Buffer.from(String(req.headers['x-admin-secret'] || '')), want = Buffer.from(adminSecret());
+    if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) return json(res, 403, { error: '관리 비밀값이 맞지 않습니다' });
+    const { id, pw } = await readBody(req);
+    const u = typeof id === 'string' ? db.users[id] : null;
+    if (!u) return json(res, 404, { error: '없는 아이디입니다' });
+    if (typeof pw !== 'string' || pw.length < LIMITS.MIN_PW || pw.length > LIMITS.MAX_PW) return json(res, 400, { error: `비밀번호는 ${LIMITS.MIN_PW}~${LIMITS.MAX_PW}자` });
+    const salt = crypto.randomBytes(16).toString('hex');
+    let hash; try { hash = await hashPw(pw, salt); } catch (e) { return json(res, 503, { error: '서버가 혼잡합니다. 잠시 후 다시 시도하세요.' }); }
+    u.salt = salt; u.hash = hash; saveDB();
+    // 기존 로그인을 모두 끊는다 (다른 사람이 쓰던 세션이 있었다면 함께 정리)
+    let killed = 0; for (const [t, s] of sessions) if (s.userId === id) { sessions.delete(t); killed++; }
+    persistSessions();
+    wss.clients.forEach(c => { if (c._authed && c._userId === id) { wsSend(c, { t: 'err', msg: '비밀번호가 재설정되어 다시 로그인해야 합니다' }); try { c.close(); } catch (e) {} } });
+    console.log(`[관리] 비밀번호 재설정: ${id} (끊은 세션 ${killed}개)`);
+    return json(res, 200, { ok: true, id, sessions: killed });
+  }
   if (p === '/api/admin/drain' && req.method === 'POST') {
-    const sock = String(req.socket && req.socket.remoteAddress || '');   // 프록시 헤더가 아니라 실제 소켓 주소로 판단 (X-Forwarded-For 위조 방지)
-    if (!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(sock)) return json(res, 403, { error: 'loopback only' });
+    if (!isLocalAdmin(req)) return json(res, 403, { error: 'loopback only' });   // 실제 소켓 주소 + 프록시 경유 아님
     const off = /(^|[?&])off=1(&|$)/.test(req.url);
     draining = !off;
     const playing = [...rooms.values()].filter(r => r.started).length;
@@ -1045,6 +1079,7 @@ function rankSettle(r, winnerSeat, how) {
 // 덱별 승률 통계용 기록 — 확정된 등급전마다 한 줄(JSON)을 data/rank-matches.jsonl에 덧붙인다 (운영자 통계, 2026-10-02).
 // 덱은 매칭 때 등록한 덱 그대로(Bo3 게임 사이 사이드보딩 변화는 담지 않음). 분석: tools/rank-deck-stats.js
 const RANK_MATCHES_FILE = path.join(DATA_DIR, 'rank-matches.jsonl');
+adminSecret();   // data/admin-secret.txt 준비 (비밀번호 재설정 스크립트용)
 function rankRecordMatch(r, w, l, how, res) {
   try {
     const decks = r.rankDecks || {};
