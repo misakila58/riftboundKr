@@ -185,7 +185,7 @@ const optUnit=u=>(t,o)=>{ const m=o.find(x=>x.returnHand&&x.returnHand.uid===u.u
   await resolve(); ok('굴절 지불 후 피해', poro.dmg===2, 'dmg='+poro.dmg);
   // 거부하면 다른 대상을 다시 고른다 (RiftJudge #6944)
   fresh(); openSd(); const poro2=unit(13,1,0), other=unit(219,1,0); PICK=u=>u.n===13;
-  ok('굴절 거부 → 다른 대상 재선택', await play(303)===true && PICKS.length===2, JSON.stringify(PICKS));
+  ok('굴절 거부 → 다른 대상 재선택 (거부한 유닛도 세 번째 거부까지는 후보로 남음 — 2026-10-06)', await play(303)===true && PICKS.length===4, JSON.stringify(PICKS));
   await resolve();
   ok('굴절 거부: 포로는 무사, 다른 유닛 피해', poro2.dmg===0 && other.dmg===2, 'poro='+poro2.dmg+' other='+other.dmg);
   // 힘이 모자라 굴절을 못 내는 유닛은 후보가 아니다 → 유일한 대상이면 플레이 불가

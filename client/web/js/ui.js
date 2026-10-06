@@ -58,6 +58,12 @@ UI.toast = function(msg, cls){
   area.appendChild(d);
   setTimeout(()=>d.remove(), 2600);
 };
+// 특정 좌석에 대한 경고(자원 부족·타이밍·대상 없음 등) — 온라인에서는 그 좌석을 조작하는 화면에만 띄운다.
+// 락스텝이라 상대 행동의 검증도 내 화면에서 함께 돌기 때문에, 그냥 UI.toast면 상대의 실수가 내 화면에 뜬다 (제보 2026-10-06).
+UI.toastP = function(p, msg, cls){
+  if(typeof NET!=='undefined' && NET.online && typeof localControlsPlayer==='function' && !localControlsPlayer(p)) return;
+  UI.toast(msg, cls);
+};
 UI.manualNotice = function(c){
   UI.toast(`⚙️ 「${c.ko}」 효과 일부는 자동 처리되지 않습니다`, 'warn');
   UI.log(`⚙️ 자동 처리 안 됨: ${c.ko} — ${c.tko||c.text}`, 'sys');
@@ -853,6 +859,7 @@ async function pickPlacementOption(p,title,options,movement=false,verb='배치')
       const finish=idx=>{
         if(chosen) return;
         chosen=true; overlay.querySelectorAll('button').forEach(b=>b.disabled=true);
+        if(stageSkip) stageSkip.disabled=true;
         settle(idx);
       };
       _resolver=res;
@@ -866,14 +873,25 @@ async function pickPlacementOption(p,title,options,movement=false,verb='배치')
       };
       const center=document.createElement('div'); center.className='placement-center';
       const guide=document.createElement('span');
-      const cancel=document.createElement('button'); cancel.type='button'; cancel.textContent='취소';
+      const cancel=document.createElement('button'); cancel.type='button';
       const optional=!movement || options.some(o=>o.v===null);
+      // 이동의 '이동하지 않음'(v:null)은 플레이 취소가 아니라 그 이동만 건너뛴다 — 「점멸」 '최대 2기'에서 1기만 옮길 때 (제보 2026-10-04)
+      const skipLabel=movement ? (options.find(o=>o.v===null)?.label||'이동하지 않음') : '취소';
+      cancel.textContent=skipLabel;
       const candidates=movement?everyUnit().filter(u=>options.some(o=>o.movement?.uid===u.uid)):[];
       const back=document.createElement('button'); back.type='button'; back.textContent='유닛 다시 선택';
       cancel.onclick=()=>finish(null); center.append(guide,back);
       if(optional) center.append(cancel);
       overlay.appendChild(center);
       document.body.appendChild(overlay);
+      // 주문 준비 중에는 중앙 패널이 준비 카드에 가려 숨겨지므로(.spell-staging) 건너뛰기 버튼을 준비 카드 아래에 둔다
+      let stageSkip=null;
+      const stage=document.getElementById('spell-stage');
+      if(optional && movement && stage && document.body.classList.contains('spell-staging')){
+        stageSkip=document.createElement('button'); stageSkip.type='button'; stageSkip.className='spell-stage-cancel spell-stage-skip';
+        stageSkip.textContent=skipLabel; stageSkip.onclick=()=>finish(null);
+        stage.appendChild(stageSkip);
+      }
       const position=()=>{
         const origin=overlay.getBoundingClientRect();
         const sx=origin.width/overlay.clientWidth, sy=origin.height/overlay.clientHeight;
@@ -920,15 +938,15 @@ async function pickPlacementOption(p,title,options,movement=false,verb='배치')
         }
         choices.forEach(({zone})=>observer.observe(zone));
         observer.observe(document.getElementById('center-info'));
-        UI.prompt(guide.textContent+' — 강조된 곳을 누르세요.'+(optional?' 중앙에서 취소할 수 있습니다.':' 반드시 선택해야 합니다.'));
+        UI.prompt(guide.textContent+' — 강조된 곳을 누르세요.'+(!optional?' 반드시 선택해야 합니다.':movement?` [${skipLabel}]로 이 이동을 건너뛸 수 있습니다.`:' 중앙에서 취소할 수 있습니다.'));
         position();
-        (optional?cancel:choices[0]?.button)?.focus({preventScroll:true});
+        (optional?(stageSkip||cancel):choices[0]?.button)?.focus({preventScroll:true});
       };
       back.onclick=()=>showStage(null);
       dispose=()=>{
         observer.disconnect(); window.removeEventListener('keydown',keys,true);
         window.removeEventListener('resize',position);window.removeEventListener('scroll',position,true);
-        overlay.remove(); if(_resolver===res) _resolver=null;
+        overlay.remove(); stageSkip?.remove(); if(_resolver===res) _resolver=null;
       };
       showStage(movement && candidates.length===1?candidates[0]:null);
     }),v=>v,v=>v);
@@ -1136,7 +1154,8 @@ UI.pickReaction = async function(p, title, options){
 
 // 확인 (예/아니오)
 UI.confirmP = function(p, text, previewCard, context){
-  UI._choiceLabel=text;
+  // 비공개 정보(덱 위 카드 등)가 든 질문은 context.publicLabel로 상대 화면의 "선택 대기 중 — …" 문구를 따로 준다 (제보 2026-10-03: 촛불 성소 카드명이 상대에게 보임)
+  UI._choiceLabel=context?.publicLabel||text;
   if(context?.boardCard) return confirmBoardCard(p,text,previewCard,context.boardCard);
   return routedPick(p, ()=>_confirmLocal(p,text,previewCard,context), v=>v, v=>v);
 };
@@ -3107,6 +3126,14 @@ UI.updateScoreInfo=function(){
   const points=p=>UI.displayPoints?UI.displayPoints(p):G.players[p].points;
   document.getElementById('score-info').innerHTML=
     `<span style="color:#9fc8ff">${esc(pname(0))} ${points(0)}점</span> : <span style="color:#ffc89f">${esc(pname(1))} ${points(1)}점</span> (선취 ${G.victory}점)`;
+  // 전장 가운데 점수: 위=화면 위쪽 좌석(상대), 아래=화면 아래쪽 좌석(나) — orientBoard와 같은 기준
+  const bottom=(NET.online && NET.seat===1) ? 1 : 0;
+  for(const [id,p] of [['center-score-top',1-bottom],['center-score-bottom',bottom]]){
+    const el=document.getElementById(id); if(!el) continue;
+    el.className='center-score seat-'+p;
+    el.innerHTML=`<b>${points(p)}</b><small>/${G.victory}</small>`;
+    el.title=`${pname(p)} ${points(p)}점 (선취 ${G.victory}점)`;
+  }
 };
 
 function replayLock(){ return (typeof REPLAY!=='undefined' && REPLAY.viewing) || (typeof NET!=='undefined' && NET.online && NET.spectating); }

@@ -78,6 +78,11 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   ok('④ 점멸: 목적지 선택 2회', destPrompts().length===2, 'n='+destPrompts().length);
   ok('④ 두 번째 선택지에 첫 유닛 없음', !!second && !second.some(x=>x.movement&&x.movement.uid===d1.uid) && second.some(x=>x.movement&&x.movement.uid===d3.uid));
   ok('④ 둘 다 기지로', d1.loc==='base' && d2.loc==='base' && d3.loc===1, d1.loc+','+d2.loc+','+d3.loc);
+  // ④-2 점멸 1기만: 두 번째 선택에서 '이동하지 않음'(null) → 첫 유닛만 기지로 (제보 2026-10-04)
+  fresh(); const g1=unit(210,0,0), g2=unit(210,0,1);
+  OPT=(t,o)=>{ if(DEST.test(t)){ const n=destPrompts().length; return n===1 ? o.find(x=>x.movement&&x.movement.uid===g1.uid).v : null; } return o[0].v; };
+  r=await play(311);
+  ok('④-2 점멸 1기만 이동', g1.loc==='base' && g2.loc===1 && G.players[0].hand.length===0, g1.loc+','+g2.loc+' hand='+G.players[0].hand.length);
   // ⑤ 아군 유닛이 없으면 바람을 타고 플레이 불가(352.8)
   fresh(); unit(210,1,0);
   r=await play(173);

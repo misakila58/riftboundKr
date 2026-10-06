@@ -638,13 +638,13 @@ async function askResourceFunding(p, label, energy, pips, spellOK, n, stopLabel)
   // 그래도 모자라면 충당할지 묻는다 (여기서 취소하면 행동 자체가 취소된다)
   for(let guard=0; guard<8 && !canPay(p, energy, pips, spellOK); guard++){
     const funds=fundList();
-    if(!funds.length){ UI.toast('자원이 부족합니다','warn'); return false; }
+    if(!funds.length){ toastP(p,'자원이 부족합니다','warn'); return false; }
     const sel=await UI.pickOption(p, `「${label}」 자원이 부족합니다 — [반응] 자원 능력으로 충당할까요? (룰 357.1.a)`,
       fundOptions(funds,true));
-    if(sel===null || sel==='stop'){ UI.toast('자원이 부족합니다','warn'); return false; }
+    if(sel===null || sel==='stop'){ toastP(p,'자원이 부족합니다','warn'); return false; }
     await activateAbility(p, funds[sel].src, funds[sel].ab);
   }
-  if(!canPay(p, energy, pips, spellOK)){ UI.toast('자원이 부족합니다','warn'); return false; }
+  if(!canPay(p, energy, pips, spellOK)){ toastP(p,'자원이 부족합니다','warn'); return false; }
   return true;
 }
 
@@ -721,7 +721,7 @@ function payCost(p, energy, pips, silent){
 async function runeFloat(p, idx, mode){
   const P=G.players[p]; const r=P.runes[idx]; if(!r) return;
   if(mode==='energy'){
-    if(r.ex){ UI.toast('탈진된 룬입니다','warn'); return; }
+    if(r.ex){ toastP(p,'탈진된 룬입니다','warn'); return; }
     r.ex=true; P.energy+=1;
     UI.log(`${pname(p)} 룬 탈진 → 에너지 +1 (풀)`, 'p'+p);
   } else {
@@ -1325,7 +1325,7 @@ async function payDeflect(p, u, base){
   const pips=deflectPips(p, u);
   if(!pips.length) return true;
   const defl=pips.length;
-  if(!canPayDeflect(p, u, base)){ UI.toast(`[굴절 ${defl}] 힘이 부족해 선택할 수 없습니다`,'warn'); return false; }
+  if(!canPayDeflect(p, u, base)){ toastP(p,`[굴절 ${defl}] 힘이 부족해 선택할 수 없습니다`,'warn'); return false; }
   const yes=await UI.confirmP(p,`[굴절 ${defl}] 힘 ${defl} 추가 지불이 필요합니다. 지불할까요?`, unitCard(u),{decision:{title:'굴절 비용',cost:`아무 영역 힘 ${defl}`,result:`「${unitName(u)}」을(를) 대상으로 선택`,note:'힘이 부족한 만큼 룬을 재활용합니다.'+(base?.deferDeflect?(base.spellOK?' 주문 확인 후 본 비용과 함께 지불합니다.':' 대상 선택 후 능력 비용과 함께 지불합니다.')+' 자원 능력 사용 확인을 켜 두면 지불 전에 사용 가능한 자원 능력을 먼저 선택할 수 있습니다.':''),accept:base?.deferDeflect?'비용 포함해 선택':'지불하고 선택',decline:'지불 안 함'}});
   if(!yes) return false;
   // 플레이 시점(base 있음)의 굴절은 주문 자체의 추가 비용(353.2.b.1)이라 주문 전용 힘(카이사 전설 247)으로 낼 수 있다.
@@ -1434,7 +1434,7 @@ async function playCardFromHand(p, handIdx, opts={}){
   if(!c || c.type!=='Spell' || opts.champZone || opts.fromHidden || opts.byEffect
     || opts.fromDeck || opts.fromTrash || UI.spellStage) return false;
   const restriction=playRestriction(c,p,false);
-  if(restriction){ UI.toast(restriction,'warn'); return false; }
+  if(restriction){ toastP(p,restriction,'warn'); return false; }
   const draft=UI.beginSpellStage(p,handIdx,c.n);
   try{ return await playCardFromHandCore(p,handIdx,opts,draft); }
   catch(error){ if(error!==SPELL_STAGE_CANCEL) throw error; return false; }
@@ -1442,7 +1442,7 @@ async function playCardFromHand(p, handIdx, opts={}){
 }
 async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
   const P=G.players[p];
-  if(opts.champZone && !P.champInZone){ UI.toast('챔피언이 챔피언 존에 없습니다','warn'); return false; }
+  if(opts.champZone && !P.champInZone){ toastP(p,'챔피언이 챔피언 존에 없습니다','warn'); return false; }
   const n = opts.champZone ? P.champN : P.hand[handIdx];
   const c = card(n);
   const fx = FX[n]||{kw:{},triggers:{},activated:[],manual:[],playOps:[]};
@@ -1456,16 +1456,16 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
   // 유망한 미래로 추방한 카드는 그대로 추방 상태로 남는다 (RiftJudge #6039 · 룰 100 불가능한 지시는 무시).
   const restr = byEffect ? (TF().noPlay[p] ? '이번 턴에는 카드를 플레이할 수 없습니다 (효과)' : null)
     : playRestriction(c, p, !!opts.fromHidden, opts.bfIdx);
-  if(restr){ UI.toast(restr,'warn'); return false; }
+  if(restr){ toastP(p,restr,'warn'); return false; }
   const hasPlayLoc=Object.prototype.hasOwnProperty.call(opts,'playLoc');
   // locByEffect: 효과가 위치를 지정한 플레이("play ... here" — 열정 대원 에이바 107)는 통제 여부 검사를 거치지 않는다
   // 위치를 지정하는 허용 효과도 상대 마법사냥꾼 간수의 금지를 무시하지는 않는다.
   if(hasPlayLoc && c.type==='Unit' && opts.playLoc!=='base' &&
     everyUnit().some(u=>u.ctrl!==p && u.loc!=='base' && unitFx(u).jailerUnits)){
-    UI.toast('마력척결관 간수: 상대 유닛은 기지에만 플레이할 수 있습니다','warn'); return false;
+    toastP(p,'마력척결관 간수: 상대 유닛은 기지에만 플레이할 수 있습니다','warn'); return false;
   }
   if(hasPlayLoc && !opts.locByEffect && !canPlayCardAt(p,n,opts.playLoc)){
-    UI.toast('이 카드는 그 위치에 플레이할 수 없습니다','warn'); return false;
+    toastP(p,'이 카드는 그 위치에 플레이할 수 없습니다','warn'); return false;
   }
 
   const finishPreparation=c.type==='Spell' && !draft && !byEffect && !G.manual ? UI.beginChainSoundPreparation?.(p) : null;
@@ -1539,7 +1539,7 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
       addPaid=addCount>0;
     } else if(AC.kind==='killUnit'){
       const cands=everyUnit().filter(u=>u.ctrl===p);
-      if(!cands.length){ UI.toast('추가 비용(아군 유닛 처치)을 지불할 수 없습니다','warn'); return false; }
+      if(!cands.length){ toastP(p,'추가 비용(아군 유닛 처치)을 지불할 수 없습니다','warn'); return false; }
       addSel=await UI.pickUnitFrom(p,cands,'처치할 아군 유닛 (추가 비용)');
       if(!addSel) return false;
       addPaid=true;
@@ -1615,7 +1615,7 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
   if(c.type==='Spell' && !(fx.counter||fx.steal)){
     const hiddenBf=(opts.fromHidden && !fx.hiddenFreeTarget) ? opts.bfIdx : null;
     pre=await preTargetSpell(p, c, fx, {legionOK, bfIdx:opts.bfIdx, hiddenBf, cost:targetCost, byEffect});
-    if(pre===PRE_CANCEL){ UI.toast('대상을 고르지 않아 플레이를 취소합니다 (룰 352.8 · 굴절 735)','warn'); return false; }
+    if(pre===PRE_CANCEL){ toastP(p,'대상을 고르지 않아 플레이를 취소합니다 (룰 352.8 · 굴절 735)','warn'); return false; }
   }
   if(draft){
     if(fx.counter||fx.steal){
@@ -1653,7 +1653,7 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
     const u=everyUnit().find(u=>u.uid===x.uid);
     return !u || u.ctrl!==p || !Number.isInteger(x.count) || x.count<1 || u.buff<x.count;
   })){
-    UI.toast('선택한 버프 상태가 바뀌었습니다. 다시 선택하세요','warn'); return false;
+    toastP(p,'선택한 버프 상태가 바뀌었습니다. 다시 선택하세요','warn'); return false;
   }
   payCost(p, energy, pips, undefined, spellOK);
   // '다음 주문 할인'(성난 화염용 31)은 비용을 산정·지불하는 순간 소모된다 — 그 주문이 카운터당해도 되살아나지 않는다
@@ -2018,7 +2018,7 @@ async function nocturneOffer(p, seen){
   for(let i=seen.length-1;i>=0;i--){
     const n=seen[i]; const fx=FX[n];
     if(!fx || !fx.nocturne || !canPay(p, 0, ['Any'])) continue;
-    const yes=await UI.confirmP(p, `「${card(n).ko}」: 추방하고 힘 1(✳)을 지불해 플레이할까요?`, card(n));
+    const yes=await UI.confirmP(p, `「${card(n).ko}」: 추방하고 힘 1(✳)을 지불해 플레이할까요?`, card(n), {publicLabel:'덱 위에서 본 카드를 플레이할지 선택'});
     if(!yes) continue;
     seen.splice(i,1);
     payCost(p, 0, ['Any']);
@@ -2238,7 +2238,7 @@ async function visionCheck(p){
     if(!seen.length) return;
     P.deck.unshift(top);
   }
-  const yes = await UI.confirmP(p, `[통찰] 덱 맨 위: 「${card(top).ko}」 — 덱 맨 아래로 되돌릴까요?`, card(top),{decision:{title:'통찰',result:'확인한 카드를 덱 위에 유지하거나 맨 아래로 보냅니다.',accept:'덱 아래로 보내기',decline:'덱 위에 유지'}});
+  const yes = await UI.confirmP(p, `[통찰] 덱 맨 위: 「${card(top).ko}」 — 덱 맨 아래로 되돌릴까요?`, card(top),{publicLabel:'[통찰] 덱 맨 위 카드 확인',decision:{title:'통찰',result:'확인한 카드를 덱 위에 유지하거나 맨 아래로 보냅니다.',accept:'덱 아래로 보내기',decline:'덱 위에 유지'}});
   if(yes){ P.deck.shift(); P.deck.push(top); UI.log(`${pname(p)} [통찰]로 덱 맨 위 카드를 재활용`, 'p'+p); await fireEvent('onYouRecycle',{p}); }
 }
 
@@ -2257,17 +2257,17 @@ async function hideCard(p, handIdx){
   const P=G.players[p];
   // 룰 737: 손패 '또는 챔피언 구역'에서 숨길 수 있다 (handIdx==='champ')
   const fromChamp = handIdx==='champ';
-  if(fromChamp && !P.champInZone){ UI.toast('챔피언이 챔피언 존에 없습니다','warn'); return; }
+  if(fromChamp && !P.champInZone){ toastP(p,'챔피언이 챔피언 존에 없습니다','warn'); return; }
   const n=fromChamp ? P.champN : P.hand[handIdx]; const c=card(n);
   if(!c) return false;
   const fx=FX[n]||{kw:{}};
-  if(!fx.kw.hidden){ UI.toast('[숨겨짐] 카드가 아닙니다','warn'); return; }
-  if(G.turn!==p || G.phase!=='action' || G.state!=='neutral' || chainClosed()){ UI.toast('자신의 행동 단계 중 열린 중립 상태에서만 숨길 수 있습니다','warn'); return false; }
+  if(!fx.kw.hidden){ toastP(p,'[숨겨짐] 카드가 아닙니다','warn'); return; }
+  if(G.turn!==p || G.phase!=='action' || G.state!=='neutral' || chainClosed()){ toastP(p,'자신의 행동 단계 중 열린 중립 상태에서만 숨길 수 있습니다','warn'); return false; }
   const cap = bf => bf.n===BF_STATIC.DOUBLE_HIDE?2:1;
   const myBfs = G.bfs.map((bf,i)=>({bf,i})).filter(x=>x.bf.controller===p && x.bf.hiddenCards.length<cap(x.bf));
-  if(!myBfs.length){ UI.toast('숨길 수 있는 (통제 중 + 빈 슬롯) 전장이 없습니다','warn'); return; }
+  if(!myBfs.length){ toastP(p,'숨길 수 있는 (통제 중 + 빈 슬롯) 전장이 없습니다','warn'); return; }
   const costs=hideCosts(p);
-  if(!costs.length){ UI.toast(`자원이 부족합니다 (${hideCostLabel(p)} 필요)`,'warn'); return false; }
+  if(!costs.length){ toastP(p,`자원이 부족합니다 (${hideCostLabel(p)} 필요)`,'warn'); return false; }
   const sel = await UI.pickOption(p,'카드를 숨길 전장', myBfs.map(x=>({v:x.i,label:card(x.bf.n).ko,n:x.bf.n})),'battlefield');
   if(sel===null) return false;
   const choice=costs.length===1?costs[0].v:await UI.pickOption(p,'숨김 비용 선택',costs.map(c=>({...c,hidePayment:true})));
@@ -2276,7 +2276,7 @@ async function hideCard(p, handIdx){
   // 목적지와 지불 방식을 모두 고른 뒤 한 번만 소비한다. 취소는 카드와 자원을 보존한다.
   if(!myBfs.some(x=>x.i===sel) || !canPayWithFunding(p,payment.energy,payment.pips,false)) return false;
   // 룬을 건드리는 지불이면 인장 등 [반응] 자원 능력을 먼저 쓸지 묻는다 (357.1.a) — 취소하면 숨기지 않는다
-  if(!(await askResourceFunding(p, `${c.ko} 숨김`, payment.energy, payment.pips, false, n, '숨김 취소'))) return false;
+  if(!(await askResourceFunding(p, '카드 숨김', payment.energy, payment.pips, false, n, '숨김 취소'))) return false;   // 문구가 상대 화면 '선택 대기 중'에 뜨므로 카드명을 넣지 않는다 (제보 2026-10-06)
   payCost(p,payment.energy,payment.pips);
   if(fromChamp) P.champInZone=false; else P.hand.splice(handIdx,1);
   G.bfs[sel].hiddenCards.push({n, by:p, turn:G.turnCount});
@@ -2317,12 +2317,12 @@ async function playHidden(p, bfIdx, chosen){   // chosen: 호출자가 이미 �
   if(!bf || bf.controller!==p) return false;
   // 녹서스 파괴 공작원: 이곳의 상대 [숨겨짐] 카드는 공개 불가
   if(bf.units.some(u=>u.ctrl!==p && unitFx(u).blockReveal)){
-    UI.toast('「녹서스 파괴 공작원」: 이곳의 숨긴 카드를 공개할 수 없습니다','warn'); return;
+    toastP(p,'「녹서스 파괴 공작원」: 이곳의 숨긴 카드를 공개할 수 없습니다','warn'); return;
   }
   const mine = bf.hiddenCards.filter(h=>h.by===p);
   if(!mine.length) return;
   const playable = mine.filter(h=>h.turn<G.turnCount);
-  if(!playable.length){ UI.toast('숨긴 턴에는 플레이할 수 없습니다','warn'); return; }
+  if(!playable.length){ toastP(p,'숨긴 턴에는 플레이할 수 없습니다','warn'); return; }
   // 명시한 개체가 사라졌거나 아직 쓸 수 없으면 다른 숨김 카드로 바꾸어 내지 않는다.
   if(chosen && !playable.includes(chosen)) return false;
   let h = chosen || playable[0];
@@ -2335,11 +2335,11 @@ async function playHidden(p, bfIdx, chosen){   // chosen: 호출자가 이미 �
   // 안 되는 타이밍이면 공개 전에 거른다 (공개했다가 되돌리면 카드 정보만 새 나간다)
   // (룰 737: 그 전장에 합법 대상이 없는 주문은 숨김에서 플레이할 수 없다 — playRestriction이 bfIdx로 함께 본다)
   const restr = playRestriction(card(n), p, true, bfIdx);
-  if(restr){ UI.toast(restr,'warn'); return; }
+  if(restr){ toastP(p,restr,'warn'); return; }
   // 숨김 유닛은 그 전장에 등장하는데(737.2) 「마력척결관 간수」(70)가 전장에 있으면 상대 유닛은 기지에만 낼 수 있어
   // 합법 배치 위치가 없다 → 공개(확정) 불가 (RiftJudge #4573 · #344)
   if(card(n).type==='Unit' && !unitPlayLocationOptions(p, n).some(x=>x.v===bfIdx)){
-    UI.toast('이 전장에 유닛을 낼 수 없어 숨김에서 공개할 수 없습니다 (마력척결관 간수 등)','warn'); return; }
+    toastP(p,'이 전장에 유닛을 낼 수 없어 숨김에서 공개할 수 없습니다 (마력척결관 간수 등)','warn'); return; }
   bf.hiddenCards.splice(bf.hiddenCards.indexOf(h),1);
   // 유닛·주문·도구 모두 정식 플레이 경로를 탄다 — 비용 0(738.1), 유닛은 이 전장에 등장(737.2),
   // 주문 대상도 이 전장 컨텍스트(bfIdx), 결전 중이면 체인에 적재.
@@ -2390,16 +2390,16 @@ async function moveUnits(p, units, dest){
   if(!Array.isArray(units) || !units.length || new Set(units).size!==units.length
     || !(dest==='base' || (Number.isInteger(dest) && G.bfs[dest]))
     || units.some(u=>!u || u.ctrl!==p)){
-    UI.toast('잘못된 이동 요청입니다','warn'); return false;
+    toastP(p,'잘못된 이동 요청입니다','warn'); return false;
   }
   for(const u of units){
-    if(u.ex){ UI.toast(`${unitName(u)}: 탈진된 유닛은 이동할 수 없습니다`,'warn'); return false; }
-    if(u.loc===dest){ UI.toast('이미 그 위치에 있습니다','warn'); return false; }
+    if(u.ex){ toastP(p,`${unitName(u)}: 탈진된 유닛은 이동할 수 없습니다`,'warn'); return false; }
+    if(u.loc===dest){ toastP(p,'이미 그 위치에 있습니다','warn'); return false; }
     if(u.loc!=='base' && dest!=='base' && !effKw(u).ganking){
-      UI.toast(`${unitName(u)}: 전장 간 이동은 [개입]이 필요합니다`,'warn'); return false;
+      toastP(p,`${unitName(u)}: 전장 간 이동은 [개입]이 필요합니다`,'warn'); return false;
     }
     if(u.loc!=='base' && dest==='base' && G.bfs[u.loc].n===BF_STATIC.NO_RETREAT){
-      UI.toast(`「${card(G.bfs[u.loc].n).ko}」: 이곳에서 기지로 이동할 수 없습니다`,'warn'); return false;
+      toastP(p,`「${card(G.bfs[u.loc].n).ko}」: 이곳에서 기지로 이동할 수 없습니다`,'warn'); return false;
     }
   }
   const origins = units.map(u=>u.loc);
@@ -3299,23 +3299,23 @@ async function activateAbility(p, source, ab){
   // source: {kind:'unit',u} | {kind:'legend'} | {kind:'gear',g}
   const P=G.players[p];
   // 닫힌 중립 응수 창도 체인이다. 티모처럼 태그 없는 능력을 이 창이나 개시 단계에 발동할 수 없다.
-  if(!canActivateAbilityTiming(p,ab)){ UI.toast('지금은 이 능력을 발동할 수 없습니다 (타이밍 제한)','warn'); return false; }
-  if(ab.legion && !legionOKFor(p, source)){ UI.toast('[군단] 조건: 이번 턴에 다른 카드를 플레이해야 합니다','warn'); return; }
-  if(ab.onlyAtBf && !ab.copied && source.kind==='unit' && source.u.loc==='base'){ UI.toast('전장에 있을 때만 사용할 수 있습니다','warn'); return; }   // 하이머딩거 복사(copied)는 원 카드의 위치 제한을 복사하지 않는다(#8631)
+  if(!canActivateAbilityTiming(p,ab)){ toastP(p,'지금은 이 능력을 발동할 수 없습니다 (타이밍 제한)','warn'); return false; }
+  if(ab.legion && !legionOKFor(p, source)){ toastP(p,'[군단] 조건: 이번 턴에 다른 카드를 플레이해야 합니다','warn'); return; }
+  if(ab.onlyAtBf && !ab.copied && source.kind==='unit' && source.u.loc==='base'){ toastP(p,'전장에 있을 때만 사용할 수 있습니다','warn'); return; }   // 하이머딩거 복사(copied)는 원 카드의 위치 제한을 복사하지 않는다(#8631)
 
   const cost=ab.cost||{};
   const pips=[...(cost.pips||[])]; for(let i=0;i<(cost.power||0);i++) pips.push('Any');
   // 비용을 낼 수 있는지 먼저 전부 확인한다 (359.2.d 적법성 검사 실패 시 되돌림 — 일부만 내고 취소되는 일이 없게)
   if(cost.exhaustSelf){
-    if(source.kind==='unit' && source.u.ex){ UI.toast('이미 탈진되었습니다','warn'); return; }
-    if(source.kind==='legend' && P.legendEx){ UI.toast('전설이 이미 탈진되었습니다','warn'); return; }
-    if(source.kind==='gear' && source.g.ex){ UI.toast('이미 탈진되었습니다','warn'); return; }
+    if(source.kind==='unit' && source.u.ex){ toastP(p,'이미 탈진되었습니다','warn'); return; }
+    if(source.kind==='legend' && P.legendEx){ toastP(p,'전설이 이미 탈진되었습니다','warn'); return; }
+    if(source.kind==='gear' && source.g.ex){ toastP(p,'이미 탈진되었습니다','warn'); return; }
   }
-  if(!canPay(p, cost.energy||0, pips)){ UI.toast('자원이 부족합니다','warn'); return; }
-  if(cost.killFriendlyOrGear && !everyUnit().some(u=>u.ctrl===p) && !P.gear.length){ UI.toast('처치할 아군 유닛/도구가 없습니다','warn'); return; }
-  if(cost.recycleTrash && P.trash.length<cost.recycleTrash){ UI.toast('폐기장가 부족합니다','warn'); return; }
-  if(cost.discard && P.hand.length<cost.discard){ UI.toast('손패가 부족합니다','warn'); return; }
-  if(cost.spendBuff && source.kind==='unit' && source.u.buff<=0){ UI.toast('버프가 없습니다','warn'); return; }   // 358/359.2.d: 지불 전에 검사
+  if(!canPay(p, cost.energy||0, pips)){ toastP(p,'자원이 부족합니다','warn'); return; }
+  if(cost.killFriendlyOrGear && !everyUnit().some(u=>u.ctrl===p) && !P.gear.length){ toastP(p,'처치할 아군 유닛/도구가 없습니다','warn'); return; }
+  if(cost.recycleTrash && P.trash.length<cost.recycleTrash){ toastP(p,'폐기장가 부족합니다','warn'); return; }
+  if(cost.discard && P.hand.length<cost.discard){ toastP(p,'손패가 부족합니다','warn'); return; }
+  if(cost.spendBuff && source.kind==='unit' && source.u.buff<=0){ toastP(p,'버프가 없습니다','warn'); return; }   // 358/359.2.d: 지불 전에 검사
   const finishPreparation=!G.manual && !isResourceAbility(ab) ? UI.beginChainSoundPreparation?.(p) : null;
   try{
   // 대상 지정은 비용 지불 전(403.1.b "Make all choices required for this ability, such as targets" → 지불) — 적법 대상이 없으면
@@ -3326,13 +3326,13 @@ async function activateAbility(p, source, ab){
   let pre=null;
   if(ab.target){
     const cands=unitsBySpec(ab.target, p);
-    if(!cands.length){ UI.toast('적법한 대상이 없어 발동할 수 없습니다 (룰 404)','warn'); return; }
+    if(!cands.length){ toastP(p,'적법한 대상이 없어 발동할 수 없습니다 (룰 404)','warn'); return; }
     const tu=await UI.pickUnitFrom(p, cands, ab.target._prompt||'대상 선택'); if(!tu) return;
     pre=new Map([[ab.ops[0], tu.uid]]);
     UI.previewCastTargets?.(p,snapshotCastTargets(pre));
   } else if(typeof ab.preTarget!=='function'){
     pre=await preTargetAbility(p, source, ab, {energy:cost.energy||0, pips, deferDeflect:true});
-    if(pre===PRE_CANCEL){ UI.toast('적법한 대상이 없어 발동할 수 없습니다 (룰 404)','warn'); return; }
+    if(pre===PRE_CANCEL){ toastP(p,'적법한 대상이 없어 발동할 수 없습니다 (룰 404)','warn'); return; }
   }
   // 「미래의 대장간」는 아직 보드에 있어 자기 자신을 재활용 대상으로 고를 수 없고(RiftJudge #11013), 「미끼 갈고리」은 처치할 유닛을
   // 발동 시점에 고정한다(#11249). ab.preTarget(p, source)는 cardscripts가 정의하며 null을 돌려주면 발동 취소(아직 낸 비용 없음).
@@ -3340,7 +3340,7 @@ async function activateAbility(p, source, ab){
   let preAb;
   if(typeof ab.preTarget==='function'){
     preAb=await ab.preTarget(p, source);
-    if(preAb===null){ UI.toast('대상이 없어 발동할 수 없습니다 (룰 404)','warn'); return; }
+    if(preAb===null){ toastP(p,'대상이 없어 발동할 수 없습니다 (룰 404)','warn'); return; }
     UI.previewCastTargets?.(p,snapshotCastTargets(pre,preAb));
   }
   // 비표준 비용의 선택(처치할 아군 유닛/도구 — 말자하 113)도 지불 전에 받는다 — 취소하면 아무 비용도 내지 않은 상태로 끝난다 (359.2.d)
@@ -3655,7 +3655,7 @@ function takePreTarget(p, spec){
 // 플레이 시점 대상 하나 고르기. 굴절(735)은 본 비용(o.cost)과 합쳐 낼 수 있는 유닛만 후보 — 지불을 거부하면 그 유닛을
 // 빼고 다시 고른다(RiftJudge #6944 "다른 대상을 고르거나 취소"). 후보가 없으면 null(호출자가 취소 여부 판단).
 async function pickPreTarget(p, spec, promptText, cost, selection){
-  const excl=[];
+  const excl=[], declined=new Map();
   while(true){
     const free = !!(cost && cost.noDeflect);   // 탈취한 주문의 재선택: 굴절은 원 시전이 이미 치렀다(RiftJudge #3088)
     const cands=unitsBySpec(excl.length ? {...spec, _exclude:[...(spec._exclude||[]), ...excl]} : spec, p)
@@ -3673,7 +3673,11 @@ async function pickPreTarget(p, spec, promptText, cost, selection){
     if(selection?.op?.op==='buff' && !(await confirmBuffTarget(p,u))){ excl.push(u); continue; }
     // 「꿈꾸는 나무」 격발(noteSpellPick)은 여기서 하지 않는다 — 굴절 지불·파이널라이즈 뒤(383.4.c), playCardFromHand가 pre._units로 낸다
     if(free || await payDeflect(p, u, cost)) return u;
-    excl.push(u);
+    // 굴절 지불을 거절한 유닛도 후보에 남긴다 — 확인창을 놓치거나 잘못 눌러도 다시 고를 수 있게 (제보 2026-10-06: 숨겨진 칼날로
+    // 죽음꽃 포식자를 누른 뒤 굴절 확인을 넘기자 포로만 남았다). 같은 유닛을 세 번 거절하면(봇·자동 응답의 무한 반복 방지) 뺀다.
+    const n=(declined.get(u.uid)||0)+1; declined.set(u.uid,n);
+    if(n>=3) excl.push(u);
+    else toastP(p,`「${unitName(u)}」: [굴절] 비용을 내지 않아 선택하지 않았습니다 — 다른 대상을 고르거나 다시 선택하세요`,'warn');
   }
 }
 // 혼합 대상도 일반 유닛 선택과 같은 본 비용·굴절 문맥으로 적법성을 검사한다. 도구 대상에는 굴절이 없다.
@@ -3781,7 +3785,7 @@ function preMoveParams(op, prev){
 // 이동 지시의 플레이 시점 선택 — 유닛 × 목적지 후보(effectMoveOptions)를 해결 때와 같은 모양('movement')으로 묻고, 굴절(809)은 본 비용과
 // 함께 낼 수 있는 유닛만 후보. 거부하면 그 유닛을 빼고 다시(#6944). 결과는 pre(op → {move:{uid,dest,…}|null})에 남긴다.
 async function preTargetMove(p, op, mv, o, prev, pre){
-  const free=!!(o.cost && o.cost.noDeflect), excl=[];
+  const free=!!(o.cost && o.cost.noDeflect), excl=[], declined=new Map();
   const done=(choice,u)=>{ pre.set(op,{move:choice}); prev.push(u||null); UI.previewCastTargets?.(p,snapshotCastTargets(pre)); };
   while(true){
     const spec = excl.length ? {...mv.spec, _exclude:[...(mv.spec._exclude||[]), ...excl]} : mv.spec;
@@ -3797,7 +3801,9 @@ async function preTargetMove(p, op, mv, o, prev, pre){
     }
     const u=everyUnit().find(x=>x.uid===choice.uid);
     if(!u) return PRE_CANCEL;
-    if(!free && !(await payDeflect(p, u, o.cost))){ excl.push(u); continue; }
+    if(!free && !(await payDeflect(p, u, o.cost))){   // 굴절 거절: 세 번째까지는 후보에 남긴다 (pickPreTarget과 같은 규칙)
+      const n=(declined.get(u.uid)||0)+1; declined.set(u.uid,n); if(n>=3) excl.push(u); continue;
+    }
     done(choice,u); return;
   }
 }
@@ -3868,6 +3874,8 @@ function effDmgBonus(u, srcP){
   return b;
 }
 
+// 좌석 p에 대한 경고 토스트 — 온라인에서는 p를 조작하는 화면에만 뜬다(ui.js UI.toastP). UI가 없는 환경(테스트·셀프플레이)은 그냥 토스트.
+function toastP(p, msg, cls){ if(typeof UI==='undefined') return; if(UI.toastP) UI.toastP(p, msg, cls); else UI.toast?.(msg, cls); }
 let _ctxBf = null;
 // 숨김에서 플레이한 카드가 '플레이하면서' 고르는 대상은 숨겨 둔 전장 안에서만 고른다 (룰 737).
 // 나중에 따로 발동하는 트리거·능력(존야의 대체 효과, 티모의 [방어 시] 등)에는 걸리지 않는다.
@@ -4318,7 +4326,7 @@ async function execOpsInner(ops, ctx){
         const names=seen.map(n=>`「${card(n).ko}」`).join(' · ');
         const keep=[], recList=[]; let rec=false;
         for(const n of seen){
-          const yes=await UI.confirmP(p, `덱 위 ${seen.length}장: ${names} — 「${card(n).ko}」를 재순환(덱 맨 아래)할까요?`, card(n));
+          const yes=await UI.confirmP(p, `덱 위 ${seen.length}장: ${names} — 「${card(n).ko}」를 재순환(덱 맨 아래)할까요?`, card(n), {publicLabel:`덱 위 ${seen.length}장 확인 — 재순환할지 선택`});
           if(yes){ recList.push(n); rec=true; } else keep.push(n);
         }
         // 남긴 카드가 2장 이상이면 되돌릴 순서를 고른다 (위에 둘 카드부터)
@@ -4409,7 +4417,7 @@ async function equipGear(p, gearIdx){
   const g=P.gear[gearIdx]; if(!g) return;
   const fx=FX[g.n]||{};
   if(fx.equipCost===undefined) return;
-  if(!canPay(p,fx.equipCost,[])){ UI.toast('자원이 부족합니다','warn'); return; }
+  if(!canPay(p,fx.equipCost,[])){ toastP(p,'자원이 부족합니다','warn'); return; }
   const mine=everyUnit().filter(u=>u.ctrl===p&&!u.isToken);
   const u=await UI.pickUnitFrom(p,mine,'장착할 유닛 선택',true);
   if(!u) return;

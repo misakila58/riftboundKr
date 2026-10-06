@@ -117,7 +117,7 @@ Object.assign(SCRIPTS, {
     // 모드와 그 대상은 발동 시점(비용 전·응수 전)에 정한다(376 · RiftJudge #2111) — 취소하면 발동 취소(비용 없음). 결과는 ctx.preAb
     preTarget:async(p,source)=>{ const me=source.u; if(!me) return null; const used=(TF().udyrUsed[me.uid]||[]);
       const all=[{v:'dmg',label:'전장 유닛에게 피해 2'},{v:'stun',label:'전장 유닛 기절'},{v:'ready',label:'나를 준비'},{v:'gank',label:'[개입] 부여 (이번 턴)'}].filter(o=>!used.includes(o.v));
-      if(!all.length){ UI.toast('이번 턴에 모두 사용했습니다','warn'); return null; }
+      if(!all.length){ toastP(p,'이번 턴에 모두 사용했습니다','warn'); return null; }
       const sel=await UI.pickOption(p,'우디르: 하나 선택',all); if(sel===null||sel===undefined) return null;
       if(sel==='dmg'||sel==='stun'){ const u=await pickPreTarget(p,{side:'any',where:'bf',count:1},sel==='dmg'?'피해 2 대상':'기절 대상',{energy:0,pips:[]}); if(!u) return null; return {mode:sel, uid:u.uid}; }
       return {mode:sel}; }}]; return fx; },
@@ -144,7 +144,7 @@ Object.assign(SCRIPTS, {
   180: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('fadingMemory')]}]; return fx; },
   181: fx=>{ fx.manual=[]; fx.activated=[{cost:{exhaustSelf:true},label:'아군 유닛/도구/숨김 카드 회수',ops:[OPX('wonderBundle')],
     // 대상은 발동 시점(비용 전)에 고른다(403.1.b · 404 적법 대상 없으면 발동 불가) — 결과는 ctx.preAb
-    preTarget:async(p,source)=>{ const opts=wonderBundleOptions(p, source); if(!opts.length){ UI.toast('되돌릴 대상이 없습니다','warn'); return null; } const sel=await UI.pickOption(p,'소유자의 손패로 되돌릴 대상',opts); return sel||null; }}]; return fx; },
+    preTarget:async(p,source)=>{ const opts=wonderBundleOptions(p, source); if(!opts.length){ toastP(p,'되돌릴 대상이 없습니다','warn'); return null; } const sel=await UI.pickOption(p,'소유자의 손패로 되돌릴 대상',opts); return sel||null; }}]; return fx; },
   182: fx=>{ fx.manual=[]; fx.triggers.onPlay=[{ops:[D1]}]; fx.triggers.onGearLeave=[{cond:ctx=>ctx.reason!=='hand',ops:[D1]}]; fx.onDiscardSelf=[D1]; return fx; },   // 'killed'만 — 손패 복귀(불가사의한 꾸러미)는 아님
   183: fx=>{ fx.manual=[]; fx.playOps=[{ops:[OPX('lookTopHand',{n:3})]}]; return fx; },
   185: fx=>{ fx.manual=[]; fx.triggers.onMoveSelf=[{ops:[OPX('discard',{n:1,self:true}),D1]}]; return fx; },
@@ -361,7 +361,7 @@ const EXTRA_OPS = {
   // ── 폐기장/덱 상호작용 ──
   async trashToHand(op, ctx, h){ const P=G.players[ctx.p];
     const cands=[...new Set(P.trash.filter(n=>card(n).type===(op.type||'Unit')))];
-    if(!cands.length){ UI.toast('폐기장에 대상이 없습니다','warn'); return; }
+    if(!cands.length){ toastP(ctx.p,'폐기장에 대상이 없습니다','warn'); return; }
     const sel0=await UI.pickOption(ctx.p,'손패로 가져올 카드',cands.map(n=>({v:n,label:card(n).ko,n}))); const sel=(sel0===null||sel0===undefined)?cands[0]:sel0;   // 'may' 없음 — 취소해도 한 장은 회수
     P.trash.splice(P.trash.indexOf(sel),1); putCardInHand(ctx.p,sel,`#trash-${ctx.p}`);
     UI.log(`${pname(ctx.p)} 「${card(sel).ko}」 폐기장에서 회수`,'p'+ctx.p); },
@@ -372,7 +372,7 @@ const EXTRA_OPS = {
     if(op.ltPoints) cands=cands.filter(n=>(card(n).e||0)<G.players[ctx.p].points);
     // 영혼탐식자(196)·해로윙(198): 에너지 비용만 무시 — 힘(Power) 비용은 지불해야 한다
     if(op.payPower) cands=cands.filter(n=>canPay(ctx.p,0,powerPips(card(n))));
-    if(!cands.length){ if(!op.optional) UI.toast('폐기장에 대상이 없습니다','warn'); return; }
+    if(!cands.length){ if(!op.optional) toastP(ctx.p,'폐기장에 대상이 없습니다','warn'); return; }
     const sel=await UI.pickOption(ctx.p,'폐기장에서 플레이할 카드',cands.map(n=>({v:n,label:card(n).ko+'\n'+(op.payPower&&powerPips(card(n)).length?'에너지 면제, 힘 '+powerPips(card(n)).map(d=>DOMAIN_KO[d]||d).join(', ')+' 지불':'비용 없이 플레이'),n,optionalTrash:!!op.optional,powerCost:op.payPower?powerPips(card(n)):[]}))); if(sel===null) return;
     const c=card(sel);
     if(c.type==='Unit'){
@@ -666,7 +666,7 @@ const EXTRA_OPS = {
     if(sel==='rune'){ channelRunes(ctx.p,1,true); channelRunes(o,1,true); }
     else { drawCard(ctx.p); drawCard(o); } },
   async revealHandPick(op, ctx, h){ const o=opp(ctx.p); const O=G.players[o];
-    if(!O.hand.length){ UI.toast('상대 손패가 없습니다','warn'); return; }
+    if(!O.hand.length){ toastP(ctx.p,'상대 손패가 없습니다','warn'); return; }
     let cands=O.hand.map((n,i)=>({n,i}));
     if(op.filter==='nonunit') cands=cands.filter(x=>card(x.n).type!=='Unit');
     UI.log(`상대 손패 공개: ${O.hand.map(n=>card(n).ko).join(', ')}`,'sys');
@@ -785,7 +785,7 @@ const EXTRA_OPS = {
     if(ctx.preAb && ctx.preAb.mode){ sel=ctx.preAb.mode; if(ctx.preAb.uid!==undefined){ preU=everyUnit().find(x=>x.uid===ctx.preAb.uid)||null; if(!preU) UI.log('우디르: 대상이 사라져 그 지시는 불발 (359.3.e)','sys'); } }
     else {   // 발동 시점 지정이 없는 경로(효과 복사 등)만 여기서 고른다
       const all=[{v:'dmg',label:'전장 유닛에게 피해 2'},{v:'stun',label:'전장 유닛 기절'},{v:'ready',label:'나를 준비'},{v:'gank',label:'[개입] 부여 (이번 턴)'}].filter(o=>!used.includes(o.v));
-      if(!all.length){ UI.toast('이번 턴에 모두 사용했습니다','warn'); return; }
+      if(!all.length){ toastP(ctx.p,'이번 턴에 모두 사용했습니다','warn'); return; }
       sel=await UI.pickOption(ctx.p,'우디르: 하나 선택',all); if(sel===null) return;
     }
     used.push(sel);
