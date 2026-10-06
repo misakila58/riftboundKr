@@ -582,6 +582,8 @@ const EXTRA_OPS = {
     // 공개 후 즉시 재활용되므로 순서를 복원할 수 없는 요약 개수만 남기면 규칙상 공개가 아니다.
     UI.log(`덱 위 ${top.length}장 공개: ${top.map(n=>`「${card(n).ko}」`).join(', ')||'없음'} — [숨겨짐] ${hiddenCnt}장`,'sys');
     if(t && hiddenCnt>0) dealDamage(t, dmgPlus(hiddenCnt,t,ctx.p), 'effect');
+    // 공개도 녹턴을 깨운다(에라타 후 '보거나 공개할 때' · RiftJudge #157) — 플레이한 녹턴은 재활용 목록에서 빠진다 (제보 2026-10-06)
+    await nocturneOffer(ctx.p, top);
     P.deck.push(...shuffle(top));
     if(top.length) await fireEvent('onYouRecycle',{p:ctx.p}); },
   async tfGamble(op, ctx, h){ const P=G.players[ctx.p];

@@ -4323,6 +4323,8 @@ async function execOpsInner(ops, ctx){
         const seen=P.deck.slice(0, op.n);
         if(!seen.length) break;
         P.deck.splice(0, seen.length);
+        await nocturneOffer(p, seen);   // 본 카드 중 녹턴은 먼저 추방·플레이를 묻는다 (카드 원문 '덱 맨 위에서 나를 볼 때')
+        if(!seen.length) break;
         const names=seen.map(n=>`「${card(n).ko}」`).join(' · ');
         const keep=[], recList=[]; let rec=false;
         for(const n of seen){
