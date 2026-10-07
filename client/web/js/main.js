@@ -2341,6 +2341,9 @@ function openSystemMenu(){
       if(!value){ UI.peekBotHand=false; UI.hideHover(); }
       if(G) UI.render();
     });
+  toggle(display,'setting-turn-glow','내 차례 빛 연출',
+    '내 차례이거나 선택을 기다릴 때 손패 구역 테두리에서 반짝이는 빛을 표시합니다. 끄면 표시하지 않습니다.',
+    PLAY_OPTIONS.turnGlow,value=>{ PLAY_OPTIONS.set('turnGlow',value); if(G) UI.render(); });
   toggle(display,'setting-reverse-board','게임판 좌우 바꾸기',
     '손패와 레전드·룬·덱 영역의 좌우 배치를 서로 바꿉니다.',
     GAME_LAYOUT.reverseBoard,value=>GAME_LAYOUT.set('reverseBoard',value));

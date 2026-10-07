@@ -14,13 +14,14 @@ const PLAY_OPTIONS = {
   spellStage:true,       // 주문 준비 단계: 주문을 중앙에 올려 대상을 고른 뒤 [확인]으로 시전 (끄면 예전처럼 바로 시전)
   turnIntro:true,        // 턴 시작 연출: 띠·소리와 함께 1초 남짓 멈춤 (끄면 바로 진행)
   botHandPeekButton:true,
+  turnGlow:true,         // 내 차례·선택 대기 때 손패 구역 테두리의 반짝이는 빛(#turn-glow). 끄면 표시하지 않음 (건의 2026-10-07)
   set(key, enabled){
     this[key]=!!enabled;
     try{ localStorage.setItem('rb_play_'+key, enabled?'on':'off'); }
     catch(e){ UI.toast('설정을 저장하지 못했습니다. 이번 실행에만 적용됩니다.','warn'); }
   },
 };
-for(const key of ['confirmEndTurn','confirmResourceAbilities','spellStage','turnIntro','botHandPeekButton']){
+for(const key of ['confirmEndTurn','confirmResourceAbilities','spellStage','turnIntro','botHandPeekButton','turnGlow']){
   try{ PLAY_OPTIONS[key]=localStorage.getItem('rb_play_'+key)!=='off'; }catch(e){}
 }
 
@@ -2913,7 +2914,7 @@ function updateTurnGlow(){
   const el=document.getElementById('turn-glow');
   let side='';
   let host=document.getElementById('game-screen');
-  if(G && G.winner===null && UI.fx.on && !(typeof REPLAY!=='undefined' && REPLAY.viewing)){
+  if(G && G.winner===null && UI.fx.on && PLAY_OPTIONS.turnGlow && !(typeof REPLAY!=='undefined' && REPLAY.viewing)){
     const mine=NET.online ? NET.seat : (typeof BOT!=='undefined' && BOT.active) ? 1-BOT.seat : 0;
     const pick=_turnGlowPick?.game===G ? _turnGlowPick.p : null;
     const actor=(pick===0 || pick===1) ? pick : G.state==='showdown' ? G.actingPlayer
