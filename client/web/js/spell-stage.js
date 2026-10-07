@@ -9,8 +9,8 @@ window.addEventListener('keydown',e=>{
   e.preventDefault(); e.stopImmediatePropagation(); UI.cancelSpellStage();
 },true);
 
-UI.beginSpellStage=function(p,handIdx,n){
-  const draft={game:G,p,handIdx,n,ready:false,submitted:false,cancelRequested:false,committed:false};
+UI.beginSpellStage=function(p,handIdx,n,opts={}){
+  const draft={game:G,p,handIdx,n,mode:opts.mode||'cast',ready:false,submitted:false,cancelRequested:false,committed:false};
   UI.spellStage=draft;
   UI.spellStageSubmitting=false;
   hideMenu(); closeModal(); UI.hideZoom();
@@ -74,11 +74,14 @@ UI.confirmSpellStage=async function(draft,targets){
   await routedPick(draft.p,()=>new Promise(resolve=>{
     _resolver=resolve;
     draft.ready=true;
-    UI.prompt('대상 선택 완료 — 확인을 눌러 시전하거나 중앙 카드를 손패로 되돌려 취소하세요.');
-    if(!targets.length) UI.prompt('확인을 눌러 주문을 시전하거나 중앙 카드를 손패로 되돌려 취소하세요.');
-    else {
+    const hiding=draft.mode==='hide';
+    UI.prompt(hiding?'확인을 눌러 주문을 숨기거나 중앙 카드를 손패로 되돌려 취소하세요.'
+      :targets.length?'대상 선택 완료 — 확인을 눌러 시전하거나 중앙 카드를 손패로 되돌려 취소하세요.'
+      :'확인을 눌러 주문을 시전하거나 중앙 카드를 손패로 되돌려 취소하세요.');
+    if(targets.length){
       const summary=document.createElement('div'); summary.className='spell-stage-targets';
-      summary.textContent='선택한 대상: '+targets.map(t=>t.label||t.name).join(', ');
+      summary.textContent=(hiding?'숨길 전장: ':'선택한 대상: ')+targets.map(t=>t.label||t.name).join(', ')
+        +(hiding&&draft.hidePayment?' / 비용: '+draft.hidePayment:'');
       document.getElementById('prompt-area').appendChild(summary);
     }
     updateButtons(); UI.renderSpellStage();
@@ -116,12 +119,12 @@ UI.renderSpellStage=function(){
   let host=document.getElementById('spell-stage');
   if(!host){
     host=document.createElement('section'); host.id='spell-stage';
-    host.setAttribute('aria-label',own?'시전 준비 중인 주문':'상대가 준비 중인 미지의 카드');
+    host.setAttribute('aria-label',own?(draft.mode==='hide'?'숨김 준비 중인 주문':'시전 준비 중인 주문'):'상대가 준비 중인 미지의 카드');
     let el;
     if(own){
       el=cardMiniEl(card(draft.n),{owner:draft.p});
       el.classList.add('spell-stage-card');
-      el.title='손패로 드래그하여 시전 취소';
+      el.title='손패로 드래그하여 '+(draft.mode==='hide'?'숨김':'시전')+' 취소';
       el.onclick=e=>{e.preventDefault();e.stopPropagation();};
       attachSpellReturnDrag(el,draft);
     }else{
@@ -153,8 +156,10 @@ UI.renderSpellStage=function(){
     };
     position();
   }
-  host.querySelector('.spell-stage-note').textContent=!own?'상대 주문 준비 중'
-    :draft.cancelRequested?'취소 중...':draft.submitted?'확인 중...':draft.ready?'시전 준비 완료':'대상 선택 중';
+  host.querySelector('.spell-stage-note').textContent=!own?(draft.mode==='hide'?'상대 숨김 준비 중':'상대 주문 준비 중')
+    :draft.cancelRequested?'취소 중...':draft.submitted?'확인 중...'
+      :draft.ready?(draft.mode==='hide'?'숨김 준비 완료':'시전 준비 완료')
+        :draft.mode==='hide'?'숨길 전장·비용 선택 중':'대상 선택 중';
   const cancel=host.querySelector('button');
   if(cancel) cancel.disabled=draft.submitted || draft.cancelRequested;
 };

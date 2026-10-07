@@ -7,6 +7,13 @@ const TUT = {
   timer:null, baseline:{},
 };
 
+// 튜토리얼 봇의 격발에도 응수 창이 생긴다. 봇 자신의 선택은 사람에게 넘기지 않는다.
+const tutPickReaction=UI.pickReaction;
+UI.pickReaction=function(p,...args){
+  if(TUT.active && p===1) return Promise.resolve(null);
+  return tutPickReaction.call(this,p,...args);
+};
+
 // ---------- 교육용 카드 (다리우스: 분노/질서) ----------
 // 210 대담한 포로(2, 2⚔, 맹공)  216 높이 나는 정찰병(2, 1⚔, 죽음의 종소리)
 // 217 영광을 좇는 트리파르 병사(2, 2⚔, 군단-버프)  9 마법공학 광선(1+힘1, 피해3)
@@ -15,20 +22,29 @@ const TUT_P0 = {
   legendN:253, champN:27,                       // 다리우스 전설 / 다리우스 - 트리파르
   hand:[210,216,217,9],
   deckTop:[218,4,240,12,10,3,16,219],           // 매 턴 뽑는 순서
+  filler:[210,219,12,10,16,3,217,216,4,9,218,240,1],
   runeTop:[7,214,7,214,7,214,7,214,7,214,7,214],// 분노/질서 교차 (힘 지불 교육용)
 };
 const TUT_P1 = {
-  legendN:265, champN:112,                      // 빅토르 (봇)
+  legendN:265, champN:246,                      // 빅토르 전설 / 빅토르 - 지도자
   hand:[211,219,210,219],                       // 211은 신병 토큰(1⚔)을 데려온다 → 그 토큰으로 공격 수업
-  deckTop:[219,210,211,219,210],
+  deckTop:[219,210,211,216,210],
+  filler:[210,211,212,215,216,217,218,219,222,223,225,226,227],
   runeTop:[214,214,214,214,214,214,214,214,214,214,214,214],
 };
 const TUT_BFS = [280, 297];                     // 신의 버드나무 숲(유지:드로우) / 바람이 부는 언덕(개입)
 
-function tutFill(list, want){ // deckTop 뒤를 채워 40장 구성
-  const out=[...list];
-  const filler=[210,219,12,10,16,3,217,216];
-  let i=0; while(out.length<want){ out.push(filler[i%filler.length]); i++; }
+function tutDeck(p){
+  // 선발 1장 + 고정 손패 4장 + 고정 드로우 순서. 같은 카드는 최대 3장이다.
+  const out=[p.champN,...p.hand,...p.deckTop], counts=new Map();
+  for(const n of out) counts.set(n,(counts.get(n)||0)+1);
+  for(let round=0;round<3 && out.length<40;round++){
+    for(const n of p.filler){
+      if(out.length===40) break;
+      if((counts.get(n)||0)>=3) continue;
+      out.push(n); counts.set(n,(counts.get(n)||0)+1);
+    }
+  }
   return out;
 }
 
@@ -41,14 +57,19 @@ function tutSteps(){
   { kind:'info', title:'🎓 튜토리얼에 오신 것을 환영합니다!',
     text:`리프트바운드는 <b>전장(戰場)을 차지해 점수를 얻는</b> 게임입니다.<br>
     승리 조건: <b>8점 선취</b>. 점수는 전장을 <b>정복</b>하거나(빼앗기), 자기 턴 시작까지 <b>유지</b>(지키기)하면 얻습니다.<br><br>
-    화면을 둘러보세요 — 아래쪽이 당신, 위쪽이 봇(연습 상대)입니다.` },
+    화면을 둘러보세요 — 아래쪽이 당신, 위쪽이 봇(연습 상대)입니다.<br>
+    이 수업은 <b>다리우스 대 빅토르</b>의 고정 덱을 사용합니다. 안내 순서를 위해
+    <b>당신이 선공</b>이며, 시작 손패 교체(멀리건)는 생략합니다.` },
   { kind:'info', title:'📋 화면 구역 안내',
     text:`· <b>전설</b>(아래쪽 내 구역, 기지 옆의 금테 카드): 당신의 리더. 고유 능력을 가지며 게임 내내 유지됩니다.<br>
-    · <b>챔피언 존</b>: 선발 챔피언이 대기하는 곳 — 손패처럼 여기서 바로 플레이할 수 있습니다.<br>
+    · <b>챔피언 존</b>: 선발 챔피언이 대기하는 곳 — 손패처럼 여기서 바로 플레이할 수 있습니다.
+      선발은 <b>레전드와 같은 챔피언 태그</b>여야 합니다. 이 덱은 다리우스 레전드와 다리우스 선발을 씁니다.<br>
     · <b>덱 / 룬 덱 / 폐기</b>: 뽑을 카드 / 자원(룬) / 버려진 카드 더미.<br>
-    · <b>기지</b>: 유닛이 소환되는 안전지대. 여기 있는 유닛은 공격받지 않습니다.<br>
+    · <b>기지</b>: 유닛을 플레이할 수 있는 곳. 전투는 벌어지지 않지만 <b>주문이나 능력의 대상</b>이 될 수 있습니다.<br>
     · 중앙의 <b>전장 2곳</b>: 점수의 원천! 유닛을 보내 차지해야 합니다.<br><br>
-    💡 카드에 <b>마우스를 올리면</b> 크게 보이고, <b>꾹 누르거나 Alt+클릭</b>하면 효과를 자세히 볼 수 있습니다.<br>
+    💡 PC에서는 카드에 <b>마우스를 올리면</b> 정보가 보이고, <b>꾹 누르거나 Alt+클릭</b>하면 확대됩니다.<br>
+    💡 모바일에서는 <b>손패 칸을 눌러 펼친 뒤</b> 카드를 선택하거나 드래그하세요.
+    <b>☰ 아이콘</b>을 누르면 플레이 로그가 열립니다.<br>
     💡 이 안내 창이 화면을 가리면 오른쪽 위 <b>[접기]</b>로 줄일 수 있습니다.` },
   { kind:'info', title:'🔄 턴 구조 (A-B-C-D)',
     text:`매 턴 시작에 4단계가 자동 진행됩니다 (로그 확인!):<br>
@@ -66,12 +87,13 @@ function tutSteps(){
     현재 룬 2개 = 에너지 2까지 사용 가능.` },
   { kind:'task', title:'▶ 유닛을 플레이해보세요!',
     text:`손패의 <b>「대담한 포로」</b>(비용 2)를 클릭하고 <b>[▶ 플레이]</b>를 선택하세요.<br>
+    배치 화면에서는 <b>내 기지</b>를 선택하세요.<br>
     <b>[맹공]</b> 키워드: 공격할 때 위력 +1이 되는 유닛입니다.`,
     hint:'손패(아래줄)의 대담한 포로 → 클릭 → ▶ 플레이',
     done:()=>everyUnit().some(u=>u.ctrl===0&&u.n===210)||G.players[0].trash.includes(210) },
   { kind:'info', title:'😴 유닛은 탈진 상태로 등장합니다',
-    text:`방금 소환된 유닛이 <b>옆으로 누워(탈진)</b> 있죠? 소환 직후에는 행동할 수 없고,<br>
-    다음 턴 <b>각성 단계</b>에 일어나야 이동/공격이 가능합니다.<br>
+    text:`방금 플레이한 유닛이 <b>옆으로 누워(탈진)</b> 있죠? 탈진한 유닛은 이동할 수 없습니다.<br>
+    보통 다음 내 턴 <b>각성 단계</b>에 준비되어야 이동할 수 있습니다. 카드 효과로 먼저 준비될 수도 있습니다.<br>
     (예외: <b>[가속]</b> 키워드는 추가 비용을 내면 준비 상태로 등장!)<br>
     룬 2개가 탈진되어 에너지를 지불한 것도 확인해보세요.` },
   { kind:'task', title:'⏭ 턴을 종료하세요',
@@ -79,7 +101,8 @@ function tutSteps(){
     hint:'사이드바의 [턴 종료] 버튼',
     done:()=>G.turn===1||TUT.flags.botT1done },
   { kind:'info', title:'🤖 봇의 턴',
-    text:`봇이 자기 턴을 진행했습니다 (로그 확인) — 룬을 전개하고 유닛을 소환했죠.<br>
+    text:`봇이 자기 턴을 진행했습니다 (로그 확인) — 룬을 전개하고 유닛을 플레이했죠.
+    봇의 카드나 격발에 대한 <b>응수 창</b>이 열리면 [패스]를 눌러 진행하세요.<br>
     이제 당신의 2번째 턴: <b>각성</b>으로 유닛과 룬이 모두 준비되고, 룬 2개가 추가 전개되어
     <b>총 4개</b>(에너지 4)가 되었습니다.`,
     ready:()=>G.turn===0&&G.phase==='action' },
@@ -101,7 +124,7 @@ function tutSteps(){
     done:()=>G.state==='neutral'&&G.players[0].points>=1 },
   { kind:'info', title:'🏆 정복 득점!',
     text:`1점 획득! 전장 테두리가 파란색(당신 통제)으로 바뀌었습니다.<br>
-    · <b>정복</b>: 통제권을 새로 얻으면 1점 (전장당 <b>턴에 1번만</b>).<br>
+    · <b>정복</b>: 통제권을 새로 얻으면 1점. <b>유지와 정복을 합쳐 전장당 한 턴에 한 번만 득점</b>합니다.<br>
     · <b>유지</b>: 다음 <b>내 턴 시작까지</b> 지키면 또 1점!<br>
     즉 전장 하나를 계속 지키면 매 턴 1점씩 들어옵니다. 상대는 그걸 뺏으러 오겠죠.` },
   { kind:'task', title:'⏭ 턴 종료 → 봇이 공격해옵니다',
@@ -117,7 +140,8 @@ function tutSteps(){
     ready:()=>TUT.flags.botAttacked||(G.state==='showdown'&&G.showdown&&G.showdown.attacker===1),
     done:()=>TUT.flags.combatResolved },
   { kind:'info', title:'💥 전투 결과 — 방어 성공!',
-    text:`토큰(1⚔)은 쓰러지고, 당신의 <b>대담한 포로</b>(2⚔)는 피해 1만 입고 살아남았습니다.
+    text:`다른 카드를 사용하지 않고 안내대로 패스했다면, 토큰(1⚔)은 쓰러지고
+    당신의 <b>대담한 포로</b>(2⚔)는 피해 1만 입고 살아남습니다.
     (표시된 피해는 <b>턴 종료 시 회복</b>됩니다)<br>
     · <b>방어 성공은 점수가 없습니다</b> — 점수는 통제권을 <b>새로 얻는</b> 정복과 유지뿐.<br>
     · ⚠ 만약 <b>양측이 전멸</b>했다면? 빈 전장은 <b>무주공산</b>(통제 해제)이 되어
@@ -131,7 +155,7 @@ function tutSteps(){
     ready:()=>G.turn===0&&G.phase==='action'&&G.players[0].points>=2 },
   { kind:'task', title:'▶ 「높이 나는 정찰병」 플레이 — [죽음의 종소리]',
     text:`손패의 <b>「높이 나는 정찰병」</b>(비용 2)을 플레이하세요.<br>
-    이제 전장을 통제 중이므로 <b>배치 위치 선택 창</b>이 뜹니다 — 유닛은 <b>기지 또는
+    <b>배치 위치 선택 화면</b>에서 유닛은 <b>기지 또는
     통제 중인 전장</b> 어디든 소환할 수 있습니다. 이번엔 <b>기지</b>를 고르세요.<br>
     <b>[죽음의 종소리]</b>: 이 유닛이 <b>죽을 때</b> 효과가 발동합니다 (이 카드는 룬 1개를 탈진 상태로 전개).`,
     hint:'손패의 높이 나는 정찰병 → ▶ 플레이 → 선택 창에서 [기지]',
@@ -145,7 +169,8 @@ function tutSteps(){
     done:()=>G.players[0].legendEx===true },
   { kind:'task', title:'▶ 「영광을 좇는 트리파르 병사」 — [군단] + 버프',
     text:`이어서 <b>「영광을 좇는 트리파르 병사」</b>를 플레이하세요.<br>
-    [군단]이 충족된 상태라 등장하며 <b>버프</b>(+1⚔ 영구 강화)를 받습니다.<br>
+    이번 턴에 정찰병 등 다른 카드를 먼저 플레이했다면 [군단]이 충족되어 등장하며 <b>버프</b>(+1⚔)를 받습니다.
+    먼저 플레이해 둔 경우에는 당시 [군단] 조건에 따라 버프가 없을 수 있습니다.<br>
     버프는 유닛 우측 상단의 <b>+1</b> 표시로 확인할 수 있고, 일부 효과의 비용으로 소모되기도 합니다.`,
     hint:'손패의 영광을 좇는 트리파르 병사 → ▶ 플레이',
     // 미리 플레이해버린 경우([군단] 미충족으로 버프 없음)에도 진행되도록 완화
@@ -154,7 +179,7 @@ function tutSteps(){
     text:`좋습니다! 소환한 유닛들은 다음 턴부터 움직일 수 있습니다. <b>[턴 종료]</b>를 누르세요.`,
     hint:'[턴 종료] 버튼',
     done:()=>TUT.flags.botT3done||G.turn===1 },
-  { kind:'task', title:'✨ 주문과 힘 비용 — 「선봉대 대장」',
+  { kind:'task', title:'✨ 유닛의 힘 비용 — 「선봉대 대장」',
     text:`당신 턴입니다 (유지 +1점!). 이번엔 <b>힘 비용</b>이 있는 카드를 써봅시다.<br>
     <b>「선봉대 대장」</b>(비용 3 + <b>질서 힘 1</b>)을 플레이하세요.
     힘은 <b>질서 룬 1개가 룬 덱으로 재활용</b>되며 자동 지불됩니다 (룬 개수가 줄어드는 것 확인!).<br>
@@ -163,7 +188,7 @@ function tutSteps(){
     hint:'손패의 선봉대 대장 → ▶ 플레이 (배치는 기지 추천)',
     ready:()=>G.turn===0&&G.phase==='action'&&G.players[0].points>=3,
     done:()=>everyUnit().some(u=>u.ctrl===0&&u.n===218)||G.players[0].trash.includes(218) },
-  { kind:'task', title:'⏭ 턴 종료 — 자원을 아껴둡시다',
+  { kind:'task', title:'⏭ 턴 종료 — 다음 턴을 준비합시다',
     text:`잘했습니다! 다음 턴에는 룬이 더 많아져 <b>고비용 챔피언</b>을 낼 수 있습니다.<br>
     <b>[턴 종료]</b>를 누르세요. (남은 룬의 에너지는 턴이 끝나면 사라집니다 — 이월되지 않아요!)`,
     hint:'[턴 종료] 버튼',
@@ -171,8 +196,8 @@ function tutSteps(){
   { kind:'task', title:'👑 챔피언 플레이!',
     text:`당신 턴입니다 (유지 +1점!). 이제 <b>챔피언 존</b>의 <b>「다리우스 - 트리파르」</b>
     (비용 5 + 분노 힘 1)을 클릭해 플레이하세요.<br>
-    챔피언은 강력한 위력(5⚔)의 에이스입니다. 죽으면 폐기되지 않고
-    <b>챔피언 존으로 돌아와</b> 다시 플레이할 수 있습니다.`,
+    챔피언은 강력한 위력(5⚔)의 유닛입니다. 플레이한 뒤에는 다른 유닛처럼 취급하며,
+    <b>죽으면 폐기장으로 갑니다</b>. 특별한 카드 효과가 없다면 챔피언 존으로 돌아오지 않습니다.`,
     hint:'내 구역의 챔피언 존(전설 옆) 다리우스 클릭 → ▶ 챔피언 플레이',
     ready:()=>G.turn===0&&G.phase==='action'&&G.players[0].points>=4,
     done:()=>G.players[0].champInZone===false },
@@ -181,12 +206,15 @@ function tutSteps(){
     · <b>「쪼개기」</b>(비용 1): 유닛에게 [맹공 3]을 부여하는 <b>[행동]</b> 주문 — <b>결전 중에도</b> 쓸 수 있어
       위력 계산을 뒤집는 필살기입니다.<br>
     · <b>「마법공학 광선」</b>: 전장의 유닛에게 피해 3 — 성가신 방어 유닛 제거용.<br>
+    · <b>「세트 - 두목」</b>의 [탱커]: 전투 피해를 다른 아군보다 먼저 배분받습니다.
+      덱에는 다른 챔피언 유닛도 넣을 수 있지만, <b>선발 챔피언</b>은 레전드와 태그가 일치해야 합니다.<br>
     · 「바람이 부는 언덕」의 유닛은 <b>[개입]</b>(전장→전장 이동)을 얻습니다.` },
   { kind:'info', title:'🎯 승리 조건 정리',
     text:`· <b>8점 선취 승리</b> — 정복(+1) / 유지(+1, 자기 턴 시작) 반복.<br>
     · 단, <b>마지막 1점</b>은 <b>유지</b>로만, 또는 그 턴에 <b>모든 전장을 득점한 정복</b>으로만 얻습니다
-      (조건 미달 정복은 대신 카드 1장을 뽑습니다).<br>
-    · 덱이 다 떨어지면 <b>번아웃</b>: 폐기장을 덱으로 되돌리고 <b>상대에게 1점</b>.<br><br>
+      (조건 미달 정복은 대신 카드 1장을 뽑습니다). 카드 효과나 번아웃으로 얻는 점수에는 이 정복 제한이 적용되지 않습니다.<br>
+    · 빈 덱에서 카드를 뽑거나 옮겨야 하면 <b>번아웃</b>: 폐기장을 섞어 덱으로 되돌리고 <b>상대에게 1점</b>을 준 뒤,
+      원래 지시를 계속합니다. 마지막 카드를 뽑아 덱이 비는 순간에 곧바로 발생하는 것은 아닙니다.<br><br>
     ⚙️ 자동화가 안 되는 카드 효과는 안내가 뜹니다.` },
   { kind:'end', title:'🎉 튜토리얼 완료!',
     text:`핵심 규칙을 모두 배웠습니다:<br>
@@ -201,21 +229,23 @@ function tutSteps(){
 TUT.start = function(){
   NET.online=false; NET.seat=null;
   TUT.active=true; TUT.step=0; TUT.flags={}; TUT.botTurn=0; TUT.botRunning=false;
+  const decks=[tutDeck(TUT_P0),tutDeck(TUT_P1)];
 
   newGame({
     seed: 12345,
+    first:0,
     manual: false, // 튜토리얼은 규칙 자동 처리 필요
     players:[
-      { name:'수련생(나)', legendN:TUT_P0.legendN, champN:TUT_P0.champN, deck:tutFill(TUT_P0.deckTop,40), runes:TUT_P0.runeTop },
-      { name:'연습 봇', legendN:TUT_P1.legendN, champN:TUT_P1.champN, deck:tutFill(TUT_P1.deckTop,40), runes:TUT_P1.runeTop },
+      { name:'수련생(나)', legendN:TUT_P0.legendN, champN:TUT_P0.champN, deck:decks[0], runes:TUT_P0.runeTop },
+      { name:'연습 봇', legendN:TUT_P1.legendN, champN:TUT_P1.champN, deck:decks[1], runes:TUT_P1.runeTop },
     ],
     bfs: TUT_BFS,
   });
   // 손패/덱/룬을 교육용 고정 순서로 재구성 (셔플 무시)
   const P0=G.players[0], P1=G.players[1];
   // 공식 룰: 주 덱 40장 중 선발 챔피언 1장은 챔피언 구역 → 시작 덱 39장, 손패 4장을 빼면 35장
-  P0.hand=[...TUT_P0.hand]; P0.deck=tutFill(TUT_P0.deckTop,35);
-  P1.hand=[...TUT_P1.hand]; P1.deck=tutFill(TUT_P1.deckTop,35);
+  P0.hand=[...TUT_P0.hand]; P0.deck=decks[0].slice(5);
+  P1.hand=[...TUT_P1.hand]; P1.deck=decks[1].slice(5);
   P0.runeDeck=[...TUT_P0.runeTop]; P1.runeDeck=[...TUT_P1.runeTop];
 
   showScreen('game-screen');
@@ -294,9 +324,9 @@ TUT.runBotTurn=async function(){
   await sleep(1100);
   try{
     if(TUT.botTurn===1){
-      // 유닛 1개 소환 (211: 2⚔, 맹공 없음 — 다음 턴 상호 전멸 수업용)
+      // 충직한 제작자(211, 비용 3)를 플레이해 다음 방어 수업에 쓸 신병을 만든다.
       const i=P1.hand.indexOf(211);
-      if(i>=0) await playCardFromHand(1,i);
+      if(i>=0) await playCardFromHand(1,i,{playLoc:'base'});
       TUT.flags.botT1done=true;
     } else if(TUT.botTurn===2){
       // 가장 약한 유닛(신병 토큰 1⚔)만 보내 격퇴당하게 한다 → 방어 성공(무득점·통제 유지) 수업.
@@ -311,10 +341,10 @@ TUT.runBotTurn=async function(){
       }
       await sleep(500);
       const j=P1.hand.indexOf(219);
-      if(j>=0) await playCardFromHand(1,j);
+      if(j>=0) await playCardFromHand(1,j,{playLoc:'base'});
     } else if(TUT.botTurn===3){
       const k=P1.hand.indexOf(210);
-      if(k>=0) await playCardFromHand(1,k);
+      if(k>=0) await playCardFromHand(1,k,{playLoc:'base'});
       TUT.flags.botT3done=true;
     }
     // 이후 턴: 아무것도 안 함 (허수아비)
@@ -336,6 +366,8 @@ TUT.render=function(){
   const isInfo=s.kind==='info'||s.kind==='end';
   // 본문 내 ${...} 치환 (점수 등 동적 값)
   let text=s.text.replace(/\$\{G\.players\[0\]\.points\}/g, G?G.players[0].points:'');
+  const ready=TUT._readyOk(s);
+  if(isInfo && !ready) text='⏳ 봇의 턴과 자동 처리가 진행 중입니다. 응수 창이 열리면 <b>[패스]</b>를 눌러 진행하세요.<br>처리가 끝나면 이 단계의 설명과 [다음] 버튼이 표시됩니다.';
   p.style.display='block';
   p.classList.toggle('collapsed', !!TUT.collapsed);
   p.innerHTML=`
@@ -344,7 +376,7 @@ TUT.render=function(){
     <div class="tut-body">${text}</div>
     ${s.hint?`<div class="tut-hint">👉 ${s.hint}</div>`:''}
     <div class="tut-btns">
-      ${isInfo?`<button id="tut-next" class="tut-btn primary">${s.kind==='end'?'계속 연습하기':'다음 →'}</button>`:`<span class="tut-wait" id="tut-waitmsg">과제를 수행하면 자동으로 넘어갑니다...</span>`}
+      ${isInfo?`<button id="tut-next" class="tut-btn primary" ${ready?'':'disabled'}>${s.kind==='end'?'계속 연습하기':ready?'다음 →':'진행을 기다리는 중...'}</button>`:`<span class="tut-wait" id="tut-waitmsg">과제를 수행하면 자동으로 넘어갑니다...</span>`}
       ${s.kind==='task'?`<button id="tut-skip" class="tut-btn" title="이미 해버렸거나 막혔을 때">건너뛰기</button>`:''}
       <button id="tut-quit" class="tut-btn">튜토리얼 종료</button>
     </div>`;
@@ -368,7 +400,13 @@ TUT.place=function(s){
 window.addEventListener('resize', ()=>{ if(TUT.active) TUT.place(TUT.cur()); });
 // task 단계에서 ready 미충족 시 대기 문구 갱신
 TUT.renderWait=function(){
-  const s=TUT.cur(); if(!s||s.kind!=='task') return;
+  const s=TUT.cur(); if(!s) return;
+  if(s.kind==='info' && s.ready){
+    const next=document.getElementById('tut-next');
+    if(next && next.disabled===TUT._readyOk(s)) TUT.render();
+    return;
+  }
+  if(s.kind!=='task') return;
   const el=document.getElementById('tut-waitmsg'); if(!el) return;
   el.textContent = TUT._readyOk(s) ? '과제를 수행하면 자동으로 넘어갑니다...' : '⏳ 진행을 기다리는 중... (봇 턴/자동 단계)';
 };

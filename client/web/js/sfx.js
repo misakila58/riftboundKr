@@ -14,7 +14,7 @@ const SFX = {
       try{ SFX._ctx = new AC(); }catch(e){ return null; }
     }
     // 브라우저는 사용자 입력 전엔 소리를 막는다 — 첫 클릭 뒤 자동으로 풀린다
-    if(SFX._ctx.state === 'suspended') SFX._ctx.resume().catch(()=>{});
+    if(SFX._ctx.state === 'suspended' || SFX._ctx.state === 'interrupted') SFX._ctx.resume().catch(()=>{});
     return SFX._ctx;
   },
   // f: 주파수(Hz) · dur: 초 · at: 시작 지연 · slide: 끝 주파수(글리산도)
@@ -34,6 +34,9 @@ const SFX = {
   _last: {},
   // 같은 종류가 80ms 안에 연달아 오면(동시 다발 연출) 한 번만 낸다
   play(kind, force){
+    // Engine wrappers also run in bot probes. Keep them silent without consuming
+    // the playback cooldown needed by the eventual real action.
+    if(typeof SIM!=='undefined' && SIM.active) return;
     if(!SFX.on && !force) return;
     const now = performance.now();
     if(now - (SFX._last[kind] || 0) < 80) return;

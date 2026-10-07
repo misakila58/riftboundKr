@@ -174,3 +174,24 @@
 
 #modal-box:has(.decision-actions) .option-content { min-height:0; overflow:auto; }
 #modal-box:has(.decision-actions) > .battlefield-source { flex-shrink:0; max-height:25dvh; overflow:auto; }
+
+/* 보드에서 직접 고를 수 없는 후보도 중앙에서 확인한다. 목록만 스크롤한다. */
+#center-info.board-extra-picking { flex-basis:210px; overflow:hidden; }
+#center-info.board-extra-picking #pool-display { display:none; }
+.board-extra-picking #board-order-controls { min-height:0; max-height:100%; padding:4px; }
+.board-extra-heading { flex:none; color:#ffe09a; text-align:center; font-size:13px; }
+#board-extra-options { min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:6px; scrollbar-gutter:stable; }
+#board-extra-options button { flex:none; text-align:left; justify-content:flex-start; overflow-wrap:anywhere; }
+#board-extra-options button img { width:30px; height:42px; flex:none; object-fit:contain; }
+#board-order-controls > button { flex-shrink:0; }
+.spell-staging #modal-shell { width:720px; max-width:calc(100% - 48px); }
+.spell-staging #modal-shell #modal-box { width:100%; }
+.spell-staging #modal-box .modal-btns button { min-height:44px; }
+.spell-staging #modal-box .decision-actions button { opacity:1 !important; font-weight:700; border:2px solid #8fbde7; }
+.spell-staging #modal-box .decision-actions button.primary { border-color:#ffe09a; background:#6a451b; color:#fff3ce; }
+@media (orientation:landscape) and (max-height:520px){
+  #center-info.board-extra-picking { flex-basis:140px; }
+  #board-extra-options button img { display:none; }
+  .spell-staging #modal-shell #modal-box { max-height:calc(100dvh - 24px); padding:10px; }
+  .spell-staging #modal-box:has(.decision-actions) > h3 { max-height:48px; overflow-y:auto; font-size:14px; margin-bottom:6px; }
+}

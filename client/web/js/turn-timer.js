@@ -48,18 +48,26 @@ function ttAutoAnswer(){
   const SKIP = /패스|건너뛰|선택 안 함|안 함|하지 않|넘기|사용 안|그만|취소|아니/;
   const BAN = /항복|설정|체인|숨기기|보드 보기|나가기/;
   const visible = el => !!el && el.offsetParent !== null;
-  const scopes = ['#placement-overlay', '#modal-box', '#prompt-area', '#spell-stage'].map(s => document.querySelector(s)).filter(visible);
-  const btns = scopes.flatMap(s => [...s.querySelectorAll('button')])
+  const scopes = ['#placement-overlay', '#modal-box', '#prompt-area', '#spell-stage', '#board-extra-options'].map(s => document.querySelector(s)).filter(visible);
+  // 중앙 선택 버튼도 같은 클릭 경로로 처리한다. 초기화는 자동 선택 대상에서 제외한다.
+  const btns = [...document.querySelectorAll('#unit-pick-skip, #board-order-controls .order-confirm'),
+    ...scopes.flatMap(s => [...s.querySelectorAll('button')])]
     .filter(b => !b.disabled && visible(b) && b.id !== 'modal-visibility-toggle' && !BAN.test(b.textContent));
-  const skip = btns.find(b => SKIP.test(b.textContent.trim()));
+  const skip = btns.find(b => b.id === 'unit-pick-skip' || SKIP.test(b.textContent.trim()));
   if(skip){ skip.click(); return true; }
-  const target = [...document.querySelectorAll('#game-screen .targetable, #game-screen [data-board-choice]')].find(visible);
+  // 중앙의 완료/거절을 유닛 재선택보다 먼저 실행한다. 순서는 나머지를 기본 순서로,
+  // 버프는 현재 고른 개수로 확정하며, 유닛 확인은 거절한다.
+  const order = btns.find(b => b.matches('#board-order-controls .order-confirm'));
+  if(order){ order.click(); return true; }
+  const target = [...document.querySelectorAll('#game-screen .targetable, #game-screen [data-board-choice], #mobile-hand-layer .targetable, #mobile-hand-layer [data-board-choice]')].find(visible);
   if(target){ target.click(); return true; }
   if(btns.length){ btns[0].click(); return true; }
   return false;
 }
 // 시간 초과된 내 차례를 한 걸음 진행한다 (0.7초마다 다시 불려 차례가 넘어갈 때까지 이어 간다)
 function ttForceStep(){
+  if(UI.mobileHand?.cancelRuneDraft?.()) return;
+  if(UI.handDropChoice){ UI.handDropChoice.cancel?.(); return; }
   const modalOpen = document.getElementById('modal-overlay')?.style.display !== 'none';
   if(modalOpen && !ttMyPickOpen()){ closeModal(); return; }   // 턴 종료 확인·설정 같은 선택 아닌 창
   if(UI.spellStage && !UI.spellStage.submitted){ UI.cancelSpellStage?.(); return; }

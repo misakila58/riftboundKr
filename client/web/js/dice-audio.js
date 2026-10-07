@@ -64,9 +64,9 @@
     const cleanup=()=>{ voices.delete(voice); source.disconnect();filter.disconnect();gain.disconnect();pan.disconnect(); };
     source.onended=cleanup; voices.add(voice); source.start();
   };
-  // Unlock on a real gesture, including mobile and the first setup hold/click.
+  // iOS 터치는 손가락을 뗄 때 활성화된다. 캡처 단계에서 카드 조작의 전파 차단보다 먼저 복구한다.
   const unlock=()=>{if(typeof SFX!=='undefined' && SFX.on) UI.prepareDiceAudio();};
-  window.addEventListener('pointerdown',unlock,{passive:true});
-  window.addEventListener('keydown',unlock);
+  for(const event of ['pointerdown','pointerup','touchend','keydown'])
+    window.addEventListener(event,unlock,{capture:true,passive:true});
   document.addEventListener('visibilitychange',()=>{if(document.hidden) UI.stopDiceAudio();});
 })();

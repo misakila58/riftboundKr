@@ -94,12 +94,13 @@ function simUI(policy){
       const v = policy.number(p,t,mn,mx,x);
       return Math.max(lo, Math.min(hi, (typeof v==='number'&&!isNaN(v)) ? v : hi));
     }),
-    pickHandCard: (p,t)       => simAnswer(()=>policy.hand(p,t)),
-    pickBuffs:    (p,t,c)     => simAnswer(()=>policy.buffs(p,t,c)),
-    pickBoardOrder:(p,t,o)    => simAnswer(()=>{
+    pickHandCard: (p,t,x)     => simAnswer(()=>policy.hand(p,t,x)),
+    pickBuffs:    (p,t,c,x)   => simAnswer(()=>policy.buffs(p,t,c,x)),
+    pickBoardOrder:(p,t,o)    => simAnswer(async()=>{
+      if(policy.boardOrder)return policy.boardOrder(p,t,o);
       const remaining=o.map((option,index)=>({option,index})), ordered=[];
       while(remaining.length){
-        const pick=policy.option(p,t,remaining.map((x,i)=>({...x.option,v:i})));
+        const pick=await policy.option(p,t,remaining.map((x,i)=>({...x.option,v:i})));
         const at=Number.isInteger(pick)&&remaining[pick]?pick:0;
         ordered.push(remaining.splice(at,1)[0].index);
       }
@@ -130,7 +131,7 @@ function simEnter(policy, movementProbe){
     simActive:SIM.active, simLock:SIM.lock, picks:SIM.picks,
     movementDepth:SIM.movementDepth||0, returned:SIM.returned,
     perspective:SIM.perspective, policy:SIM.policy, settling:SIM.settling,
-    policyState:Object.fromEntries(['_mfEmergency','_mfBulletPlan','_mfGankTarget','_kaisaSpellTarget','_sdSeen','_sdKey','_sdTried','_playScore','turnPlan','think'].map(k=>[k,{exists:Object.hasOwn(policy,k),value:policy[k]}])),
+    policyState:Object.fromEntries(['_buffPaymentPlan','_buffFollowup','_orderFollowup','_mfEmergency','_mfBulletPlan','_mfGankTarget','_kaisaSpellTarget','_sdSeen','_sdKey','_sdTried','_playScore','turnPlan','think'].map(k=>[k,{exists:Object.hasOwn(policy,k),value:policy[k]}])),
     ownerPolicy:policy,
     G, UID: (typeof UID!=='undefined'?UID:1),
     rng: (typeof _rngState!=='undefined'?_rngState:1),
@@ -140,6 +141,9 @@ function simEnter(policy, movementProbe){
     hiddenBf: (typeof _hiddenBf!=='undefined'?_hiddenBf:null),
     preTarget: (typeof _preTarget!=='undefined'?_preTarget:undefined),
     curKind: (typeof _curKind!=='undefined'?_curKind:'effect'),
+    dyingBatch: (typeof _dyingBatch!=='undefined'?_dyingBatch:null),
+    dkTwiceBatch: (typeof _dkTwiceBatch!=='undefined'?_dkTwiceBatch:null),
+    deferDeathFx: (typeof _deferDeathFx!=='undefined'?_deferDeathFx:null),
     UI: UI,
     hash: null,
   };
@@ -151,7 +155,11 @@ function simEnter(policy, movementProbe){
   // simTry는 simEnter의 예외를 조용히 삼키므로 잠금 복구를 여기서 직접 해 준다.
   try {
     UI = simUI(policy);                     // 슬롯 자체를 교체 (래퍼를 얹지 않는다)
-    G = cloneG(saved.G);
+    const copy=cloneG({game:saved.G,dyingBatch:saved.dyingBatch,dkTwiceBatch:saved.dkTwiceBatch,deferDeathFx:saved.deferDeathFx});
+    G=copy.game;
+    if(typeof _dyingBatch!=='undefined')_dyingBatch=copy.dyingBatch;
+    if(typeof _dkTwiceBatch!=='undefined')_dkTwiceBatch=copy.dkTwiceBatch;
+    if(typeof _deferDeathFx!=='undefined')_deferDeathFx=copy.deferDeathFx;
     SIM.policy=policy; SIM.settling=false;
     for(const k of ['_mfBulletPlan','_mfGankTarget','_kaisaSpellTarget','_sdSeen','_sdKey']) policy[k]=null;
     policy._sdTried=new Set();
@@ -176,6 +184,9 @@ function simExit(saved){
   _hiddenBf = saved.hiddenBf;
   _preTarget = saved.preTarget;
   if(typeof _curKind!=='undefined') _curKind = saved.curKind;
+  if(typeof _dyingBatch!=='undefined') _dyingBatch = saved.dyingBatch;
+  if(typeof _dkTwiceBatch!=='undefined') _dkTwiceBatch = saved.dkTwiceBatch;
+  if(typeof _deferDeathFx!=='undefined') _deferDeathFx = saved.deferDeathFx;
   SIM.lock = saved.simLock===undefined ? false : saved.simLock;
   SIM.active = saved.simActive===undefined ? false : saved.simActive;
   if(saved.picks!==undefined) SIM.picks = saved.picks;

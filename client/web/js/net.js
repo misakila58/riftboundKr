@@ -102,7 +102,7 @@ NET.connect = function(){
           if(NET._rejoinStart){ const s=NET._rejoinStart; NET._rejoinStart=null; NET.onStart && NET.onStart(s); }   // 로그가 다 왔다 — 이제 시작(선택은 로그의 답으로 채워짐)
           NET._enqueueAction({ action:{k:'_rejoinDone'}, seat:-1 }); break;   // 로그 뒤에 줄을 서서, 다 재생된 뒤 복귀 처리
         case 'rejoinNone': NET._onRejoinNone(); break;
-        case 'opponentAway': NET.oppAway=true; UI.toast('상대 연결이 끊겼습니다 — 재접속을 기다립니다 (최대 1분)','warn'); UI.promptForState?.(); break;
+        case 'opponentAway': NET.oppAway=true; UI.toast(`상대 연결이 끊겼습니다${m.count>1?` (이번 매치 ${m.count}번째)`:''} — 재접속을 기다립니다 (최대 ${Math.round((m.graceMs||60000)/1000)}초${m.count>=3?' · 반복 끊김이라 유예가 줄었습니다':''})`,'warn'); UI.promptForState?.(); break;
         case 'opponentBack': NET.oppAway=false; UI.toast('상대가 다시 접속했습니다'); UI.promptForState?.(); break;
         case 'err': NET.onErr && NET.onErr(m.msg); break;
         case 'opponentLeft': NET.oppAway=false; NET.clearRejoinFlag(); if(!NET.voided) NET.onOppLeft && NET.onOppLeft(); break;
@@ -228,8 +228,10 @@ NET.send = obj=>{
 NET.sendAction = function(action){
   NET.send({t:'act', action});
 };
+// 받은 행동과 선택 응답은 그대로 처리하고, 로컬 중복 제출만 차단한다.
+NET.turnActionPending = ()=>NET.online && NET._turnSubmission?.game===G;
 NET._enqueueAction = function(m){
-  if(m.action?.k==='play' && m.action.opts?.stageSpell && m.seat===NET.seat){
+  if((m.action?.opts?.stageSpell || m.action?.opts?.stageHide) && m.seat===NET.seat){
     UI.spellStageSubmitting=false;
   }
   // 외형 정보는 선택 대기로 멈춘 액션 큐와 게임/리플레이 기록을 거치지 않는다.
@@ -251,6 +253,7 @@ NET._pump = async function(){
 // 옛 게임의 동기화 상태를 버린다 — 멈춰 있던 펌프(상대 선택을 기다리던 행동)는 세대가 바뀌어 다시 깨어나도 아무것도 하지 않는다
 NET._abandonSync = function(){
   NET.syncGen++;
+  NET._turnSubmission=null;
   NET.actionQueue=[]; NET.earlyChoices={}; NET.pendingChoices={}; NET.processing=false;
 };
 NET._pumpLoop = async function(gen){
@@ -267,6 +270,7 @@ NET._pumpLoop = async function(gen){
     const item = NET.actionQueue.shift();
     if(!item) break;   // 기다리는 사이 큐가 비워짐(방 나가기·새 게임 초기화) — 제보 2026-09-28 "Cannot destructure property 'a'"
     const { a, seat } = item;
+    const submission=NET._turnSubmission;
     if(a && a.k==='_rejoinDone'){ NET.finishCatchUp(); continue; }   // 로그 재생 완료 표식 (서버 rejoinDone)
     try {
       if(!NET._authorized(a, seat)){ console.warn('rejected unauthorized action', a, 'seat', seat); updateButtons(); continue; }
@@ -276,6 +280,11 @@ NET._pumpLoop = async function(gen){
       console.error('action error', a, e); UI.toast('동기화 오류: '+e.message,'warn');
       // 행동 도중 예외가 나면 화면이 중간 상태로 남는다 — 지금 상태로 다시 그려 버튼·안내가 잠기지 않게 한다
       try{ UI.render(); UI.promptForState(); }catch(e2){}
+    }
+    finally{
+      if(submission && NET._turnSubmission===submission && seat===NET.seat && a?.k===submission.kind){
+        NET._turnSubmission=null; updateButtons();
+      }
     }
   }
 };
@@ -310,10 +319,10 @@ NET._authorized = function(a, seat){
   }
 };
 NET._execAction = async function(a){
-  if(a.k==='play' && a.opts?.stageSpell && a.p===NET.seat) UI.spellStageSubmitting=false;
+  if((a.opts?.stageSpell || a.opts?.stageHide) && a.p===NET.seat) UI.spellStageSubmitting=false;
   switch(a.k){
     case 'play':      await playCardFromHand(a.p, a.handIdx, a.opts||{}); break;
-    case 'hide':      await hideCard(a.p, a.handIdx); break;
+    case 'hide':      await hideCard(a.p, a.handIdx, a.bfIdx, a.opts||{}); break;
     case 'playHidden':await playHidden(a.p, a.bfIdx, G.bfs[a.bfIdx]?.hiddenCards[a.hiddenIndex]); break;
     case 'move': {
       if(typeof UI.finishCombatMove==='function') UI.finishCombatMove();
@@ -359,6 +368,8 @@ NET._execAction = async function(a){
 
 // 로컬 UI가 액션을 개시할 때 호출: 온라인이면 서버 경유, 오프라인이면 즉시 실행
 NET.dispatch = function(action, localFn){
+  const turnAction=action.k==='pass' || action.k==='endTurn';
+  if(turnAction && NET.turnActionPending()) return;
   if(G?.phase==='turn-intro' && !['surrender','playmat'].includes(action.k)) return;
   // 리플레이 관전 중에는 어떤 행동도 게임 상태를 바꾸지 못하게 한다 (최종 차단선)
   if(typeof REPLAY!=='undefined' && REPLAY.viewing) return;
@@ -378,14 +389,22 @@ NET.dispatch = function(action, localFn){
     UI.toast('지금은 패스할 수 없습니다'+(why?' — '+why:''),'warn'); return;
   }
   if(NET.online){
-    if(action.k==='play' && action.opts?.stageSpell){
+    if(turnAction){
+      if(!(typeof P2P!=='undefined' && P2P.active) && NET.ws?.readyState!==1){
+        UI.toast('서버에 연결되어 있지 않아 행동이 전달되지 않았습니다','warn'); return;
+      }
+      NET._turnSubmission={game:G,kind:action.k};
+      updateButtons();
+    }
+    if(action.opts?.stageSpell || action.opts?.stageHide){
       UI.spellStageSubmitting=true;
       updateButtons();
       // 서버 에코가 오지 않으면(연결 문제·서버 거부) 영구히 잠기지 않게 8초 뒤 풀어 준다
       clearTimeout(NET._stageTimer);
       NET._stageTimer=setTimeout(()=>{ if(UI.spellStageSubmitting){ UI.spellStageSubmitting=false; UI.toast('주문 전송 응답이 없어 잠금을 풀었습니다 — 다시 시도해 주세요','warn'); updateButtons(); } }, 8000);
     }
-    NET.sendAction(action);
+    try{ NET.sendAction(action); }
+    catch(e){ if(turnAction){ NET._turnSubmission=null; updateButtons(); } throw e; }
   } else {
     localFn();
   }
@@ -436,6 +455,7 @@ NET._resolveChoice = function(m){
 // full=true(방을 나감·리플레이 진입): 큐까지 모두 비운다. 기본(재대결·새 게임 시작): 선택 번호와 대기 선택만 초기화하고,
 // 먼저 도착한 다음 게임의 행동/선택(actionQueue·earlyChoices)은 남긴다 — 비우면 상대가 먼저 시작해 보낸 행동이 사라져 어긋난다
 NET.resetGameSync = function(full){
+  NET._turnSubmission=null;
   UI.resetScorePresentation?.();
   UI.resetSpellStage?.();
   NET.choiceSeq=0; NET.pendingChoices={};

@@ -200,6 +200,7 @@
       <div id="ed-pool" class="ed-pool"></div>
     </div>
     <div id="ed-deck-panel">
+      <div id="ed-recruit-token" class="ed-section" hidden></div>
       <label class="ed-imgview" title="켜면 메인·사이드·전장 목록이 이름 대신 카드 그림으로 보입니다 (한 줄 10장)"><input type="checkbox" id="ed-img-view"> 🖼 이미지로 보기</label>
       <div class="ed-section"><b>메인 덱 <span id="ed-main-count">0</span>/40</b> (같은 카드 3장까지 · 클릭=제거)
         <div id="ed-main" class="ed-cardlist"></div>
@@ -499,6 +500,7 @@
   </div>
 
   <div id="sidebar">
+    <div id="mobile-log-tools"><button id="btn-mobile-log" type="button" aria-label="플레이 로그" title="플레이 로그 (드래그하여 위치 이동)" aria-controls="mobile-log-overlay" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg></button></div>
     <div id="turn-panel">
       <div id="turn-info"></div>
       <div id="phase-info"></div>
@@ -509,17 +511,14 @@
     <div id="inspector"><div class="insp-placeholder">카드에 마우스를 올리면 정보 표시<br>확대: 꾹 누르기 / Alt+클릭</div></div>
     <div id="prompt-area"></div>
     <div id="log"></div>
-    <!-- 온라인 대전 전용 채팅 (봇·핫시트·리플레이에서는 숨김 — ui.js updateButtons가 제어)
-         버튼만 사이드바에 두고, 대화는 별도 팝업(#chat-pop)에서. 안 읽은 메시지는 레드닷 -->
-    <div id="chat-bar" style="display:none">
-      <button id="btn-chat">💬 채팅<span id="chat-dot" style="display:none"></span></button>
-    </div>
     <div id="chat-pop" style="display:none">
       <div id="chat-pop-head"><span>💬 채팅</span><button id="chat-pop-close" title="닫기">✕</button></div>
       <div id="chat-pop-msgs"></div>
       <input id="chat-input" type="text" placeholder="메시지 입력 (Enter로 전송)" maxlength="200" autocomplete="off">
     </div>
     <div id="action-buttons">
+      <!-- 온라인 채팅도 되돌리기와 같은 버튼 줄에 배치한다. 읽지 않은 메시지는 빨간 점으로 표시한다. -->
+      <button id="btn-chat" class="act-btn" style="display:none">💬 채팅<span id="chat-dot" style="display:none"></span></button>
       <button id="btn-undo" class="act-btn" style="display:none" title="마지막 행동 전으로 되돌립니다 (Ctrl+Z)">↩ 되돌리기</button>
       <button id="btn-move" class="act-btn">🚶 이동</button>
       <button id="btn-endturn" class="act-btn primary arcane-button">턴 종료

@@ -80,7 +80,7 @@ function evalHoldThreatValue(p,bfs=G.bfs){
 // 전장 득점 표시가 찍힌 뒤 addPoints가 최종 점수 조건을 확인하는 순서와 같다.
 function evalConquestReward(p,bfIdx){
   const bf=G.bfs[bfIdx], P=G.players[p];
-  if(bf.scored[p]) return {point:false,draw:false,value:0};
+  if(bf.scored[p]) return {point:false,draw:false,value:0,winsGame:false};
   const point=!BOT_W.finalRule || P.points<G.victory-1
     || G.bfs.every((b,i)=>i===bfIdx || P.scoredBf[i]);
   let drawValue=P.hand.length<6?BOT_W.card:BOT_W.cardGlut;
@@ -88,7 +88,8 @@ function evalConquestReward(p,bfIdx){
     drawValue=(!P.trash.length || G.players[opp(p)].points>=G.victory-1)
       ? -999 : drawValue-BOT_W.point;
   }
-  return {point,draw:!point,value:point?BOT_W.point:drawValue};
+  const winsGame=!!point && P.points+1>=G.victory;
+  return {point,draw:!point,value:winsGame?999:point?BOT_W.point:drawValue,winsGame};
 }
 // 관측자 자신의 남은 유닛 구성만 계산한다. 상대 덱/손패 내용은 참조하지 않는다.
 function evalGearValue(q,observer){
@@ -178,6 +179,13 @@ function evalState(G_, p){
     const mine = bf.units.filter(u=>u.ctrl===p).reduce((a,u)=>a+might(u),0);
     const theirs = bf.units.filter(u=>u.ctrl===o).reduce((a,u)=>a+might(u),0);
     if(mine || theirs) s += W.bfMargin * Math.tanh((mine - theirs) / 3);
+    // Defensive role bonuses are absent from ordinary might(): Yi's lone
+    // defender loses +2 when a second ally joins. Value that protection here
+    // as well as in combat probes, without treating it as attacking strength.
+    for(const u of bf.units){
+      const protection=Math.max(0,might(u,'defender',{forKill:true})-might(u));
+      s+=(u.ctrl===p?1:-1)*protection*W.unitBase;
+    }
   });
 
   // ⑤ 보드 전력
@@ -226,7 +234,14 @@ function evalCombatFormation(p,bfIdx,units,extraDef){
   const atk=evalCombatUnits(units),def=evalCombatUnits([
     ...G.bfs[bfIdx].units.filter(u=>u.ctrl===opp(p)),...(extraDef||[])]);
   const sources=[...atk,...def],keys=new Set(sources.map(evalCombatUnitKey)),originals=new Map();
-  const project=u=>{const copy={...u,loc:bfIdx};originals.set(copy,u);return copy;};
+  const project=u=>{
+    const copy={...u,loc:bfIdx};
+    // 뒷골목 술집을 떠나는 병력은 이동 격발로 이번 턴 위력 +1.
+    // 이미 목적지에 있는 병력과 기지 출발 병력에는 붙이지 않는다.
+    if(u.loc!=='base' && u.loc!==bfIdx && G.bfs[u.loc]?.n===277)
+      copy.tempM=[...u.tempM,{v:1,dur:'turn'}];
+    originals.set(copy,u);return copy;
+  };
   const projectedAtk=atk.map(project),projectedDef=def.map(project);
   // loc만 바꾸면 aloneAt/전장 병력 수가 틀리고, 배열만 바꾸면 위치 오라가 틀린다.
   // 원본 객체·배열을 수정하지 않고 둘을 일치시키며, 오라 제공자 자신도 평가 보드에 정확히 한 번 존재한다.
@@ -308,6 +323,7 @@ function evalCombat(p, bfIdx, units, extraDef){
   const reward=result==='conquer'?evalConquestReward(p,bfIdx):{point:false,draw:false,value:0};
   const scoresPoint=reward.point, drawsCard=reward.draw;
   return { result, atkM, defM, defKilled, atkKilled, defLeft, atkLeft, scoresPoint, drawsCard,
+           winsGame:!!reward.winsGame,
            defDead:defDead.map(u=>formation.originals.get(u)),atkDead:atkDead.map(u=>formation.originals.get(u)),
            defLostMaterial:defDead.reduce((s,u)=>s+evalMaterialMight(u),0),
            atkLostMaterial:atkDead.reduce((s,u)=>s+evalMaterialMight(u),0),
@@ -327,8 +343,10 @@ function evalCombatRemovalValue(u){
 }
 
 // 공격 후보의 가치 — 얻는 것(정복·통제·처치) 대비 잃는 것(내 유닛)
-function evalAttackValue(p, bfIdx, units, extraDef){
-  const c = evalCombat(p, bfIdx, units, extraDef);
+function evalAttackValue(p, bfIdx, units, extraDef, combat){
+  const c = combat || evalCombat(p, bfIdx, units, extraDef);
+  // The final legal point ends the game; future control and defense cannot outweigh it.
+  if(c.winsGame) return 999;
   const bf = G.bfs[bfIdx];
   let v = 0;
   if(c.result === 'conquer'){

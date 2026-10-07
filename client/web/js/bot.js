@@ -57,12 +57,13 @@ botWrap('pickUnitFrom', (p,c,t,o,x)=>POLICY.unit(p,c,t,o,x));
 botWrap('pickOption',   (p,t,o)=>POLICY.option(p,t,o));
 botWrap('confirmP',     (p,t,c,x)=>POLICY.confirm(p,t,c,x));
 botWrap('pickNumber',   (p,t,mn,mx,x)=>POLICY.number(p,t,mn,mx,x));
-botWrap('pickHandCard', (p,t)=>POLICY.hand(p,t));
-botWrap('pickBuffs',    (p,t,c)=>POLICY.buffs(p,t,c));
-botWrap('pickBoardOrder',(p,t,options)=>{
+botWrap('pickHandCard', (p,t,x)=>POLICY.hand(p,t,x));
+botWrap('pickBuffs',    (p,t,c,x)=>POLICY.buffs(p,t,c,x));
+botWrap('pickBoardOrder',async(p,t,options)=>{
+  if(POLICY.boardOrder)return POLICY.boardOrder(p,t,options);
   const remaining=options.map((option,index)=>({option,index})), ordered=[];
   while(remaining.length){
-    const pick=POLICY.option(p,t,remaining.map((x,i)=>({...x.option,v:i})));
+    const pick=await POLICY.option(p,t,remaining.map((x,i)=>({...x.option,v:i})));
     const at=Number.isInteger(pick)&&remaining[pick]?pick:0;
     ordered.push(remaining.splice(at,1)[0].index);
   }
@@ -276,7 +277,7 @@ function botMyDeck(selected){
 // 상대(봇) 덱: 무작위 자동 또는 대회 덱
 function botOppDeck(v, saved){
   if(typeof v==='string' && v.startsWith('mine:') && saved)   // 내 저장 덱을 봇이 든다
-    return { name:`내 덱 「${saved.name}」`, legendN:saved.legendN, champN:saved.champN, main:[...saved.main], runes:[...saved.runes], bfs:[...saved.bfs], arts:saved.arts||null };
+    return { name:`내 덱 「${saved.name}」`, legendN:saved.legendN, champN:saved.champN, main:[...saved.main], runes:[...saved.runes], bfs:[...saved.bfs], arts:saved.arts||null, recruitToken:deckRecruitToken(saved) };
   if(v==='auto'){
     const l=botRand(legendList());
     const d=buildDeck(l.n);
@@ -293,8 +294,8 @@ function startBotGame(level, myDeck, oppDeck){
     manual: false, // BOT 대전은 규칙 자동 처리 필요 (선후공은 주사위 — decideFirstPlayer)
     reviewSetup: true,
     players:[
-      { name:'나', legendN:myDeck.legendN, champN:myDeck.champN, deck:myDeck.main, runes:myDeck.runes },
-      { name:`봇(${level.name.replace(/^\S+ /,'')})`, legendN:oppDeck.legendN, champN:oppDeck.champN, deck:oppDeck.main, runes:oppDeck.runes },
+      { name:'나', legendN:myDeck.legendN, champN:myDeck.champN, deck:myDeck.main, runes:myDeck.runes, recruitToken:deckRecruitToken(myDeck) },
+      { name:`봇(${level.name.replace(/^\S+ /,'')})`, legendN:oppDeck.legendN, champN:oppDeck.champN, deck:oppDeck.main, runes:oppDeck.runes, recruitToken:deckRecruitToken(oppDeck) },
     ],
     bfs:[ botRand(myDeck.bfs), botRand(oppDeck.bfs) ],
   });

@@ -196,7 +196,8 @@ const LIMITS = {
   WS_MSG_WINDOW_MS: 10 * 1000,
   WS_MSG_MAX: 120,
   REJOIN_GRACE_MS: +process.env.RB_REJOIN_GRACE_MS || 60 * 1000,    // 소켓이 끊긴 좌석을 이만큼 비워 둔다 — 그 안에 같은 계정이 rejoin 하면 이어서 둔다 (2026-09-28: 2분 → 1분)
-  REJOIN_GRACE_RESTART_MS: 60 * 1000,   // 서버 재시작 뒤 복원된 방도 같은 유예 (클라이언트는 몇 초 안에 재접속을 시도한다)
+  REJOIN_GRACE_RESTART_MS: 60 * 1000,
+  AWAY_TOTAL_MS: +process.env.RB_AWAY_TOTAL_MS || 180 * 1000,   // 한 매치에서 자리 비움이 이만큼 쌓이면 이후 끊김의 유예는 15초   // 서버 재시작 뒤 복원된 방도 같은 유예 (클라이언트는 몇 초 안에 재접속을 시도한다)
   CONCURRENT_HASH: 4,
   AUTH_DEADLINE_MS: 15000,
   VOID_IDLE_MS: +process.env.RB_VOID_IDLE_MS || 50 * 1000,  // 시작 단계 무효 요청: 상대가 이만큼 아무것도 보내지 않았어야 한다 (클라이언트는 1분 기다린 뒤 묻는다)
@@ -1004,7 +1005,25 @@ function rankLeave(r, pl, how) {
     for (const q of [pl, other]) { r.rankResultMsgs[q.seat] = { t: 'rankUpdate', void: true, format: r.format, how: '상대 보고 없음' }; const c = q.ws || [...wss.clients].find(x => x._authed && x._userId === q.id); if (c) wsSend(c, r.rankResultMsgs[q.seat]); }
     persistRooms(); return;
   }
+  // 안전망: 매치 결과 보고(rankResult)는 없어도 게임별 보고(rankGame)가 양쪽 일치로 매치 승자를 이미 가리키면 그대로 확정한다.
+  // (제보 2026-10-06: Bo3 2게임을 다 이긴 쪽이 먼저 로비로 나가 '퇴장' 패배 처리 — 2게임째 클라이언트가 등급전 표식을 잃어 보고를 안 보냈다)
+  const derived = rankDerivedWinner(r);
+  if (derived !== null) { rankSettle(r, derived, `게임 보고로 매치 확정 (${pl.id} ${how})`); return; }
   rankSettle(r, other.seat, pl.id + ' ' + how);
+}
+// 게임별 보고(rankGame)만으로 매치 승자가 정해졌는가 — 양쪽 보고가 일치한 게임만 센다. Bo3는 2승, Bo1은 1승. 없으면 null.
+function rankDerivedWinner(r) {
+  const wins = [0, 0];
+  for (const g of Object.values(r.rankGames || {})) {
+    if (g.agreed === 0 || g.agreed === 1) { wins[g.agreed]++; continue; }   // 이미 기록된 게임
+    const a = g.reports && g.reports[0], b = g.reports && g.reports[1];
+    if (!a || !b || !(a.winner === 0 || a.winner === 1) || a.winner !== b.winner) continue;
+    wins[a.winner]++;
+  }
+  const need = r.format === 'bo3' ? 2 : 1;
+  if (wins[0] >= need && wins[1] < need) return 0;
+  if (wins[1] >= need && wins[0] < need) return 1;
+  return null;
 }
 // 좌석이 비워진 채 유예가 끝나면 진짜 퇴장 처리
 function expireGone(r, pl) {
@@ -1018,6 +1037,12 @@ function expireGone(r, pl) {
   } else roomEveryone(r).forEach(q => wsSend(q.ws, { t: 'opponentLeft' }));
   broadcastLobby(); persistRooms();
 }
+function rejoinGraceFor(pl) {
+  const base = LIMITS.REJOIN_GRACE_MS;
+  if ((pl.awayMs || 0) >= LIMITS.AWAY_TOTAL_MS || pl.awayCount >= 5) return Math.min(base, 15 * 1000);
+  if (pl.awayCount >= 3) return Math.min(base, 30 * 1000);
+  return base;
+}
 function scheduleExpire(r, pl, ms) {
   clearTimeout(pl.timer);
   pl.timer = setTimeout(() => expireGone(r, pl), ms);
@@ -1029,8 +1054,12 @@ function dropPlayer(ws) {
   const pl = r.players.find(q => q.ws === ws);
   if (!pl || !r.started) return false;
   ws._room = null; pl.ws = null; pl.gone = Date.now();
-  roomEveryone(r).forEach(q => wsSend(q.ws, { t: 'opponentAway', id: pl.id }));
-  scheduleExpire(r, pl, LIMITS.REJOIN_GRACE_MS);
+  // 같은 매치에서 끊김이 반복되면 유예를 줄인다 — 일부러 끊었다 들어오기를 반복해 상대를 기다리게 하는 행동 방지 (제보 2026-10-06).
+  // 1~2번째 60초, 3~4번째 30초, 5번째부터·누적 자리 비움 3분 이상이면 15초. 상대 화면에는 몇 번째인지와 남은 유예를 알린다.
+  pl.awayCount = (pl.awayCount || 0) + 1;
+  const graceMs = rejoinGraceFor(pl);
+  roomEveryone(r).forEach(q => wsSend(q.ws, { t: 'opponentAway', id: pl.id, count: pl.awayCount, graceMs }));
+  scheduleExpire(r, pl, graceMs);
   persistRooms();
   return true;
 }
@@ -1251,6 +1280,7 @@ function rankWriteGame(r, key) {
     };
     const reps = [g.reports[0], g.reports[1]].filter(Boolean);
     const winner = reps.length && reps.every(x => x.winner === reps[0].winner) ? reps[0].winner : null;
+    g.agreed = (reps.length === 2 && winner !== null) ? winner : null;   // 양쪽 보고가 일치한 승자 — 보고 목록을 비운 뒤에도 매치 확정(rankDerivedWinner)에 쓴다
     const first = reps.map(x => x.first).find(x => x === 0 || x === 1);
     const pts = reps.map(x => x.points).find(p => p && p.length === 2) || null;
     const secs = reps.map(x => x.secs).filter(x => Number.isFinite(x));
@@ -1505,7 +1535,8 @@ wss.on('connection', (ws, req) => {
           broadcastLobby(); persistRooms();
           return wsSend(ws, { t: 'rejoinNone' });
         }
-        clearTimeout(seat.timer); seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false;
+        clearTimeout(seat.timer); if (seat.gone) seat.awayMs = (seat.awayMs || 0) + Math.max(0, Date.now() - seat.gone);   // 누적 자리 비움(유예 축소 판단용)
+        seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false;
         found.rejoins = (found.rejoins || 0) + 1;   // 통계: 매치 중 재접속 횟수
         wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true });
         (found.log || []).forEach(o => wsSend(ws, o));

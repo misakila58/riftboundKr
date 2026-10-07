@@ -138,6 +138,7 @@ UI.fx.beforeRender=function(){
 
 function fxRefreshArrivals(){
   document.querySelectorAll('[data-fx-arrival]').forEach(el=>el.removeAttribute('data-fx-arrival'));
+  document.querySelectorAll('[data-fx-hand-arrival]').forEach(el=>el.removeAttribute('data-fx-hand-arrival'));
   document.querySelectorAll('[data-fx-trash]').forEach(el=>{
     el.removeAttribute('data-fx-trash');
     const p=Number(el.id.split('-')[1]), top=G?.players[p]?.trash.at(-1);
@@ -151,7 +152,8 @@ function fxRefreshArrivals(){
     if(m.trash && !held.has(m.to)){
       el.dataset.fxTrash=''; el.style.setProperty('--pile-image',m.trash.image);
       el.classList.toggle('has-card-image',m.trash.hasImage); held.add(m.to);
-    }else if(!el.classList.contains('pile')) el.dataset.fxArrival='';
+    }else if(m.handLayout) el.dataset.fxHandArrival='';
+    else if(!el.classList.contains('pile')) el.dataset.fxArrival='';
   }
 }
 
@@ -177,8 +179,33 @@ UI.fx.moveCard = function(p, n, from, to, options={}){
   const origin=typeof from==='string'?UI.fx.captureOrigin(from):from;
   if(!origin || origin.game!==G) return;
   const pile=document.querySelector(to);
-  fxMoves.push({p,n,anchor:origin.anchor,to,back:!!options.back,unit:options.unit,
+  fxMoves.push({p,n,anchor:origin.anchor,to,back:!!options.back,unit:options.unit,handLayout:options.handLayout,
     trash:pile?.classList.contains('trash')?{image:pile.style.getPropertyValue('--pile-image'),hasImage:pile.classList.contains('has-card-image')}:null});
+};
+
+// 손패 펼침/접힘도 기존 카드 비행을 사용한다. 조작이나 재렌더링은 기다리지 않는다.
+UI.fx.stopHandLayout=function(){
+  fxMoves=fxMoves.filter(m=>!m.handLayout);
+  for(const stop of [...fxFlights]) if(stop.handLayout) stop();
+  for(const m of fxArrivals) if(m.handLayout) fxArrivals.delete(m);
+  fxRefreshArrivals();
+};
+UI.fx.captureHandLayout=function(hz){
+  UI.fx.stopHandLayout();
+  if(!fxMotionEnabled() || G!==fxMoveGame) return [];
+  const runes=hz.classList.contains('runes-zone');
+  return [...hz.querySelectorAll(runes?'[data-rune-index]':'[data-hand-index]')].map(el=>({index:+(runes?el.dataset.runeIndex:el.dataset.handIndex),rect:el.getBoundingClientRect()}));
+};
+UI.fx.handLayout=function(hz,origins){
+  if(!fxMotionEnabled() || !origins?.length) return;
+  const p=+hz.id.slice(-1);
+  const runes=hz.classList.contains('runes-zone');
+  for(const {index,rect} of origins){
+    const n=runes?G.players[p].runes[index]?.n:G.players[p].hand[index];
+    if(n===undefined) continue;
+    UI.fx.moveCard(p,n,{game:G,anchor:()=>rect},`#${hz.id} [data-${runes?'rune':'hand'}-index="${index}"]`,{unit:true,handLayout:hz.id});
+  }
+  UI.fx.renderMoves();
 };
 
 function fxPulsePile(selector){
@@ -229,7 +256,13 @@ UI.fx.renderMoves = function(){
   fxFrame(()=>{
     if(G!==game || !fxMotionEnabled()){ moves.forEach(m=>fxArrivals.delete(m)); fxRefreshArrivals(); return; }
     moves.forEach((m,i)=>{
+      if(m.handLayout && !fxArrivals.has(m)) return;
       const target=document.querySelector(m.to);
+      const handArrival=!m.handLayout && target?.matches('[data-hand-index]') &&
+        target.closest('.mobile-hand, .mobile-opp-hand');
+      // Another action can shift hand indices before the presentation frame.
+      // Never animate a different card that has since occupied this slot.
+      if(handArrival && !m.back && target._card?.n!==m.n){ fxArrivals.delete(m); fxRefreshArrivals(); return; }
       const end=target?.getBoundingClientRect();
       if(!end?.width || !end.height){ fxArrivals.delete(m); fxRefreshArrivals(); return; }
       const start=fxRect(m.anchor());
@@ -243,43 +276,81 @@ UI.fx.renderMoves = function(){
       }
       fxLayer().appendChild(el);
       let stage, face;
-      if(m.unit){
+      if(m.unit || handArrival){
+        el.classList.remove('card-back');
         el.classList.add('fx-unit-flight'); el.style.backgroundImage='none';
         stage=document.createElement('div'); stage.className='fx-flight-stage';
-        face=target.cloneNode(true);
+        // Concealed arrivals must never clone a face-up target, even when the
+        // recipient can inspect it after arrival (e.g. returning a hidden card).
+        face=m.back?document.createElement('div'):target.cloneNode(true);
+        if(m.back) face.className='card-mini card-back';
         face.removeAttribute('data-uid'); face.removeAttribute('data-fx-arrival');
+        face.removeAttribute('data-fx-hand-arrival');
+        face.removeAttribute('data-board-choice');
         face.classList.remove('chosen-target','targetable','selected');
+        // The flight lives outside the hand zone; retain the expanded card's
+        // frame and badges there as well as on the eventual destination.
+        if((m.handLayout || handArrival) && target.closest('.mobile-hand-open')) face.classList.add('mobile-hand-face');
+        if(m.handLayout && target.closest('.mobile-runes-open')) face.classList.add('mobile-rune-face');
         Object.assign(face.style,{position:'absolute',left:'50%',top:'50%',margin:'0',visibility:'visible',transformOrigin:'center'});
+        if(m.handLayout || handArrival) face.style.transition='none'; // 비행 좌표에 별도의 호버 전환이 섞이지 않게 한다.
         stage.appendChild(face); el.appendChild(stage);
       }
       const frames=()=>{
         const source=fxRect(m.anchor());
         if(!source.width || !source.height) return null;
         const target=document.querySelector(m.to);
+        if(handArrival && !m.back && target?._card?.n!==m.n) return null;
         const destination=target?.getBoundingClientRect();
         if(!destination?.width || !destination.height) return null;
         const end=fxRect(destination);
+        // 펼치는 손패는 최종 크기로 그린 뒤 축소에서 1배까지 이동한다.
+        // 작은 비행 레이어와 내부 카드의 반대 방향 확대를 겹치지 않는다.
+        const finalSize=handArrival || m.handLayout && target.closest('.mobile-hand-open, .mobile-runes-open');
+        const size=finalSize?end:source;
         el.style.left=source.left+'px'; el.style.top=source.top+'px';
-        el.style.width=source.width+'px'; el.style.height=source.height+'px';
+        el.style.width=size.width+'px'; el.style.height=size.height+'px';
         if(stage){
+          if(handArrival) face.classList.toggle('mobile-hand-face',!!target.closest('.mobile-hand-open'));
           const matrix=new DOMMatrix(getComputedStyle(target).transform);
           const angle=Math.atan2(matrix.b,matrix.a)*180/Math.PI, scale=Math.hypot(matrix.a,matrix.b);
-          stage.style.cssText=`position:absolute;left:0;top:0;width:${end.width}px;height:${end.height}px;transform-origin:top left;transform:scale(${source.width/end.width},${source.height/end.height})`;
+          stage.style.cssText=`position:absolute;left:0;top:0;width:${end.width}px;height:${end.height}px;transform-origin:top left;transform:scale(${size.width/end.width},${size.height/end.height})`;
           face.style.width=target.offsetWidth+'px'; face.style.height=target.offsetHeight+'px';
           face.style.transform=`translate(-50%,-50%) rotate(${angle}deg) scale(${scale})`;
+          if(handArrival){
+            // Mobile piles are horizontal. Fly a complete card at a uniform
+            // scale, rotating it upright, instead of cropping art to the pile.
+            const fromAngle=source.width>source.height?90:0;
+            const width=(fromAngle?target.offsetHeight:target.offsetWidth)*scale;
+            const height=(fromAngle?target.offsetWidth:target.offsetHeight)*scale;
+            const fromScale=Math.min(source.width/width,source.height/height);
+            const dx=end.left+end.width/2-source.left-source.width/2;
+            const dy=end.top+end.height/2-source.top-source.height/2;
+            const arc=Math.min(35,fxLayer().clientHeight*.045);
+            el.style.left=(source.left+(source.width-end.width)/2)+'px';
+            el.style.top=(source.top+(source.height-end.height)/2)+'px';
+            el.style.transformOrigin='center';
+            return [
+              {transform:`translate(0,0) rotate(${fromAngle-angle}deg) scale(${fromScale})`,opacity:1},
+              {transform:`translate(${dx*.48}px,${dy*.48-arc}px) rotate(${(fromAngle-angle)*.52}deg) scale(${fromScale+(1-fromScale)*.48})`,opacity:1,offset:.48},
+              {transform:`translate(${dx}px,${dy}px) rotate(0deg) scale(1)`,opacity:1}
+            ];
+          }
         }
         const dx=end.left-source.left, dy=end.top-source.top;
-        const sx=end.width/source.width, sy=end.height/source.height;
+        const fromX=source.width/size.width, fromY=source.height/size.height;
+        const sx=end.width/size.width, sy=end.height/size.height;
         const arc=Math.min(35,fxLayer().clientHeight*.045);
         return [
-          {transform:'translate(0,0) scale(1)',opacity:1},
-          {transform:`translate(${dx*.48}px,${dy*.48-arc}px) scale(${(1+sx)/2},${(1+sy)/2})`,opacity:1,offset:.48},
+          {transform:`translate(0,0) scale(${fromX},${fromY})`,opacity:1},
+          {transform:`translate(${dx*.48}px,${dy*.48-arc}px) scale(${(fromX+sx)/2},${(fromY+sy)/2})`,opacity:1,offset:.48},
           {transform:`translate(${dx}px,${dy}px) scale(${sx},${sy})`,opacity:1}
         ];
       };
       const initial=frames();
       let geometry=JSON.stringify(initial);
-      const a=el.animate(initial,{duration:460,delay:Math.min(i,6)*65,fill:'both',easing:'cubic-bezier(.22,.65,.3,1)'});
+      const speed=m.handLayout?2.25:1;
+      const a=el.animate(initial,{duration:460/speed,delay:Math.min(i,6)*(m.handLayout?20:65)/speed,fill:'both',easing:'cubic-bezier(.22,.65,.3,1)'});
       // Keep the timeline, but recompute geometry as cards reflow, scroll or zoom.
       const unfollow=fxFollow(el,()=>{
         if(G!==game || !fxMotionEnabled()){ stop(); return; }
@@ -296,6 +367,7 @@ UI.fx.renderMoves = function(){
         }
         fxRefreshArrivals();
       };
+      stop.handLayout=m.handLayout;
       fxFlights.add(stop);
       a.onfinish=fxGuard(()=>{ stop(true); if(G===game && /^#(deck|trash|runedeck)-/.test(m.to)) fxPulsePile(m.to); });
     });
@@ -564,6 +636,7 @@ function fxFail(error){
   }
   fxArrivals.clear();
   document.querySelectorAll('[data-fx-arrival]').forEach(el=>el.removeAttribute('data-fx-arrival'));
+  document.querySelectorAll('[data-fx-hand-arrival]').forEach(el=>el.removeAttribute('data-fx-hand-arrival'));
   document.getElementById('fx-layer')?.replaceChildren();
   console.warn('Visual effects disabled for this session; game processing continues.',error);
 }
@@ -573,5 +646,5 @@ function fxGuard(fn){
   };
 }
 function fxFrame(fn){ return requestAnimationFrame(fxGuard(fn)); }
-for(const name of ['moveCard','captureOrigin','directMove','pileArrival','beforeRender',
+for(const name of ['moveCard','captureOrigin','directMove','pileArrival','beforeRender','stopHandLayout','captureHandLayout','handLayout',
   'renderMoves','selectedTargets','unit','victory']) UI.fx[name]=fxGuard(UI.fx[name]);

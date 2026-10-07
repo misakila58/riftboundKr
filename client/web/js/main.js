@@ -2,7 +2,7 @@
 
 const HOME_PANELS = {
   'online-screen':{trigger:'btn-online-play', close:'btn-online-back', focus:'btn-online-back'},
-  'offline-screen':{trigger:'btn-offline-play', close:'btn-offline-back', focus:'btn-goto-p2p'},
+  'offline-screen':{trigger:'btn-offline-play', close:'btn-offline-back', focus:'btn-bot'},
 };
 // 선택 창 뒤에 메인 화면도 보이므로 선택 창을 먼저 확인한다.
 const SCREENS = [...Object.keys(HOME_PANELS),'connect-screen','login-screen','menu-screen','decks-screen','editor-screen','lobby-screen','ranked-screen','p2p-screen','replay-screen','patch-screen','record-screen','setup-screen','game-screen'];
@@ -12,6 +12,9 @@ function currentScreen(){
   return SCREENS.find(id=>{ const e=document.getElementById(id); return e && e.style.display!=='none'; }) || 'connect-screen';
 }
 function showScreen(id){
+  if(id!=='game-screen') UI.mobileLog?.close();
+  if(id!=='game-screen') UI.handDropChoice?.cancel?.();
+  if(id!=='game-screen') UI.mobileHand?.close();
   if(id!=='game-screen') UI.resetScorePresentation?.();
   if(id!=='game-screen') UI.resetSpellStage?.();
   clearTimeout(homePanelCloseTimer);
@@ -23,7 +26,7 @@ function showScreen(id){
   Object.entries(HOME_PANELS).forEach(([screenId, config])=>{
     const panel=document.getElementById(screenId);
     panel.classList.remove('is-closing'); panel.inert=false;
-    document.getElementById(config.trigger).setAttribute('aria-expanded',String(screenId===id));
+    document.getElementById(config.trigger)?.setAttribute('aria-expanded',String(screenId===id));
   });
   document.getElementById('connect-screen').inert=!!homePanel;
   document.body.classList.toggle('start-menu-visible', id==='connect-screen' || !!homePanel);
@@ -31,6 +34,7 @@ function showScreen(id){
   const lf=document.getElementById('legal-footer');
   if(lf) lf.style.display = (id==='game-screen') ? 'none' : 'block';
   updateLegalPad();
+  if(id==='game-screen'){ UI.mobileHand?.render(); UI.mobileLog?.layout(); }
   if(homePanel) document.getElementById(homePanel.focus).focus({preventScroll:true});
 }
 function closeHomePanel(){
@@ -42,7 +46,7 @@ function closeHomePanel(){
   panel.classList.add('is-closing'); panel.inert=true;
   homePanelCloseTimer=setTimeout(()=>{
     showScreen('connect-screen');
-    document.getElementById(config.trigger).focus({preventScroll:true});
+    document.getElementById(config.trigger)?.focus({preventScroll:true});
   }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 160);
 }
 // 고정 푸터의 실제 높이를 CSS 변수(--legal-h)로 알려, 각 화면이 그만큼 하단 여백을 확보한다
@@ -95,7 +99,33 @@ window.addEventListener('DOMContentLoaded', ()=>{
 // zoom은 vh/고정 요소 포함 전체 UI에 적용되고 localStorage로 유지된다.
 const UISCALE_KEY='rb_ui_scale';
 function uiScale(){ const v=parseFloat(localStorage.getItem(UISCALE_KEY)); return (v>=0.6&&v<=1.6)?v:1; }
-function applyUiScale(v){ document.documentElement.style.zoom=v; updateLegalPad(); }
+function applyUiScale(v){
+  document.documentElement.style.zoom=v; updateLegalPad();
+  UI.mobileHand?.render(); UI.mobileLog?.layout();
+}
+// 화면 배치만 기기에 저장한다. 좌석과 게임 상태, 온라인 액션은 바꾸지 않는다.
+const GAME_LAYOUT = {
+  reverseBoard:false,
+  sidebarLeft:false,
+  apply(){
+    document.documentElement.classList.toggle('board-reversed',this.reverseBoard);
+    document.documentElement.classList.toggle('sidebar-left',this.sidebarLeft);
+    UI.hideHover();
+    UI.fx.stopHandLayout?.();
+    UI.mobileHand?.render();
+    UI.mobileLog?.layout();
+    PLAYMAT.layout();
+  },
+  set(key,value){
+    this[key]=value;
+    try{ localStorage.setItem('rb_layout_'+key,value?'on':'off'); }catch(e){}
+    this.apply();
+  },
+};
+for(const key of ['reverseBoard','sidebarLeft']){
+  try{ GAME_LAYOUT[key]=localStorage.getItem('rb_layout_'+key)==='on'; }catch(e){}
+}
+window.addEventListener('DOMContentLoaded',()=>GAME_LAYOUT.apply());
 function showScalePicker(firstRun){
   const box=document.getElementById('modal-box');
   const percent=Math.round(uiScale()*100);
@@ -164,7 +194,7 @@ const DeckStore = {
 
 // ---------- 덱 코드 (텍스트로 주고받기) ----------
 // 온라인 계정과 이 컴퓨터 사이, 또는 친구와 덱을 옮길 때 쓴다.
-// 형식:  RB1|전설|선발|메인|룬|전장|사이드|이름
+// 형식:  RB1|전설|선발|메인|룬|전장|사이드|이름[|신병 그림 번호] (생략 시 271)
 //   · 목록은 '.'으로 잇고, 같은 카드가 여러 장이면 n*장수 로 줄인다
 //   · 이름은 encodeURIComponent — 구분자 '|'가 이름에 섞여도 안전하다
 // 예:  RB1|247|27|1*3.5*2.9|301*12|281.286.291||%EB%82%B4%20%EB%8D%B1
@@ -194,9 +224,11 @@ function deckCodeParseList(str){
 function deckToCode(d){
   // 같은 카드끼리 붙여 두면 코드가 짧아진다 (규칙상 순서는 의미가 없다)
   const sorted=a=>[...(a||[])].sort((x,y)=>x-y);
-  return [DECK_CODE_TAG, d.legendN, d.champN,
+  const parts=[DECK_CODE_TAG, d.legendN, d.champN,
     deckCodeList(sorted(d.main)), deckCodeList(sorted(d.runes)), deckCodeList(d.bfs),
-    deckCodeList(sorted(d.side)), encodeURIComponent(d.name||'')].join('|');
+    deckCodeList(sorted(d.side)), encodeURIComponent(d.name||'')];
+  if(deckRecruitToken(d)!==271) parts.push(deckRecruitToken(d));
+  return parts.join('|');
 }
 // 덱 목록 텍스트 — 사람이 읽는 '레시피' 형식. 아래 파서(deckFromList)가 그대로 다시 읽을 수 있고,
 // 다른 덱 빌더가 쓰는 "Legend: / MainDeck:" 형식과 같다. (덱 코드는 짧지만 읽을 수 없어 공유용으로는 이쪽이 편하다)
@@ -331,6 +363,7 @@ function deckFromCode(code){
             main: deckCodeParseList(p[3]), runes: deckCodeParseList(p[4]), bfs: deckCodeParseList(p[5]) };
   const side=deckCodeParseList(p[6]);
   if(side.length) d.side=side;
+  d.recruitToken=deckRecruitToken({recruitToken:Number(p[8])});
   // 이 시뮬레이터가 아는 카드인지 확인 — 다른 세트/버전 코드를 조용히 받아들이지 않는다
   for(const n of [d.legendN, d.champN, ...d.main, ...d.runes, ...d.bfs, ...(d.side||[])])
     if(!card(n)) throw new Error('모르는 카드가 들어 있습니다 (카드 번호 '+n+') — 버전이 다른 덱 코드일 수 있습니다');
@@ -460,7 +493,7 @@ function initConnect(){
       event.preventDefault(); (event.shiftKey?last:first).focus();
     }
   },true);
-  document.getElementById('btn-offline').onclick=()=>{ hsRefreshDecks(); showScreen('setup-screen'); };
+  document.getElementById('btn-offline')?.addEventListener('click',()=>{ hsRefreshDecks(); showScreen('setup-screen'); });
   document.getElementById('btn-tutorial').onclick=()=>TUT.start();
   document.getElementById('btn-local-decks').onclick=()=>{
     DeckStore.local=true; DeckStore.returnTo='connect-screen';
@@ -816,7 +849,7 @@ function showTourneyDecks(){
     meta.decks.forEach(td=>{ if(!byEvent.has(td.event)) byEvent.set(td.event,[]); byEvent.get(td.event).push(td); });
     [...byEvent.entries()].sort((a,b)=>(b[1][0].players||0)-(a[1][0].players||0)).forEach(([ev,decks])=>{
       const eh=document.createElement('div'); eh.className='td-event-head';
-      eh.textContent=`${ev} · 참가 ${decks[0].players?decks[0].players.toLocaleString()+'명':'?'}`;
+      eh.textContent=`${ev}${decks[0].players===null?'':' · 참가 '+(decks[0].players?decks[0].players.toLocaleString()+'명':'?')}`;   // players:null = 대회가 아닌 유저 덱
       box.appendChild(eh);
       decks.sort((a,b)=>tdPlaceRank(a.place)-tdPlaceRank(b.place)).forEach(td=>{
         const row=document.createElement('div'); row.className='td-row'+(td.unavailable?' unavail':'');
@@ -841,7 +874,7 @@ function showTourneyDeckDetail(td){
   box.innerHTML=`<h3>🏆 ${esc(td.name)}</h3>
     <div style="font-size:13px;color:#9aa4bd;margin-bottom:8px;line-height:1.6">
       ${esc(td.event)} — <b class="td-place win">${esc(td.place)}</b>${td.player?' · '+esc(td.player):''}
-      · 참가 ${td.players?td.players.toLocaleString()+'명':'?'}${td.record?' · 전적 <b>'+esc(td.record)+'</b>':''}<br>
+      ${td.players===null?'':'· 참가 '+(td.players?td.players.toLocaleString()+'명':'?')}${td.record?' · 전적 <b>'+esc(td.record)+'</b>':''}<br>
       <small>카드는 우클릭 또는 꾹 누르기로 확대해 볼 수 있습니다 · 아래 순서: 전설 → 선발 챔피언 → 전장 3</small></div>`;
   // 전설/챔피언/전장 미니 카드
   const wrap=document.createElement('div'); wrap.className='modal-cards';
@@ -1039,7 +1072,35 @@ function initDecks(){
 // ---------- 덱 편집기 ----------
 // champOverride: 유저가 직접 고른 챔피언 (null이면 전설 기준 자동 = 견본덱 방식)
 const ED = { index:null, main:[], side:[], runes:{}, bfs:[], legendN:null, champOverride:null, selN:null,
-             arts:{} };   // 카드번호 → 일러스트 인덱스 (0/없음 = 기본 그림)
+             arts:{}, recruitToken:271 };   // 카드번호 → 일러스트 인덱스 (0/없음 = 기본 그림)
+function deckRecruitToken(d){ return [272,273].includes(d?.recruitToken) ? d.recruitToken : 271; }
+function cardCreatesRecruit(n){
+  const creates=value=>{
+    if(!value || typeof value!=='object') return false;
+    if(value.op==='vanguardTokens' || value.op==='token' && value.name==='Recruit') return true;
+    return Object.values(value).some(creates);
+  };
+  return creates(FX[n]);
+}
+function deckCreatesRecruit(d){
+  return [d.legendN,...(d.main||[]),...(d.side||[]),...(d.bfs||[])].some(cardCreatesRecruit);
+}
+function renderRecruitTokenPicker(){
+  const section=document.getElementById('ed-recruit-token');
+  const deck={legendN:edLegend()?.n??edLegendForChamp(edChampN()),main:ED.main,side:ED.side,bfs:ED.bfs};
+  section.hidden=!deckCreatesRecruit(deck);
+  if(section.hidden){ ED.recruitToken=271;section.replaceChildren();return; }
+  section.innerHTML='<b>신병 토큰 그림</b><p class="ed-token-help">이 덱이 생성하는 신병에 사용합니다. 기본 그림은 271입니다.</p><div class="ed-token-options"></div>';
+  const options=section.querySelector('.ed-token-options');
+  for(const n of [271,272,273]){
+    const label=document.createElement('label');label.className='ed-token-option';
+    const img=document.createElement('img');img.src=tokenImg('Recruit',n);img.alt='신병 '+n;img.draggable=false;
+    const caption=document.createElement('span'),radio=document.createElement('input');
+    radio.type='radio';radio.name='ed-recruit-token';radio.value=n;radio.checked=deckRecruitToken(ED)===n;
+    radio.onchange=()=>{ ED.recruitToken=n; };
+    caption.append(radio,String(n)+(n===271?' (기본)':''));label.append(img,caption);options.appendChild(label);
+  }
+}
 // 사이드덱 최대 장수 — 2026-07-24 대회 규정으로 8장에서 10장으로 늘었다.
 // 공식 문구는 "10 or fewer"라 그 안에서는 몇 장이든 된다 (정확히 N장이 아니다).
 const MAX_SIDE = 10;
@@ -1061,10 +1122,11 @@ function openEditor(index){
     ED.runes={};
     d.runes.forEach(n=>{ ED.runes[n]=(ED.runes[n]||0)+1; });
     ED.arts={...(d.arts||{})};
+    ED.recruitToken=deckRecruitToken(d);
     document.getElementById('ed-name').value=d.name;
   } else {
     ED.legendN=legendList()[0].n;
-    ED.main=[]; ED.side=[]; ED.bfs=[]; ED.runes={}; ED.arts={};
+    ED.main=[]; ED.side=[]; ED.bfs=[]; ED.runes={}; ED.arts={}; ED.recruitToken=271;
     document.getElementById('ed-name').value='새 덱 '+(myDecks.length+1);
   }
   // 편집 중에는 이 덱에서 고른 일러스트로 보여준다 (ui.js의 artImg가 참조)
@@ -1248,6 +1310,7 @@ function renderEditor(){
   const search=document.getElementById('ed-search').value.trim().toLowerCase();
   const domOnly=document.getElementById('ed-dom-only').checked;
   const champN=edChampN();
+  renderRecruitTokenPicker();
 
   // 카드 풀
   const pool=CARDS.filter(c=>{
@@ -1464,6 +1527,7 @@ function initEditor(){
       main:[...ED.main], runes, bfs:[...ED.bfs],
       ...(ED.side.length ? { side:[...ED.side] } : {}),
     };
+    deck.recruitToken=deckCreatesRecruit(deck) ? deckRecruitToken(ED) : 271;
     // 일러스트 선택 — 덱에 실제로 든 카드 중 기본이 아닌 것만 담는다
     {
       const inDeck=new Set([...deck.main, ...ED.side, ...runes, ...deck.bfs, deck.legendN, deck.champN]);
@@ -1687,12 +1751,12 @@ function initP2P(){
   const $ = id => document.getElementById(id);
   let role = null;   // 'host' | 'guest' — 연결 전 단계의 안내를 어느 쪽에 띄울지
 
-  $('btn-goto-p2p').onclick=()=>{
+  $('btn-goto-p2p')?.addEventListener('click',()=>{
     $('p2p-nick').value=localStorage.getItem('rb_nick')||'';
     $('p2p-signal-url').value=localStorage.getItem('rb_signal_url')||'';
     p2pRefreshDecks();
     showScreen('p2p-screen');
-  };
+  });
   $('btn-p2p-back').onclick=()=>{ P2P.reset(); showScreen('offline-screen'); };
   $('btn-p2p-decks').onclick=()=>{
     DeckStore.local=true; DeckStore.returnTo='p2p-screen';
@@ -1819,21 +1883,26 @@ const RM = {
   reset(){ RM.decks=[null,null]; RM.fresh=false; },
   // 덱 선택 모달 (fromRequest: 상대의 요청을 받고 여는 경우)
   // ── 사이드덱 교체 (게임 사이에만) ──
-  // 공식 규칙: 1장 넣으면 1장 빼서 메인은 항상 40장, 사이드는 8장.
+  // 공식 규칙 403.4 / 601.1.c: 메인 40장, 사이드 최대 10장. 교환은 1대1.
   // 선발 챔피언도 이때 바꿀 수 있다 (전설 태그가 맞고 메인에 들어 있어야 한다).
+  validChampion(deck){
+    const champion=card(deck.champN), legend=card(deck.legendN);
+    return !!(deck.main?.includes(deck.champN) && champion?.type==='Unit' && champion.super==='Champion'
+      && (champion.tags||[]).some(t=>(legend?.tags||[]).includes(t)));
+  },
   openSideboard(deck, ban, onDone, opts={}){
     const main=[...deck.main], side=[...(deck.side||[])];
     const sideSize=side.length;   // 1장 넣으면 1장 빼므로 시작 장수를 그대로 유지한다
     let champN=deck.champN;
     const legend=card(deck.legendN);
     const legendTags=(legend&&legend.tags)||[];
-    // 상대 전설·선발 챔피언은 공개 정보다 (룰 352.10.a.1) — 무엇을 상대했는지 보고 고르라고 띄워 준다
+    // Bo1 선발은 양쪽 사이드보딩 완료 후 공개한다 (406.1.g.6). Bo3는 지난 게임의 선발을 표시한다.
     let oppInfo='', oppCards=null;
     try{
       const o=(opts.start&&opts.start.players)?opts.start.players[opp(NET.seat)].deck
         : (typeof G!=='undefined'&&G&&G.players)?G.players[opp(NET.seat)]:null;
       if(o){
-        oppInfo=`상대: ${card(o.legendN).ko} · 선발 ${o.champN?card(o.champN).ko:'-'}`;
+        oppInfo=`상대: ${card(o.legendN).ko}`+(opts.pregame?'':` / 지난 게임 선발 ${o.champN?card(o.champN).ko:'-'}`);
         oppCards={legendN:o.legendN, champN:o.champN, name:(opts.start&&opts.start.players)?opts.start.players[opp(NET.seat)].id:(G&&G.players?pname(opp(NET.seat)):'상대')};
       }
     }catch(e){}
@@ -1844,14 +1913,13 @@ const RM = {
         const t=document.createElement('div'); t.className='sb-opp-label'; t.textContent=label; cell.appendChild(t);
         if(n){ cell.appendChild(cardMiniEl(card(n))); } else { const e=document.createElement('div'); e.className='sb-opp-none'; e.textContent='-'; cell.appendChild(e); }
         row.appendChild(cell); };
-      if(oppCards){ put(`상대(${oppCards.name}) 전설`, oppCards.legendN); put('상대 선발 챔피언'+(opts.pregame?'':' (지난 게임)'), oppCards.champN); }
+      if(oppCards){ put(`상대(${oppCards.name}) 전설`, oppCards.legendN); if(!opts.pregame) put('상대 선발 챔피언 (지난 게임)', oppCards.champN); }
       put('내 전설', deck.legendN);
       return row;
     };
 
     const box=document.getElementById('modal-box');
     const render=()=>{
-      const okNow = main.length===40 && side.length===sideSize;
       const group=arr=>{ const g={}; arr.forEach(n=>g[n]=(g[n]||0)+1); return g; };
       const listHTML=(arr,cls)=>{
         const g=group(arr);
@@ -1862,7 +1930,9 @@ const RM = {
       // 선발 후보: 메인에 들어 있고 전설 태그가 맞는 챔피언
       const champCands=[...new Set(main.filter(n=>{ const c=card(n);
         return c.type==='Unit' && c.super==='Champion' && (c.tags||[]).some(t=>legendTags.includes(t)); }))];
-      if(champCands.length && !champCands.includes(champN)) champN=champCands[0];
+      if(!champCands.includes(champN)) champN=champCands[0]??null;
+      const okNow = main.length===40 && side.length===sideSize && side.length<=MAX_SIDE
+        && RM.validChampion({...deck,main,champN});
 
       box.innerHTML=`<h3>🔁 사이드덱 교체${opts.pregame?' — 게임 시작 전':''}</h3>
         <div class="sb-note">${esc(oppInfo)}${oppInfo?' · ':''}같은 수만큼 주고받아 메인 40장을 맞추세요${ban?' · 🚫 밴 적용 대전':''}</div>
@@ -1878,7 +1948,7 @@ const RM = {
         </div>
         <div class="sb-champ">선발 챔피언 <select id="sb-champ">${
           champCands.map(n=>`<option value="${n}"${n===champN?' selected':''}>${esc(card(n).ko)}</option>`).join('')
-          || '<option value="">(메인에 챔피언이 없습니다)</option>'}</select></div>
+          || '<option value="">(전설과 일치하는 챔피언을 메인에 넣어 주세요)</option>'}</select></div>
         <div class="modal-btns">
           <button class="primary" id="sb-ok"${okNow?'':' disabled'}>이 구성으로 시작</button>
           <button id="sb-reset">처음 구성으로</button>
@@ -1903,11 +1973,15 @@ const RM = {
         side.length=0; side.push(...(deck.side||[]));
         champN=deck.champN; render();
       };
-      box.querySelector('#sb-cancel').onclick=()=>{ closeModal(); UI.prompt(''); if(opts.pregame) onDone(deck); };   // 게임 전엔 취소 = 등록 덱 그대로 시작
+      box.querySelector('#sb-cancel').onclick=()=>{
+        if(opts.pregame && !RM.validChampion(deck)){ UI.toast('전설과 일치하는 선발 챔피언을 메인에 넣어 주세요','warn'); return; }
+        closeModal(); UI.prompt(''); if(opts.pregame) onDone(deck);
+      };   // 게임 전엔 취소 = 등록 덱 그대로 시작
       const okBtn=box.querySelector('#sb-ok');
       okBtn.onclick=()=>{
         if(main.length!==40 || side.length!==sideSize){ UI.toast(`메인 40장 · 사이드 ${sideSize}장을 맞춰주세요`,'warn'); return; }
         const out={...deck, main:[...main], side:[...side], champN};
+        if(side.length>MAX_SIDE || !RM.validChampion(out)){ UI.toast('사이드는 최대 10장이고, 선발은 메인에 있는 전설과 일치하는 챔피언이어야 합니다','warn'); return; }
         if(ban && !banSelfCheck(true, out)) return;
         closeModal();
         onDone(out);
@@ -2004,9 +2078,12 @@ const RM = {
     const ls=NET.lastStart; if(!ls) return;
     const decks = (a.decks && a.decks[0] && a.decks[1]) ? a.decks : RM.decks;  // 신호에 실린 덱이 우선
     if(!decks[0] || !decks[1]) return;
+    // 서버 start의 방 속성(등급전·턴 제한·되돌리기·시즌·공개 등급)을 그대로 잇는다 — 빠뜨리면 2게임째부터 클라이언트가 등급전인 줄 몰라
+    // 결과 보고(rankResult)를 안 보내고 턴 제한도 꺼진다 (제보 2026-10-06: Bo3 2승한 쪽이 먼저 나가 '퇴장' 패배 처리)
     const m={ t:'start', seed:a.seed, yourSeat:NET.seat, spectate:!!NET.spectating, manual:ls.manual, banRule:ls.banRule,
       format:ls.format||'bo1', match:a.pregame?null:(a.match||null), sideboarded:true,
-      players:[ {id:ls.players[0].id, deck:decks[0]}, {id:ls.players[1].id, deck:decks[1]} ] };
+      turnTimer:ls.turnTimer, undo:ls.undo, ranked:!!ls.ranked, season:ls.season,
+      players:[ {id:ls.players[0].id, deck:decks[0], rank:ls.players[0].rank}, {id:ls.players[1].id, deck:decks[1], rank:ls.players[1].rank} ] };
     RM.reset();
     const ov=document.getElementById('modal-overlay'); if(ov.style.display!=='none') closeModal();
     UI.log('🔄 재대결 시작!', 'sys');
@@ -2015,9 +2092,9 @@ const RM = {
   },
 };
 
-// ---------- 단판(Bo1) 사이드보딩 — 대회 규정 406.1.f 변형 시작 절차 ----------
-// 전장이 공개되고 선후공이 정해진 뒤(406.1.f.2~4), 손패를 뽑기 전에 양쪽이 동시에 사이드보딩한다(406.1.f.5). 선발 챔피언도 이때 바꿀 수 있다(403.5.a).
-// Bo3는 1게임에 사이드보딩이 없고(403.6) 게임 사이(MATCH.next)에서만 한다. 결과(메인 40장·선발)는 NET.choice로 교환해 양쪽이 같은 순서로 덱을 다시 만든다.
+// ---------- 단판(Bo1) 사이드보딩 — 대회 규정 406.1.g 변형 시작 절차 ----------
+// 전장 공개와 선후공 결정 뒤, 손패를 뽑기 전에 동시에 사이드보딩하고 선발을 공개한다 (406.1.g.2~6).
+// Bo3는 1게임에 사이드보딩이 없고(403.5) 게임 사이(MATCH.next)에서만 한다. 기존 NET.choice 두 응답의 순서와 형식을 유지한다.
 // 엔진 mulliganPhase가 decideFirstPlayer 뒤에 부른다 (온라인만 — 봇전·핫시트는 부르지 않음).
 UI.sideboardStep=async function(){
   const ls=NET.lastStart; if(!ls || (ls.format||'bo1')==='bo3') return;
@@ -2026,7 +2103,8 @@ UI.sideboardStep=async function(){
     const mine=!NET.spectating && p===NET.seat;
     const base=mine ? (MATCH.myDeck || ls.players[p].deck) : null;
     const interactive=()=>new Promise(res=>{
-      if(!base || !base.side || !base.side.length){ res(null); return; }   // 사이드덱이 없으면 자동 통과
+      if(!base){ res(null); return; }
+      // 사이드가 0장이어도 메인 안에서 선발을 바꿀 수 있다 (601.1.c.4).
       UI.prompt('🔁 사이드덱 교체 — 전장과 선후공을 보고 덱을 조정하세요');
       RM.openSideboard(base, ban, d=>res({main:[...d.main], champN:d.champN}), {pregame:true, start:ls});
     });
@@ -2036,9 +2114,13 @@ UI.sideboardStep=async function(){
   for(const p of [0,1]){
     const r=results[p]; if(!r || !Array.isArray(r.main) || r.main.length!==40) continue;
     const P=G.players[p]; const main=r.main.map(Number);
-    let champN=Number.isInteger(r.champN)?r.champN:P.champN;
-    if(!main.includes(champN)) champN=P.champN;
-    const deck=shuffle([...main]); const ci=deck.indexOf(champN); if(ci>=0) deck.splice(ci,1);   // newGame과 같은 방식 — 선발은 챔피언 존으로
+    const champN=r.champN;
+    // 받은 선택도 확인한다. 잘못된 응답은 기존의 적법한 구성을 보존하며 난수를 소비하지 않는다.
+    if(!RM.validChampion({legendN:P.legendN,main,champN})){
+      UI.log(`${pname(p)} 사이드덱 교체를 적용하지 않았습니다: 선발 챔피언이 적법하지 않습니다`, 'sys');
+      continue;
+    }
+    const deck=shuffle([...main]); deck.splice(deck.indexOf(champN),1);   // 검증한 메인 40장 중 선발 1장을 분리
     P.deckList=[...main]; P.deck=deck; P.champN=champN; P.champInZone=true;
     UI.log(`${pname(p)} 사이드덱 교체 완료 (선발: ${card(champN).ko})`, 'sys');
   }
@@ -2102,7 +2184,7 @@ const MATCH = {
   },
   // 매치 계속일 때만 다음 게임 정보를 싣는다. 재시작(새 매치·다시 하기)이나 끝난 매치면 null → 1게임부터 주사위로 새로 시작.
   payloadForGo(){ return (MATCH.active() && MATCH._continue && !MATCH.finished()) ? {format:'bo3', wins:[...MATCH.wins], game:MATCH.game+1, used:MATCH.used.map(a=>[...a]), chooser:MATCH.chooser} : null; },
-  // 다음 게임 준비: 사이드보딩(사이드덱이 있을 때) → 덱 전송
+  // 다음 게임 준비: 사이드보딩과 선발 변경 → 기존 재대결 경로로 덱 전송
   next(){
     const ls=NET.lastStart; if(!ls || NET.spectating) return;
     MATCH._continue=true;
@@ -2110,7 +2192,7 @@ const MATCH = {
     const ban=!!ls.banRule;
     const send=d=>{ MATCH._sent=true; MATCH.rememberDeck(d); NET.sendAction({k:'rematch', p:NET.seat, deck:deckForMatch(d)});
       UI.prompt(`▶ ${MATCH.game+1}게임 준비 완료 — 상대의 사이드보딩을 기다리는 중...`); };
-    if(base.side && base.side.length) RM.openSideboard(base, ban, send); else send(base);
+    RM.openSideboard(base, ban, send);
   },
   // 2·3게임 전장 선택: 각자 남은 전장 중 하나 (동시에 고르고 함께 공개). 상대의 전설·선발 챔피언을 보여 준 채 고른다.
   async chooseBattlefields(m){
@@ -2252,6 +2334,19 @@ function openSystemMenu(){
     value=>{ UI.setChatMuted(!value); UI.render(); });
 
   const display=section('화면 설정');
+  toggle(display,'setting-bot-hand-peek','봇 손패 확인 버튼',
+    '봇전에서 상대 손패를 확인하는 연습용 버튼을 표시합니다. 끄면 확인 중인 손패도 다시 가립니다.',
+    PLAY_OPTIONS.botHandPeekButton,value=>{
+      PLAY_OPTIONS.set('botHandPeekButton',value);
+      if(!value){ UI.peekBotHand=false; UI.hideHover(); }
+      if(G) UI.render();
+    });
+  toggle(display,'setting-reverse-board','게임판 좌우 바꾸기',
+    '손패와 레전드·룬·덱 영역의 좌우 배치를 서로 바꿉니다.',
+    GAME_LAYOUT.reverseBoard,value=>GAME_LAYOUT.set('reverseBoard',value));
+  toggle(display,'setting-sidebar-left','정보와 버튼을 왼쪽에 배치',
+    '카드 정보와 확인·패스·턴 종료 버튼 영역을 왼쪽으로 옮깁니다. 모바일 세로 화면에서는 하단 배치를 유지합니다.',
+    GAME_LAYOUT.sidebarLeft,value=>GAME_LAYOUT.set('sidebarLeft',value));
   toggle(display,'setting-card-magnify','카드 확대 미리보기',
     '게임 화면에서 카드에 마우스를 올리면 1.5배로 크게 보여 줍니다.',
     UI.magnifyOn, value=>UI.setMagnify(value));
@@ -2336,7 +2431,7 @@ async function startOnlineGame(m){
     manual: m.manual,
     players: m.players.map(pl=>({
       name: pl.id, legendN: pl.deck.legendN, champN: pl.deck.champN,
-      deck: pl.deck.main, runes: pl.deck.runes, arts: pl.deck.arts,
+      deck: pl.deck.main, runes: pl.deck.runes, arts: pl.deck.arts, recruitToken:deckRecruitToken(pl.deck),
     })),
     bfs,
   });
@@ -2398,7 +2493,7 @@ function startHotseat(){
   // 저장 덱을 골랐으면 그 덱(전설·선발·메인·룬·전장·일러스트)을 그대로, 아니면 전설 기준 자동 구성
   const side=(pid)=>{
     const saved=hsPickedDeck(pid);
-    if(saved) return { legendN:saved.legendN, champN:saved.champN, deck:[...saved.main], runes:[...saved.runes], bfs:[...saved.bfs], arts:saved.arts||null };
+    if(saved) return { legendN:saved.legendN, champN:saved.champN, deck:[...saved.main], runes:[...saved.runes], bfs:[...saved.bfs], arts:saved.arts||null, recruitToken:deckRecruitToken(saved) };
     const legendN=+document.getElementById(pid+'-legend').value;
     const d=buildDeck(legendN);
     return { legendN, champN:d.champN, deck:d.deck, runes:d.runes, bfs:d.bfs, arts:d.arts };
@@ -2410,8 +2505,8 @@ function startHotseat(){
     reviewSetup: true,
     manual: !autoHs,   // 선후공은 주사위(decideFirstPlayer)로 정한다
     players:[
-      { name:document.getElementById('p0-name').value||'플레이어 1', legendN:d0.legendN, champN:d0.champN, deck:d0.deck, runes:d0.runes, arts:d0.arts },
-      { name:document.getElementById('p1-name').value||'플레이어 2', legendN:d1.legendN, champN:d1.champN, deck:d1.deck, runes:d1.runes, arts:d1.arts },
+      { name:document.getElementById('p0-name').value||'플레이어 1', legendN:d0.legendN, champN:d0.champN, deck:d0.deck, runes:d0.runes, arts:d0.arts, recruitToken:d0.recruitToken },
+      { name:document.getElementById('p1-name').value||'플레이어 2', legendN:d1.legendN, champN:d1.champN, deck:d1.deck, runes:d1.runes, arts:d1.arts, recruitToken:d1.recruitToken },
     ],
     bfs:[bf0,bf1],
   });

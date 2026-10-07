@@ -19,6 +19,7 @@ UI.reviewSetup = async function(){
   // 관전자는 좌석이 없다(-1) — 위쪽 0번·아래쪽 1번으로 두고 입력 없이 두 플레이어의 진행만 지켜본다
   const spect=NET.online && NET.spectating;
   const game=G, online=NET.online, me=(online&&!spect)?NET.seat:0;
+  const hideChampions=UI.championsPendingSideboard();
   const overlay=document.createElement('div');
   overlay.className='setup-review';
   overlay.setAttribute('role','dialog');
@@ -26,7 +27,7 @@ UI.reviewSetup = async function(){
   overlay.setAttribute('aria-labelledby','setup-review-title');
   overlay.innerHTML=`<section class="setup-review-box">
     <header class="setup-review-header"><span class="setup-review-eyebrow">RIFTBOUND / MATCH PREVIEW</span>
-      <h2 id="setup-review-title">전투를 준비하세요</h2><p>양측의 전설, 선발 챔피언과 전장을 확인하세요.</p></header>
+      <h2 id="setup-review-title">전투를 준비하세요</h2><p>${hideChampions?'양측의 전설과 전장을 확인하세요. 선발 챔피언은 사이드보딩 후 공개됩니다.':'양측의 전설, 선발 챔피언과 전장을 확인하세요.'}</p></header>
     <div class="setup-review-players"></div>
     <footer class="setup-review-footer"><div class="setup-review-guidance">
       <div class="setup-review-status" aria-live="polite"></div><p class="setup-review-hint"></p>
@@ -46,6 +47,7 @@ UI.reviewSetup = async function(){
     section.appendChild(heading);
     const cards=document.createElement('div'); cards.className='setup-review-cards';
     for(const [label,n] of [['전설',G.players[p].legendN],['선발 챔피언',G.players[p].champN],['무작위 전장',G.bfs[p].n]]){
+      if(hideChampions && label==='선발 챔피언') continue;
       const c=card(n), figure=document.createElement('figure');
       const title=document.createElement('div'); title.textContent=label;
       const preview=document.createElement('button'); preview.type='button'; preview.className='setup-card-preview';

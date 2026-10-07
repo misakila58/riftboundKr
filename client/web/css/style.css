@@ -154,6 +154,13 @@ button { cursor:pointer; font-family:inherit; }
 .cm-ctl .cm-minus { background:#e05555; }
 .cm-ctl .cm-plus  { background:#3fbf6f; }
 .ed-section { margin-bottom:14px; font-size:13px; color:#c8d2ea; }
+.ed-token-help { margin:6px 0 10px; color:#aebbd3; font-size:12px; }
+.ed-token-options { display:flex; gap:10px; flex-wrap:wrap; }
+.ed-token-option { display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px; border:2px solid #3a4a70; border-radius:8px; background:#121a2c; cursor:pointer; }
+.ed-token-option:has(input:checked) { border-color:#f1d16f; background:#302b1c; box-shadow:0 0 0 1px #f1d16f55; }
+.ed-token-option:focus-within { outline:2px solid #79cfff; outline-offset:3px; }
+.ed-token-option img { width:82px; height:auto; border-radius:5px; }
+.ed-token-option span { display:flex; align-items:center; gap:5px; font-weight:bold; }
 .ed-cardlist { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
 /* 이미지로 보기: 한 줄 10장 격자 (좁은 화면은 5장) — 카드 그림 위에 장수 배지 */
 .ed-imgview { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:#c8d2ea; margin-bottom:8px; cursor:pointer; }
@@ -209,17 +216,22 @@ button { cursor:pointer; font-family:inherit; }
 
 /* ══════════ 게임 레이아웃 (스크린샷 스타일: 풀보드 + 우측 플로팅 패널) ══════════ */
 #game-screen {
+  --game-sidebar-width:300px;
   display:flex; height:100%; position:relative;
   background:radial-gradient(ellipse at center,#1a2540 0%,#0e1420 75%);
 }
 #board {
-  position:absolute; top:0; left:0; right:300px; bottom:0;
+  position:absolute; top:0; left:var(--board-left,0px); right:var(--board-right,var(--game-sidebar-width)); bottom:0;
   display:flex; flex-direction:column; padding:8px 10px; gap:6px; isolation:isolate;
 }
 #sidebar {
-  position:absolute; top:0; right:0; width:300px; bottom:0;
+  position:absolute; top:0; left:var(--sidebar-left,auto); right:var(--sidebar-right,0px); width:var(--game-sidebar-width); bottom:0;
   display:flex; flex-direction:column; gap:8px; padding:8px;
   background:transparent;
+}
+.sidebar-left #game-screen {
+  --board-left:var(--game-sidebar-width); --board-right:0px;
+  --sidebar-left:0px; --sidebar-right:auto;
 }
 
 /* 우측 턴 정보 패널 */
@@ -281,6 +293,8 @@ button { cursor:pointer; font-family:inherit; }
 /* 보드 뒤집기(온라인 게스트가 아래): 내부 요소 순서가 HTML에 고정돼 있어 자리만 바꾸면
    좌우가 반대가 된다 → 역순으로 배치해 원래 모양(위: 사이드 왼쪽 / 아래: 사이드 오른쪽)을 유지 */
 .player-area.flipped { flex-direction:row-reverse; }
+.board-reversed .player-area { flex-direction:row-reverse; }
+.board-reversed .player-area.flipped { flex-direction:row; }
 /* 가로 배분: 기지는 필요한 만큼만 쓰고(상한 있음), 남는 폭은 손패가 가져간다.
    기지는 보통 몇 기만 두는데 예전엔 flex:1이라 넓은 화면에서 빈 공간을 다 차지했다. */
 .side-zone {
@@ -334,15 +348,69 @@ button { cursor:pointer; font-family:inherit; }
 /* '손패 확인'으로 들여다본 봇 손패 — 내 손패와 헷갈리지 않게 점선 테두리로 구분하고,
    보기 전용임을 커서로도 알린다 (확대·정보 표시는 그대로 동작한다) */
 .card-mini.peeked { outline:1px dashed #6a7aa0; outline-offset:-2px; opacity:.82; cursor:zoom-in; }
+.hand-zone.mobile-hand { flex-wrap:nowrap; gap:0; overflow:hidden; cursor:pointer; }
+.hand-zone.mobile-hand:not(.mobile-hand-open) > [data-hand-index],
+.runes-zone.mobile-rune-stack:not(.mobile-runes-open) [data-rune-index] { pointer-events:none; } /* 접힌 손패/룬의 첫 터치는 영역만 받고 개별 카드 조작은 펼친 뒤 허용 */
+.hand-zone.mobile-hand:not(.mobile-hand-open) > [data-hand-index]:not(:last-child) { margin-right:var(--hand-overlap, -20px); }
+.player-area > .hand-zone.opponent-hand-layout {
+  --opponent-card-height:104px;
+  flex:0 1 var(--opponent-hand-width);
+  display:grid; grid-template-columns:var(--opponent-hand-tracks);
+  grid-template-rows:repeat(var(--opponent-hand-rows),var(--opponent-row-height)); gap:4px 0;
+  align-content:center; justify-content:center; padding:calc(5px + var(--opponent-peek-space)) 4px 5px;
+}
+.hand-zone.opponent-hand-layout > [data-hand-index] {
+  width:var(--opponent-hand-card-width); height:var(--opponent-row-height); margin:0;
+}
+#mobile-hand-layer { position:fixed; inset:0; z-index:90; pointer-events:none; }
+.mobile-hand-backdrop { position:absolute; inset:0; background:rgba(4,10,22,.35); pointer-events:auto; }
+.hand-zone.mobile-hand-open { position:absolute; inset:0; padding:0; margin:0; max-width:none; background:none; overflow:visible; pointer-events:none; }
+.hand-zone.mobile-hand-open > [data-hand-index] {
+  position:absolute; left:var(--fan-x); bottom:calc(var(--fan-y) + env(safe-area-inset-bottom)); z-index:var(--fan-order);
+  width:var(--fan-width); height:auto; aspect-ratio:74 / 104; margin:0;
+  transform:rotate(var(--fan-angle)) scale(var(--hand-select-scale,1)); transform-origin:50% 100%;
+  pointer-events:auto;
+  transition:transform .1s ease-out, border-color .1s ease-out, box-shadow .1s ease-out;
+}
+.hand-zone.mobile-hand-open > [data-hand-index], .fx-flight-stage > .card-mini.mobile-hand-face {
+  border:2px solid #b5c7e7; box-shadow:0 4px 16px #000b;
+}
+.hand-zone.mobile-hand-open > [data-hand-index]:hover { transform:rotate(var(--fan-angle)) scale(var(--hand-select-scale,1)); }
+.hand-zone.mobile-hand-open > .mobile-hand-selected, .fx-flight-stage > .card-mini.mobile-hand-face.mobile-hand-selected { --hand-select-scale:1.08; border-color:#ffe49a; box-shadow:0 4px 18px #000c,0 0 8px #ffe49a66; }
+body.fx-disabled .hand-zone.mobile-hand-open > [data-hand-index] { transition:none; }
+@media (prefers-reduced-motion:reduce) {
+  .hand-zone.mobile-hand-open > [data-hand-index] { transition:none; }
+}
+.hand-zone.mobile-hand-open .cm-name, .mobile-hand-face .cm-name { font-size:11px; padding:4px 2px; }
+.hand-zone.mobile-hand-open .cm-cost, .mobile-hand-face .cm-cost { width:23px; height:23px; font-size:14px; }
+@media (pointer:coarse) and (max-width:1100px) {
+  .player-area > .hand-zone.mobile-hand, .player-area > .hand-zone.mobile-opp-hand, .player-area > .mobile-hand-placeholder {
+    --mobile-hand-card-height:82px;
+    flex:0 0 clamp(68px,18vw,150px); max-width:26%; align-self:center;
+    height:calc(var(--mobile-hand-card-height) + 10px); padding:5px 4px;
+  }
+  .player-area > .hand-zone.mobile-opp-hand { flex-basis:var(--opponent-hand-width); max-width:42%; }
+  .player-area > .hand-zone.mobile-opp-hand.opponent-hand-layout {
+    --opponent-card-height:var(--mobile-hand-card-height);
+    height:calc(var(--opponent-hand-rows) * var(--opponent-row-height) + 14px);
+    padding:5px 4px; overflow:visible;
+  }
+}
+@media (pointer:coarse) and (max-width:480px) {
+  .player-area > .hand-zone.mobile-hand, .player-area > .hand-zone.mobile-opp-hand, .player-area > .mobile-hand-placeholder { --mobile-hand-card-height:70px; }
+}
+@media (pointer:coarse) and (orientation:landscape) and (max-height:520px) {
+  .player-area > .hand-zone.mobile-hand, .player-area > .hand-zone.mobile-opp-hand, .player-area > .mobile-hand-placeholder { --mobile-hand-card-height:56px; }
+}
 /* 카드의 줄바꿈과 간격에 영향을 주지 않고 손패 칸 오른쪽 위에 겹쳐 표시한다. */
 .peek-btn {
   position:absolute; top:4px; right:4px; z-index:4;
   margin:0; padding:3px 8px; font-size:11px; font-weight:bold; line-height:1.4;
-  color:#9aa4bd; background:#16203a; border:1px solid #3a4a70; border-radius:6px;
+  color:#c8d2e8; background:rgba(22,32,58,.5); border:1px solid #64769799; border-radius:6px; opacity:.8;
   cursor:pointer; white-space:nowrap; text-shadow:none;
 }
-.peek-btn:hover { color:#e8e6e0; border-color:#5a6a90; }
-.peek-btn.on { color:#ffd98a; border-color:#8a7a4a; background:#231d12; }
+.peek-btn:hover, .peek-btn:focus-visible { color:#fff; border-color:#8ba0c5; opacity:1; }
+.peek-btn.on { color:#ffd98a; border-color:#8a7a4a; background:rgba(35,29,18,.5); }
 /* iOS 전체 화면에서 위쪽 버튼이 잘 눌리지 않아 조금 내린다 (데스크톱은 그대로) */
 @media (pointer:coarse) {
   .player-area.top .peek-btn { top:12px; }
@@ -437,6 +505,31 @@ button { cursor:pointer; font-family:inherit; }
 #void-ask button:disabled { opacity:.6; cursor:default; }
 #center-info { flex:0 0 130px; min-height:0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; }
 #center-info.drop-hint { outline:2px dashed #83e4ff; outline-offset:-2px; background:#4bc9ed22; }
+#center-info.unit-pick-optional #showdown-banner { display:none !important; }
+#unit-pick-skip {
+  width:100%; min-height:44px; padding:12px 4px; border:2px solid #ffe09a; border-radius:10px;
+  background:#6a451b; color:#fff3ce; font-family:inherit; font-size:14px; font-weight:700; line-height:1.4; cursor:pointer;
+  box-shadow:0 0 16px #eeb84b66,0 3px 8px #0009;
+}
+#unit-pick-skip:hover { background:#865b25; }
+#unit-pick-skip:focus-visible { outline:3px solid #fff; outline-offset:3px; }
+#center-info.board-order-picking #showdown-banner { display:none !important; }
+#board-order-controls { width:100%; display:flex; flex-direction:column; gap:8px; }
+#board-order-controls button {
+  width:100%; min-height:44px; padding:10px 4px; border:2px solid #89bde9; border-radius:10px;
+  justify-content:center; text-align:center;
+  background:#163758; color:#edf7ff; font-family:inherit; font-size:14px; font-weight:700; line-height:1.4;
+  cursor:pointer; box-shadow:0 3px 8px #0009;
+}
+#board-order-controls .order-confirm { background:#6a451b; border-color:#ffe09a; color:#fff3ce; box-shadow:0 0 16px #eeb84b66,0 3px 8px #0009; }
+#board-order-controls .order-confirm:hover { background:#865b25; }
+#board-order-controls .order-reset:hover { background:#24547e; }
+#board-order-controls button:focus-visible { outline:3px solid #fff; outline-offset:3px; }
+@media (orientation:landscape) and (max-height:520px){
+  #center-info.board-order-picking #pool-display { display:none; }
+  #board-order-controls { gap:6px; }
+  #board-order-controls button { padding:6px 3px; font-size:12px; }
+}
 #spell-stage { position:fixed; z-index:10002; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; gap:5px; text-align:center; }
 #spell-stage .spell-stage-card { width:auto; max-width:100%; height:var(--stage-card-height); aspect-ratio:744/1039; margin:0; flex:none; border:2px solid #d8c27a; box-shadow:0 0 14px #d8c27a77; touch-action:none; cursor:grab; }
 #spell-stage .spell-stage-card.spell-return-dragging { transition:none; cursor:grabbing; }
@@ -450,11 +543,9 @@ button { cursor:pointer; font-family:inherit; }
 .spell-staging #pool-display, .spell-staging #showdown-banner, .spell-staging .center-score { visibility:hidden; }
 .spell-staging #placement-overlay .placement-center { display:none; }
 .spell-staging .touch-drag-preview { z-index:10003; }
-.spell-staging #modal-overlay { justify-content:flex-end; padding:8px; background:transparent; pointer-events:none; }
-.spell-staging #modal-shell { width:min(290px,43vw); max-width:43vw; pointer-events:auto; }
-.spell-staging #modal-shell #modal-box { max-width:100%; max-height:80vh; padding:10px; }
-.spell-staging #modal-box .decision-content, .spell-staging #modal-box .resource-layout { display:flex; flex-direction:column; }
-.spell-staging #modal-box .decision-source { display:none; }
+/* 추가 선택 중에는 시전 카드가 중앙 선택창이나 보드 선택 버튼을 덮지 않는다. */
+.spell-staging.modal-open:not(.modal-peeking) #spell-stage,
+.spell-staging:has(#board-order-controls, #unit-pick-skip) #spell-stage { visibility:hidden; }
 #placement-overlay { position:fixed; inset:0; z-index:10000; background:#04091655; touch-action:none; }
 #placement-overlay .placement-zone { position:absolute; margin:0; padding:0; border:3px solid #83e4ff; border-radius:10px; background:#4bc9ed22; box-shadow:0 0 14px #66dfff88,inset 0 0 14px #66dfff33; cursor:pointer; }
 #placement-overlay .placement-zone:hover, #placement-overlay .placement-zone:focus-visible { background:#4bc9ed44; outline:2px solid white; outline-offset:-6px; }
@@ -547,7 +638,7 @@ button { cursor:pointer; font-family:inherit; }
   background:#111b2cdb; color:#eef4ff; font-size:9px; font-weight:800; white-space:nowrap; pointer-events:none;
 }
 .card-mini.hidden-card-owned.playable { border-color:#7fc8ff; box-shadow:0 0 10px #7fc8ffaa; }
-.card-mini.hidden-card-owned.targetable { border-color:#ffe07f; box-shadow:0 0 12px #ffe07fcc; }
+.card-mini.hidden-card-owned.targetable { opacity:1; filter:none; border-style:solid; border-color:#ffe07f; box-shadow:0 0 12px #ffe07fcc; cursor:pointer; }
 .card-mini.hidden-card { cursor:default; }
 @keyframes pulse { from{box-shadow:0 0 6px #ffe07f66;} to{box-shadow:0 0 16px #ffe07fee;} }
 
@@ -692,13 +783,9 @@ body.mulligan-open #inspector {
 #log .log-p1 { color:#ffc89f; }
 #log .log-sys { color:#8a94b0; }
 #log .log-score { color:#ffe07f; font-weight:bold; }
-/* 채팅 (온라인 대전 전용) — 사이드바에는 버튼만, 대화는 팝업(#chat-pop)에서 */
-#chat-bar { flex:0 0 auto; padding:4px 0; }
-#chat-bar button {
-  width:100%; padding:6px 10px; border-radius:8px; border:1px solid #3a4a70;
-  background:#141c30; color:#b8f0b8; font-size:13px; cursor:pointer; font-family:inherit;
-}
-#chat-bar button:hover { border-color:#7fe07f; }
+/* 채팅 (온라인 대전 전용) — 다른 조작 버튼과 같은 배치, 대화는 팝업에서 */
+#btn-chat { background:#141c30; border-color:#3a4a70; color:#b8f0b8; }
+#btn-chat:hover { border-color:#7fe07f; }
 #chat-dot {
   display:inline-block; width:9px; height:9px; border-radius:50%;
   background:#ff5252; margin-left:7px; vertical-align:middle;
@@ -710,6 +797,7 @@ body.mulligan-open #inspector {
   background:#182238; border:1px solid #3a4a70; border-radius:12px;
   display:flex; flex-direction:column; box-shadow:0 8px 30px rgba(0,0,0,.55);
 }
+.sidebar-left #chat-pop { left:14px; right:auto; }
 #chat-pop-head {
   display:flex; align-items:center; justify-content:space-between;
   padding:8px 12px; border-bottom:1px solid #2a3856; color:#d8c27a; font-size:14px;
@@ -1438,10 +1526,10 @@ body.modal-peeking #inspector { z-index:auto; }
   .cz-body{ flex-direction:row; gap:14px; padding:12px; }
   .cz-img, .cz-noimg{ width:30%; max-width:220px; max-height:none; align-self:flex-start; }
   .cz-info{ width:0; }
-  #game-screen{ display:flex; flex-direction:row; }
+  #game-screen{ --game-sidebar-width:206px; display:flex; flex-direction:row; }
   /* 보드/사이드바 모두 overflow:hidden — 내부 섹션 높이를 통제해 '잘려서 안 보이는' 상황 자체를 없앤다 */
-  #board{ position:absolute; top:0; left:0; right:206px; bottom:0; padding:3px 4px; gap:3px; overflow:hidden; }
-  #sidebar{ position:absolute; top:0; right:0; bottom:0; width:206px; padding:3px; gap:3px; overflow:hidden; }
+  #board{ position:absolute; top:0; left:var(--board-left,0px); right:var(--board-right,var(--game-sidebar-width)); bottom:0; padding:3px 4px; gap:3px; overflow:hidden; }
+  #sidebar{ position:absolute; top:0; left:var(--sidebar-left,auto); right:var(--sidebar-right,0px); bottom:0; width:var(--game-sidebar-width); padding:3px; gap:3px; overflow:hidden; }
 
   /* ── 보드: 상대/전장/나 3행이 항상 모두 보이게 비례 축소 ── */
   .player-area{ flex:1 1 0; min-height:0; gap:3px; }
@@ -1474,7 +1562,7 @@ body.modal-peeking #inspector { z-index:auto; }
   /* ── 사이드바: 인스펙터를 제한하고 로그는 최소 높이를 보장 (항상 보임) ── */
   #turn-panel{ flex:0 0 auto; font-size:10px; padding:3px 5px; }
   #turn-info{ font-size:11px; } #phase-info{ font-size:10px; }
-  #inspector{ flex:0 3 88px; height:auto; min-height:40px; max-height:88px; padding:4px 5px; }   /* 안내 칸이 커지면 먼저 줄어든다(flex-shrink 3) */
+  #inspector{ flex:0 3 88px; height:auto; min-height:40px; max-height:88px; padding:4px 5px; }   /* 안내 칸이 커지거나 주소창으로 높이가 줄면 먼저 줄어든다(flex-shrink 3) */
   #inspector img{ width:44px; margin-right:5px; }
   .insp-name{ font-size:11px; }
   .insp-name-en{ font-size:8px; margin-bottom:1px; }
@@ -1669,12 +1757,69 @@ body.replay-mode #legal-footer { display:none; }
   text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000; pointer-events:none;
 }
 
+/* 전개된 룬도 손패와 같은 레이어에서 실제 노드로 자원을 선택한다. */
+.runes-zone.mobile-rune-stack:not(.mobile-runes-open) {
+  --rune-height:34px; --rune-width:calc(34px * 5 / 7);
+  position:relative; min-height:44px; padding:4px; overflow:hidden;
+  border:1px solid #33436a; border-radius:10px; background:rgba(24,34,56,.75);
+}
+.mobile-rune-stack:not(.mobile-runes-open) .rune-slot:not(:last-child) { margin-right:var(--rune-stack-overlap); }
+.mobile-rune-stack:not(.mobile-runes-open)::after {
+  content:attr(data-rune-summary); position:absolute; right:3px; bottom:2px;
+  padding:1px 3px; border-radius:3px; background:#0a0e18e6; color:#c8d2ea; font-size:10px; pointer-events:none;
+}
+.runes-zone.mobile-runes { cursor:pointer; }
+.runes-zone.mobile-runes:focus-visible { outline:2px solid #9fc8ff; }
+.runes-zone.mobile-runes-open { position:absolute; inset:0; padding:0; margin:0; background:none; overflow:visible; pointer-events:none; }
+.mobile-runes-open .rune-row, .mobile-runes-open .rune-slot { display:contents; }
+.runes-zone.mobile-runes-open .rune-mini {
+  position:absolute; top:auto; left:var(--fan-x); bottom:calc(var(--fan-y) + env(safe-area-inset-bottom));
+  width:var(--fan-width); height:auto; aspect-ratio:74 / 104; margin:0; z-index:var(--fan-order);
+  transform:rotate(var(--rune-turn,0deg)); transform-origin:center;
+  pointer-events:auto; opacity:1; transition:transform .1s ease-out, box-shadow .1s ease-out;
+}
+.runes-zone.mobile-runes-open .rune-mini:hover, .runes-zone.mobile-runes-open .rune-mini:focus-visible {
+  transform:rotate(var(--rune-turn,0deg));
+}
+.runes-zone.mobile-runes-open .rune-mini, .fx-flight-stage > .mobile-rune-face { border-width:2px; box-shadow:0 4px 16px #000b; }
+.runes-zone.mobile-runes-open .rune-mini.exhausted, .fx-flight-stage > .rune-mini.exhausted { opacity:.55; }
+.runes-zone.mobile-runes-open .mobile-hand-selected, .fx-flight-stage > .mobile-rune-face.mobile-hand-selected { --hand-select-scale:1.08; box-shadow:0 4px 18px #000c,0 0 8px #ffe49a99; }
+.mobile-runes-open .rune-mini.exhausted, .mobile-runes-open .rune-energy-preview { --rune-turn:90deg; }
+.mobile-rune-stack .rm-dom, .mobile-runes-open .rm-dom, .mobile-rune-face .rm-dom { display:none; }
+body.fx-disabled .mobile-runes-open .rune-mini { transition:none; }
+@media (prefers-reduced-motion:reduce) { .mobile-runes-open .rune-mini { transition:none; } }
+#mobile-rune-controls {
+  position:absolute; display:flex; flex-direction:column; gap:8px; padding:10px;
+  border:1px solid #5c749c; border-radius:10px; background:#121c30f2; color:#eef3ff; pointer-events:auto;
+}
+#mobile-rune-recycle {
+  min-height:72px; padding:8px 6px; border:2px dashed #82d9bb; border-radius:10px;
+  background:#12392ee8; color:#ddfff1; text-align:center; font-size:12px; pointer-events:auto;
+}
+#mobile-rune-recycle.drop-hint { border-style:solid; background:#22634ef5; box-shadow:0 0 18px #8be5bd; }
+#mobile-rune-recycled { display:flex; flex-wrap:nowrap; justify-content:center; gap:0; margin-top:8px; }
+#mobile-rune-recycled .rune-mini {
+  position:relative; left:auto; top:auto; bottom:auto; width:var(--recycled-width,34px); height:auto; aspect-ratio:74 / 104; margin:0;
+  transform:none; border-width:2px; box-shadow:0 2px 6px #0008; outline:1px solid #8be5bd;
+}
+#mobile-rune-recycled .rune-mini:not(:last-child) { margin-right:var(--recycled-overlap, -11px); }
+#mobile-rune-recycled .rune-mini.exhausted { opacity:.55; }
+#mobile-rune-recycled .rune-mini.hand-dragging { opacity:0; }
+#mobile-rune-recycled .rm-dom { display:none; }
+#mobile-rune-summary { font-size:12px; font-weight:bold; color:#ffe49a; }
+#mobile-rune-confirm { min-height:44px; border:1px solid #91c7ff; border-radius:7px; background:#245f9d; color:white; font-weight:bold; }
+#mobile-rune-confirm:disabled { opacity:.4; }
+.mobile-runes-open .rune-mini.hand-dragging { opacity:.35; }
+.mobile-runes-open .rune-mini:hover { outline:none; } /* 호버 대신 확인 전 선택 상태만 표시한다. */
+.mobile-runes-open .rune-mini.rune-power-preview { outline:2px solid #8be5bd; outline-offset:1px; }
+
 /* ══════════ 연출(이펙트) — 표시 전용, 클릭을 가로채지 않는다 ══════════ */
 #fx-layer { position:fixed; inset:0; pointer-events:none; z-index:95; overflow:hidden; }
 #fx-layer > * { position:absolute; pointer-events:none; }
 .fx-card-flight { background:#141c30 center/cover no-repeat; border:1px solid #cfbb80; border-radius:5px; box-shadow:0 5px 18px #0009; transform-origin:top left; will-change:transform,opacity; }
 body.fx-disabled .fx-card-flight { display:none; }
 [data-fx-arrival] { visibility:hidden !important; }
+[data-fx-hand-arrival] { opacity:0 !important; } /* 이동 중에도 터치와 제한시간 자동 선택은 유지 */
 .fx-card-flight.fx-unit-flight { background:none; border:0; box-shadow:none; }
 
 /* 유닛 반응 */
@@ -1940,4 +2085,43 @@ body.fx-disabled .fx-card-flight { display:none; }
   .aurora-reveal-note,.aurora-reveal-entry > span { font-size:10px; }
   .aurora-reveal-list { gap:8px; padding:3px; }
   .aurora-reveal-confirm button { min-height:30px; padding:4px; font-size:11px; }
+}
+
+/* 모바일 로그는 필요할 때만 열어 설명과 행동 버튼 공간을 확보한다. */
+#mobile-log-tools { display:none; }
+#mobile-log-overlay {
+  position:fixed; left:0; top:0; z-index:90; box-sizing:border-box;
+  display:flex; justify-content:flex-end; padding:8px;
+  background:rgba(0,0,0,.42);
+}
+.sidebar-left #mobile-log-overlay { justify-content:flex-start; }
+#mobile-log-panel {
+  display:flex; flex-direction:column; min-width:0; min-height:0;
+  padding:10px; gap:8px; border:1px solid #657fa5; border-radius:12px;
+  background:rgba(16,25,43,.97); box-shadow:0 8px 32px #0009;
+}
+#mobile-log-panel header { display:flex; align-items:center; justify-content:space-between; gap:12px; color:#ffe09a; }
+#mobile-log-panel #log { display:block; flex:1 1 0; min-height:0; max-height:none; font-size:13px; line-height:1.65; padding:8px; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
+@media (pointer:coarse) and (max-width:1100px){
+  #mobile-log-tools { display:block; position:fixed; top:8px; right:56px; width:44px; height:44px; z-index:80; }
+  #btn-mobile-log { display:flex; align-items:center; justify-content:center; width:44px; height:44px; padding:0; color:#eef4ff; border:1px solid #91adcc99; border-radius:50%; background:rgba(36,58,87,.45); opacity:.75; touch-action:none; user-select:none; -webkit-user-select:none; cursor:grab; }
+  #btn-mobile-log svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; pointer-events:none; }
+  #btn-mobile-log:active { opacity:1; cursor:grabbing; }
+  #sidebar > #log { display:none; }
+  #sidebar #turn-panel { flex-shrink:0; }
+  #sidebar #inspector { flex:1 1 120px; height:auto; min-height:48px; max-height:none; }
+  #sidebar #prompt-area { flex:0 1 auto; min-height:32px; max-height:35%; overflow-y:auto; }
+  #sidebar #prompt-area:empty { display:none; }
+  #action-buttons .act-btn { min-height:40px; font-size:12px; }
+}
+@media (pointer:coarse) and (max-width:1100px) and (orientation:landscape){
+  #sidebar #action-buttons { flex-wrap:wrap; gap:4px; margin-top:auto; }
+  #sidebar #action-buttons .act-btn { flex:1 1 calc(50% - 4px); padding:7px 4px; }
+  #sidebar .insp-text { font-size:11px; line-height:1.55; }
+  #sidebar #prompt-area { font-size:12px; line-height:1.5; }
+  #sidebar #prompt-area .prompt-title { font-size:12px; }
+}
+@media (pointer:coarse) and (max-width:820px) and (orientation:portrait){
+  #sidebar { flex:0 0 36vh; }
+  #action-buttons .act-btn { min-height:44px; font-size:14px; }
 }
