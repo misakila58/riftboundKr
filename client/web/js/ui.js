@@ -1387,6 +1387,7 @@ function setModalPeeking(peeking){
   box.inert=peeking;
   if(peeking) box.setAttribute('aria-hidden','true'); else box.removeAttribute('aria-hidden');
   toggle.setAttribute('aria-pressed',String(peeking));
+  if(peeking) UI.mobileHand?.peekOpen?.(); else UI.mobileHand?.peekClose?.();   // 모바일: 보드를 보는 동안 겹친 손패를 펼쳐 둔다
   toggle.title=peeking?'선택창 다시 보기':'선택창 숨기기';
   toggle.setAttribute('aria-label',toggle.title);
   UI.hideHover();

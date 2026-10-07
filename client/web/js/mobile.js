@@ -487,7 +487,20 @@
   const reflow=()=>{ UI.fx.stopHandLayout?.(); render(); };
   window.addEventListener('resize',reflow);
   media.addEventListener('change',reflow);
-  UI.mobileHand={render,close,handleClick,cancelRuneDraft(){return runeView()?close(true):false;},beginDrag(el,ghost,point){
+  // 선택창의 [선택창 숨기기](눈 버튼)로 보드를 볼 때: 겹쳐 둔 손패는 탭해도 펼쳐지지 않으므로(모달 중 터치 차단) 내 손패를 펼쳐 보여 주고,
+  // 선택창을 다시 보이면 접는다 (제보 2026-10-07: 촛불 성소 선택창에서 보드를 봐도 손패가 안 펼쳐져 뭐가 있는지 볼 수 없음)
+  let peekOpened=null;
+  function peekOpen(){
+    if(!media.matches || !G) return false;
+    for(let p=0;p<2;p++){
+      const hz=document.getElementById('hand-'+p);
+      if(!hz || !hz.classList.contains('mobile-hand') || hz===opened || !eligible(p) || !G.players[p].hand.length) continue;
+      open(hz); peekOpened=hz; return true;
+    }
+    return false;
+  }
+  function peekClose(){ if(peekOpened && opened===peekOpened) close(true); peekOpened=null; }
+  UI.mobileHand={render,close,peekOpen,peekClose,handleClick,cancelRuneDraft(){return runeView()?close(true):false;},beginDrag(el,ghost,point){
     if(runeView()){
       if(!el.closest('#mobile-rune-recycled') || !validRuneDraft()) return null;
       const index=+el.dataset.runeIndex, rect=el.getBoundingClientRect();
