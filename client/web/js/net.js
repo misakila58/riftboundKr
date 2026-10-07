@@ -175,6 +175,8 @@ NET._onRejoinNone = function(){
 };
 // 로그 재생이 끝났다 — 연출·입력 잠금을 풀고 지금 상태에 맞는 안내로
 NET.finishCatchUp = function(){
+  // 재접속: 끊겨 있던 동안도 턴 제한 시간이 흐른 것으로 친다 (서버 start.idleMs = 방의 마지막 행동/선택 이후 지난 시간)
+  if(NET.catchingUp && typeof TURN_TIMER!=='undefined' && NET.lastStart?.rejoin && NET.lastStart.idleMs>0) TURN_TIMER.applyIdle(NET.lastStart.idleMs);
   if(!NET.catchingUp) return;   // 한 번만 (라이브 경계 감지와 rejoinDone 표식 둘 다 부른다)
   NET.catchingUp=false; NET.reconnecting=false; NET.startPending=false;
   try{ UI.render(); UI.promptForState(); }catch(e){}

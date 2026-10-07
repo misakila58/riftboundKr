@@ -14,6 +14,11 @@ const TURN_TIMER = {
   _key: null, _since: 0, _act: -1, forced: false, _forcedAt: 0, _toasted: false,
   _vKey: null, _vSince: 0, _vAct: -1, _vOpen: false,
   bump(){ this.activity++; },
+  // 재접속 뒤: 서버가 알려 준 '마지막 행동 이후 지난 시간'만큼 이미 흐른 것으로 친다 — 끊었다 들어와도 턴 시간을 새로 받지 못한다 (2026-10-07).
+  // 따라잡기 직후 첫 틱에서 키·활동이 바뀌며 _since가 지금으로 잡히므로, 2초 안의 그 재설정에도 같은 값을 적용한다.
+  applyIdle(ms){ this._idleMs = Math.max(0, ms|0); this._idleAt = Date.now(); this._since = Math.min(this._since || Date.now(), Date.now() - this._idleMs); },
+  _idleMs: 0, _idleAt: 0,
+  sinceNow(now){ if(this._idleMs && now - this._idleAt < 2000) return now - this._idleMs; this._idleMs = 0; return now; },
 };
 
 // 활동 감지: 행동 실행과 선택 응답(내 것·상대 것 모두)
@@ -140,8 +145,8 @@ function ttTick(){
   try{ ttVoidTick(now); }catch(e){ console.warn('void tick', e); }
   const seat = ttWaitingSeat();
   const key = seat === null ? null : `${seat}|${G.turn}|${G.turnCount}|${G.state}`;
-  if(key !== T._key){ T._key = key; T._since = now; T._act = T.activity; T.forced = false; T._toasted = false; }
-  else if(!T.forced && T.activity !== T._act){ T._act = T.activity; T._since = now; }
+  if(key !== T._key){ T._key = key; T._since = T.sinceNow(now); T._act = T.activity; T.forced = false; T._toasted = false; }
+  else if(!T.forced && T.activity !== T._act){ T._act = T.activity; T._since = T.sinceNow(now); }
   const remain = seat === null ? Infinity : T.LIMIT_MS - (now - T._since);
   ttRope(seat, remain);
   if(seat === null || seat !== NET.seat || NET.spectating || remain > 0) return;

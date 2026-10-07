@@ -1538,7 +1538,10 @@ wss.on('connection', (ws, req) => {
         clearTimeout(seat.timer); if (seat.gone) seat.awayMs = (seat.awayMs || 0) + Math.max(0, Date.now() - seat.gone);   // 누적 자리 비움(유예 축소 판단용)
         seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false;
         found.rejoins = (found.rejoins || 0) + 1;   // 통계: 매치 중 재접속 횟수
-        wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true });
+        // 자리 비운 동안에도 턴 제한 시간은 흐른다 — 방의 마지막 행동/선택 이후 지난 시간을 알려 주면 클라이언트가 그만큼 이미 흐른 것으로 친다
+        // (끊었다 들어와 턴 시간을 새로 받는 이득 제거, 2026-10-07)
+        const idleMs = Math.max(0, Date.now() - Math.max(...found.players.map(q => q.lastAct || 0), found.startedAt || 0, SERVER_STARTED_AT));
+        wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true, idleMs });
         (found.log || []).forEach(o => wsSend(ws, o));
         wsSend(ws, { t: 'rejoinDone' });
         if (found.rankResultMsgs && found.rankResultMsgs[seat.seat]) wsSend(ws, found.rankResultMsgs[seat.seat]);   // 이미 확정된 등급 결과
