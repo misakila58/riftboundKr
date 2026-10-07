@@ -69,6 +69,27 @@ const totalPower=p=>Object.values(G.players[p].power).reduce((a,b)=>a+b,0);
   CONFIRM=t=>NOC.test(t);
   await execOps([{op:'scryTop',n:2}],{p:0});
   ok('③ 촛불 성소 → 녹턴 제안·플레이', CONFIRMS.some(t=>NOC.test(t)) && everyUnit().some(u=>u.n===194), JSON.stringify(CONFIRMS));
+  // ④ 실제 흐름: 빈 「촛불 성소」(291)로 이동해 정복 → 덱 위 2장 중 녹턴 제안 (제보 2026-10-06 2차)
+  fresh([291,297]); const m=unit(210,0,'base');
+  G.players[0].deck=[210,194,...Array(30).fill(210)];
+  CONFIRM=t=>NOC.test(t);
+  await moveUnits(0,[m],0);
+  for(let k=0;k<6 && G.state==='showdown';k++) await showdownPass();
+  ok('④ 촛불 성소 정복 → 녹턴 제안·플레이', CONFIRMS.some(t=>NOC.test(t)) && everyUnit().some(u=>u.n===194), 'state='+G.state+' '+JSON.stringify(CONFIRMS));
+  // ⑤ 전투 정복: 적이 지키는 촛불 성소를 쳐서 이긴 뒤 정복 격발 → 녹턴 제안 (결전 채점 단계 체인 경로)
+  fresh([291,297]); const a1=unit(210,0,'base'), a2=unit(210,0,'base'); const dfn=unit(210,1,0); dfn.dmg=1;
+  G.players[0].deck=[194,210,...Array(30).fill(210)];
+  CONFIRM=t=>NOC.test(t);
+  await moveUnits(0,[a1,a2],0);
+  for(let k=0;k<10 && G.state==='showdown';k++) await showdownPass();
+  ok('⑤ 전투 정복(촛불 성소) → 녹턴 제안·플레이', G.bfs[0].controller===0 && CONFIRMS.some(t=>NOC.test(t)) && everyUnit().some(u=>u.n===194), 'ctrl='+G.bfs[0].controller+' state='+G.state+' '+JSON.stringify(CONFIRMS));
+  // ⑥ 힘을 낼 룬이 하나도 없으면 제안 없이 재순환 질문만 (규칙상 지불 불가)
+  fresh([291,297]); const m2=unit(210,0,'base');
+  G.players[0].deck=[194,210,...Array(30).fill(210)]; G.players[0].runes=[]; Object.keys(G.players[0].power).forEach(k=>G.players[0].power[k]=0);
+  CONFIRM=t=>NOC.test(t);
+  await moveUnits(0,[m2],0);
+  for(let k=0;k<6 && G.state==='showdown';k++) await showdownPass();
+  ok('⑥ 힘 지불 불가 → 녹턴 제안 없음', !CONFIRMS.some(t=>NOC.test(t)) && CONFIRMS.some(t=>/재순환/.test(t)), JSON.stringify(CONFIRMS));
   console.log(pass+'/'+(pass+fail)+' 통과'+(fail?' ← 실패 '+fail:''));
 })().catch(e=>console.log('CRASH',e.stack));
 `;

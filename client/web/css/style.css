@@ -639,9 +639,14 @@ button { cursor:pointer; font-family:inherit; }
 /* ══════════ 카드 정보 패널 (호버 — 작게 표시, 확대는 Alt+클릭/꾹 누르기) ══════════ */
 #inspector {
   /* 내용과 이미지 로딩에 따라 로그 영역이 움직이지 않도록 높이를 먼저 확보한다. */
-  flex:0 0 auto; height:min(280px,32vh); max-height:40%; min-height:0; overflow-y:auto; padding:10px;
+  flex:0 1 min(280px,32vh); height:auto; max-height:40%; min-height:0; overflow-y:auto; padding:10px;
   background:rgba(20,28,48,.92); border:1px solid #2e3d5e; border-radius:10px;
 }
+/* 사이드바 높이가 모자라면(가로로 든 큰 폰: 높이 520~700px은 PC 배치) 인스펙터·안내 칸·로그가 줄어들고 아래 [확인/턴 종료] 버튼은 밀리지 않는다
+   (제보 2026-10-06: 가로 화면에서 [확인] 버튼이 화면 밖으로 밀려 안 눌림). 안내 칸의 버튼 줄은 칸 아래에 붙어 있어 안내문이 길어도 보인다. */
+#sidebar { overflow:hidden; }
+#prompt-area { flex:0 1 auto; min-height:52px; max-height:45%; overflow-y:auto; }
+#prompt-area .prompt-btns { position:sticky; bottom:0; margin:8px -12px 0; padding:6px 12px 0; background:linear-gradient(rgba(20,28,48,0),rgba(20,28,48,.97) 35%); }
 /* 모달(멀리건 등)이 열린 동안엔 어두운 오버레이 위로 올려, 카드 호버 정보가 밝게 보이게 */
 body.modal-open #inspector {
   position:relative; z-index:110;
@@ -678,9 +683,9 @@ body.mulligan-open #inspector {
 #prompt-area button:hover { background:#2e4370; }
 
 #log {
-  flex:1; overflow-y:auto; padding:8px 10px; font-size:12px; line-height:1.7;
+  flex:1 1 60px; overflow-y:auto; padding:8px 10px; font-size:12px; line-height:1.7;
   background:rgba(18,26,44,.85); border:1px solid #2e3d5e; border-radius:10px;
-  min-height:0;
+  min-height:40px;   /* 사이드바가 모자라면 여기까지 줄어든다 (인스펙터·안내 칸과 함께) */
 }
 #log .log-entry { border-bottom:1px dotted #223; padding:2px 0; }
 #log .log-p0 { color:#9fc8ff; }
@@ -1415,7 +1420,8 @@ body.modal-peeking #inspector { z-index:auto; }
   }
   #inspector{ flex:0 0 auto; height:min(120px,20vh); max-height:20vh; }
   #inspector img{ width:84px; }
-  #log{ flex:0 0 auto; max-height:14vh; }
+  #log{ flex:0 0 auto; max-height:14vh; min-height:0; }
+  #prompt-area{ flex:0 0 auto; max-height:none; }   /* 세로는 사이드바 자체가 스크롤되므로 안내 칸을 줄이지 않는다 */
   /* 턴 종료/이동/패스: 화면 하단 고정 가로 바 (항상 보임) */
   #action-buttons{
     position:fixed; left:0; right:0; bottom:0; z-index:60;
@@ -1468,17 +1474,21 @@ body.modal-peeking #inspector { z-index:auto; }
   /* ── 사이드바: 인스펙터를 제한하고 로그는 최소 높이를 보장 (항상 보임) ── */
   #turn-panel{ flex:0 0 auto; font-size:10px; padding:3px 5px; }
   #turn-info{ font-size:11px; } #phase-info{ font-size:10px; }
-  #inspector{ flex:0 0 auto; height:88px; max-height:88px; padding:4px 5px; }
+  #inspector{ flex:0 3 88px; height:auto; min-height:40px; max-height:88px; padding:4px 5px; }   /* 안내 칸이 커지면 먼저 줄어든다(flex-shrink 3) */
   #inspector img{ width:44px; margin-right:5px; }
   .insp-name{ font-size:11px; }
   .insp-name-en{ font-size:8px; margin-bottom:1px; }
   .insp-type{ font-size:9px; margin-bottom:2px; }
   .insp-text{ font-size:9.5px; line-height:1.45; }
   .insp-tags{ font-size:8px; margin-top:2px; }
-  #prompt-area{ flex:0 0 auto; max-height:78px; overflow-y:auto; font-size:10.5px; line-height:1.45; min-height:26px; padding:4px 6px; }
+  /* 안내 칸: 긴 안내문(대상 선택 3~4줄)이면 [선택 안 함] 버튼이 78px 아래로 밀려 폰에선 스크롤바도 없어 '선택창이 안 보인다'는 제보(2026-10-06).
+     높이를 더 주고, 버튼 줄은 칸 안에서 항상 아래에 붙여 둔다(sticky) — 긴 안내문은 위쪽만 스크롤된다. */
+  #prompt-area{ flex:0 1 auto; max-height:120px; overflow-y:auto; font-size:10.5px; line-height:1.45; min-height:52px; padding:4px 6px; }
+  #prompt-area .prompt-btns{ position:sticky; bottom:0; margin:4px -6px 0; padding:4px 6px 0; background:linear-gradient(rgba(16,26,44,0),rgba(16,26,44,.97) 35%); }
+  #prompt-area button{ min-height:30px; }
   #prompt-area .prompt-title{ font-size:11px; }
   #prompt-area button{ padding:3px 8px; font-size:10px; }
-  #log{ flex:1 1 auto; min-height:44px; font-size:9px; line-height:1.5; padding:3px 5px; }
+  #log{ flex:1 1 44px; min-height:30px; font-size:9px; line-height:1.5; padding:3px 5px; }
   /* 버튼: 하단 가로 1줄 (섹션 높이 통제로 밀려날 수 없음) */
   #action-buttons{
     position:static; margin-top:0; flex:0 0 auto;

@@ -760,6 +760,7 @@ const EXTRA_OPS = {
     const gears=[]; [0,1].forEach(pi=>G.players[pi].gear.forEach((g,i)=>gears.push({pi,i,n:g.n,label:pname(pi)+': '+card(g.n).ko})));
     if(!gears.length) return;
     const sel=await UI.pickOption(ctx.p,'폐기하고 버프를 받을 도구 (선택)',gears.map(g=>({v:g,label:g.label,n:g.n,boardCard:{kind:'gear',p:g.pi,index:g.i},costConfirmation:{text:'도구 하나를 폐기하고 버프를 받을까요?',pickTitle:'폐기할 도구'}}))); if(!sel) return;
+    UI.log(`${ctx.unit?unitName(ctx.unit):'적응형 기기'} 정복 효과: ${pname(sel.pi)}의 도구 「${card(sel.n).ko}」 처치`, 'p'+ctx.p);   // 로그에 원인이 없어 '도구가 저절로 깨졌다'는 제보 (2026-10-06)
     await killGear(sel.pi, sel.i);
     if(ctx.unit) await buffUnit(ctx.unit, ctx.p); },
   async readySomething(op, ctx, h){
