@@ -383,6 +383,13 @@ NET.dispatch = function(action, localFn){
   if(UI.placementPending){ UI.toast('강조된 위치의 선택을 먼저 마쳐 주세요','warn'); return; }
   if(UI.unitSelectionPending){ UI.toast('카드 선택을 먼저 마쳐 주세요','warn'); return; }
   if(typeof UI.combatMoveBlocks==='function' && UI.combatMoveBlocks(action)) return;
+  // 오프라인(봇전·핫시트): 앞 행동이 아직 처리 중(예: 주문을 냈는데 봇이 응수를 고민하는 중)이면 다음 행동을 받지 않는다.
+  // 온라인은 행동 펌프가 순서대로 실행하지만 오프라인은 바로 실행해 겹칠 수 있었다 — 시간 왜곡을 낸 직후 턴 종료를 눌러
+  // 추가 턴 표식이 턴 전환 뒤에 찍혀 추가 턴을 잃은 제보 (2026-10-07)
+  // (응수 창에서 내는 카드 등 '요청받은' 행동은 막지 않는다 — 턴 종료·패스만)
+  if(!NET.online && NET.localBusy>0 && turnAction){
+    UI.toast('앞 행동이 끝날 때까지 잠시 기다려 주세요','warn'); return;
+  }
   if(action.k==='endTurn' && UI.canEndTurn && !UI.canEndTurn()){
     UI.toast('지금은 턴을 종료할 수 없습니다','warn'); return;
   }
@@ -408,9 +415,15 @@ NET.dispatch = function(action, localFn){
     try{ NET.sendAction(action); }
     catch(e){ if(turnAction){ NET._turnSubmission=null; updateButtons(); } throw e; }
   } else {
-    localFn();
+    let r;
+    try{ r=localFn(); }catch(e){ throw e; }
+    if(r && typeof r.then==='function'){
+      NET.localBusy=(NET.localBusy||0)+1; updateButtons();
+      r.then(()=>{ NET.localBusy--; updateButtons(); }, ()=>{ NET.localBusy--; updateButtons(); });
+    }
   }
 };
+NET.localBusy=0;
 
 // ---------- 락스텝: 선택(프롬프트) ----------
 // 엔진이 플레이어 p의 선택을 요구할 때:

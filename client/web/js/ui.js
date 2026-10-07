@@ -664,14 +664,14 @@ function localControlsPlayer(p){
 UI.canEndTurn = ()=>{
   return !!(G && G.winner===null && G.phase==='action' && G.state==='neutral'
     && !G._endingTurn && G.turn===G.actingPlayer && !pendingCombatMove()
-    && !turnEndRunning() && !NET.turnActionPending?.()
+    && !turnEndRunning() && !NET.turnActionPending?.() && !(NET.localBusy>0)
     && !UI.isPicking() && localControlsPlayer(G.turn));
 };
 UI.canShowdownPass = ()=>{
   const sd=G?.showdown;
   return !!(G && G.winner===null && G.state==='showdown' && sd
     && !sd.resolvingItem && !sd.finalizingTriggers && !sd.pendingTriggers?.length
-    && !showdownPassRunning(sd) && !NET.turnActionPending?.()
+    && !showdownPassRunning(sd) && !NET.turnActionPending?.() && !(NET.localBusy>0)
     && !UI.isPicking() && localControlsPlayer(G.actingPlayer));
 };
 // 선택창을 닫고 보드를 보여 주는 동안 다른 메뉴가 선택 안내를 덮지 않게 한다.
