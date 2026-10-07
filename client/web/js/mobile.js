@@ -428,12 +428,19 @@
       if(compact){
         hz.setAttribute('aria-label','손패 펼치기');
         hz.setAttribute('aria-expanded',String(hz===opened));
-        // 룬처럼 겹치되 마지막 카드까지 손패 칸 안에서 터치할 수 있게 한다.
+        // 접힌 손패도 카드를 겹치지 않고 전부 보이게 한다 — 손패 칸 폭을 카드 수만큼 늘리고(기지 칸이 그만큼 줄어든다),
+        // 그래도 모자랄 때만 최소한으로 겹친다. 탭하면 전처럼 부채꼴로 펼친다 (요청 2026-10-07).
         if(hz!==opened){
-          const w=cards[0].offsetWidth, available=hz.clientWidth-12;
-          const step=cards.length>1?Math.max(0,Math.min(w/2,(available-w)/(cards.length-1))):0;
+          const w=cards[0].offsetWidth, pad=12;
+          const area=hz.parentElement, side=area?.querySelector('.side-zone'), gapPx=area?parseFloat(getComputedStyle(area).gap)||0:0;
+          const roomForBase=area && area.clientWidth<480 ? 64 : 120;   // 기지 칸은 최소 이만큼 남긴다 (폰은 기지 카드 한 장 폭)
+          const maxWidth=area ? Math.max(w+pad, area.clientWidth-(side?side.offsetWidth:0)-roomForBase-gapPx*2) : hz.clientWidth;
+          const wanted=Math.min(maxWidth, w*cards.length+pad+2);
+          hz.style.flexBasis=wanted+'px'; hz.style.maxWidth=wanted+'px';
+          const available=wanted-pad;
+          const step=cards.length>1?Math.max(w*0.4,Math.min(w+2,(available-w)/(cards.length-1))):0;   // 모자라면 겹치되 카드마다 40% 이상은 보이게
           hz.style.setProperty('--hand-overlap',(step-w)+'px');
-        }
+        }else{ hz.style.removeProperty('flex-basis'); hz.style.removeProperty('max-width'); }
       }else{ hz.removeAttribute('aria-label'); hz.removeAttribute('aria-expanded'); }
     }
     if(runeView()){

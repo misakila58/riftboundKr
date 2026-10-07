@@ -354,7 +354,7 @@ button { cursor:pointer; font-family:inherit; }
 .hand-zone.mobile-hand { flex-wrap:nowrap; gap:0; overflow:hidden; cursor:pointer; }
 .hand-zone.mobile-hand:not(.mobile-hand-open) > [data-hand-index],
 .runes-zone.mobile-rune-stack:not(.mobile-runes-open) [data-rune-index] { pointer-events:none; } /* 접힌 손패/룬의 첫 터치는 영역만 받고 개별 카드 조작은 펼친 뒤 허용 */
-.hand-zone.mobile-hand:not(.mobile-hand-open) > [data-hand-index]:not(:last-child) { margin-right:var(--hand-overlap, -20px); }
+.hand-zone.mobile-hand:not(.mobile-hand-open) > [data-hand-index]:not(:last-child) { margin-right:var(--hand-overlap, 2px); }
 .player-area > .hand-zone.opponent-hand-layout {
   --opponent-card-height:104px;
   flex:0 1 var(--opponent-hand-width);
@@ -389,7 +389,7 @@ body.fx-disabled .hand-zone.mobile-hand-open > [data-hand-index] { transition:no
 @media (pointer:coarse) and (max-width:1100px) {
   .player-area > .hand-zone.mobile-hand, .player-area > .hand-zone.mobile-opp-hand, .player-area > .mobile-hand-placeholder {
     --mobile-hand-card-height:82px;
-    flex:0 0 clamp(68px,18vw,150px); max-width:26%; align-self:center;
+    flex:0 0 clamp(68px,18vw,150px); max-width:26%; align-self:center;   /* 내 손패는 mobile.js가 카드 수에 맞춰 flex-basis·max-width를 덮어쓴다(겹치지 않게) */
     height:calc(var(--mobile-hand-card-height) + 10px); padding:5px 4px;
   }
   .player-area > .hand-zone.mobile-opp-hand { flex-basis:var(--opponent-hand-width); max-width:42%; }
@@ -1503,6 +1503,8 @@ body.modal-peeking #inspector { z-index:auto; }
 /* ══════════ 모바일 세로: 게임 화면 = 보드(스크롤) + 하단 고정 버튼 바 ══════════ */
 @media (max-width:820px) and (orientation:portrait){
   #game-screen{ display:flex; flex-direction:column; }
+  /* 세로 화면에서 남는 높이는 기지·손패 구역만이 아니라 전장도 함께 나눠 갖는다 — 태블릿에서 전장만 작아 보이던 문제 (2026-10-07) */
+  #battlefields{ flex-grow:1; flex-shrink:1; max-height:52vh; }
   #board{ position:relative; inset:auto; flex:1 1 auto; padding:4px; gap:4px; min-height:0; overflow-y:auto; }
   /* 사이드바: 버튼 바 높이만큼 하단 여백을 두고 내부 스크롤 — 어떤 내용이 와도 버튼을 밀어내지 못함 */
   #sidebar{
@@ -1681,7 +1683,7 @@ body.modal-peeking #inspector { z-index:auto; }
   }
   .side-zone .pile.runedeck::before { content:none; }
 }
-@media (max-width:480px) { .side-zone { --mobile-side-card-width:50px; } }
+@media (max-width:480px) { .side-zone { --mobile-side-card-width:44px; --mobile-pile-width:38px; --mobile-rune-size:24px; } }   /* 폰: 전설·덱 칸을 줄여 손패를 더 펼친다 (2026-10-07) */
 @media (max-width:820px) and (orientation:portrait) {
   .player-area { min-height:148px; }
   .player-area > .hand-zone, .player-area > .base-zone { flex:1 1 0; min-width:0; }
