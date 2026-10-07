@@ -1934,6 +1934,8 @@ const RM = {
       const okNow = main.length===40 && side.length===sideSize && side.length<=MAX_SIDE
         && RM.validChampion({...deck,main,champN});
 
+      // 다시 그려도 두 목록의 스크롤 위치를 유지한다 — 아래쪽 카드를 뺄 때마다 맨 위로 튀어 매번 다시 내려야 했다 (건의 2026-10-07)
+      const keepScroll=['sb-main','sb-side'].map(id=>[id,document.getElementById(id)?.scrollTop||0]);
       box.innerHTML=`<h3>🔁 사이드덱 교체${opts.pregame?' — 게임 시작 전':''}</h3>
         <div class="sb-note">${esc(oppInfo)}${oppInfo?' · ':''}같은 수만큼 주고받아 메인 40장을 맞추세요${ban?' · 🚫 밴 적용 대전':''}</div>
         <div class="sb-cols">
@@ -1956,6 +1958,7 @@ const RM = {
         </div>`;
 
       const noteEl=box.querySelector('.sb-note'); if(noteEl) noteEl.insertAdjacentElement('afterend', oppPanel());
+      for(const [id,top] of keepScroll){ const el=document.getElementById(id); if(el && top) el.scrollTop=top; }
       box.querySelectorAll('.sb-row').forEach(row=>{
         const n=+row.dataset.n;
         row.onmouseenter=()=>UI.inspect(card(n));

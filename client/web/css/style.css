@@ -1,4 +1,7 @@
 /* 행동 주체의 진영 경계를 감싸는 표시. 상대는 같은 모양을 위아래로 뒤집는다. */
+/* 안드로이드 크롬의 탭 하이라이트(누른 요소 위에 연한 파란 막)를 전부 끈다 — 모바일 손패를 펼치면 화면 전체를 덮는 닫기용 터치 영역이 있어
+   그걸 탭할 때마다 화면 전체가 하늘색으로 번쩍였다 (영상 제보 2026-10-07). 게임 UI는 자체 강조 표시를 쓰므로 하이라이트가 필요 없다. */
+html, body, * { -webkit-tap-highlight-color:transparent; }
 #turn-glow {
   display:none; position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:90;
   --turn-glow-rgb:65,160,255;
