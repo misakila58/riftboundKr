@@ -3,13 +3,13 @@
 //    행동·선택 응답이 하나라도 오가면 다시 1분부터. 마지막 20초에는 보드 가운데에 하스스톤처럼 타들어 가는 밧줄을 띄운다(양쪽 화면 모두).
 //    시간 초과 처리는 그 좌석의 클라이언트만 한다 — 버튼을 누른 것과 똑같은 행동을 보내므로 락스텝 순서가 어긋나지 않는다:
 //    열린 선택은 기본값(패스·건너뛰기 우선, 없으면 첫 후보)으로 답하고, 결전이면 패스, 내 턴이면 턴 종료.
-// ② 첫 게임 시작 단계(주사위·선후공·사이드보딩·멀리건)에서 상대 선택을 1분 넘게 기다리면 "이번 경기를 무효로 할까요?"를 묻는다.
+// ② 첫 게임 시작 단계(주사위·선후공·사이드보딩·멀리건)에서 상대 선택을 2분 넘게 기다리면 "이번 경기를 무효로 할까요?"를 묻는다.
 //    확인하면 서버(voidMatch)가 상대의 마지막 응답 시각을 확인해 무효 처리(등급 미반영, 양쪽 로비로), 취소하면 1분 더 기다린 뒤 다시 묻는다.
 // 턴 제한 시간은 방을 만들 때 고른다(기본 켬, 등급전은 항상 켬 — 서버 start.turnTimer). P2P 직결은 끔. 관전자는 밧줄만 본다. 봇전·핫시트·리플레이는 해당 없음. 재접속 따라잡기 중에는 멈춘다.
 const TURN_TIMER = {
   LIMIT_MS: 60 * 1000,      // 무행동 제한
   ROPE_MS: 20 * 1000,       // 밧줄이 보이는 마지막 구간
-  VOID_MS: 60 * 1000,       // 시작 단계 상대 무응답 → 무효 질문
+  VOID_MS: 120 * 1000,      // 시작 단계(사이드보딩 포함) 상대 무응답 → 무효 질문 (1분 → 2분, 2026-10-07: 사이드덱 교환 시간 부족 건의)
   activity: 0,              // 행동 실행·선택 응답마다 +1 (양쪽 화면이 같은 흐름을 본다)
   _key: null, _since: 0, _act: -1, forced: false, _forcedAt: 0, _toasted: false,
   _vKey: null, _vSince: 0, _vAct: -1, _vOpen: false,
@@ -110,13 +110,13 @@ function ttVoidClose(){
 function ttVoidAsk(){
   TURN_TIMER._vOpen = true;
   const box = document.createElement('div'); box.id = 'void-ask'; box.setAttribute('role', 'dialog');
-  box.innerHTML = '<div class="void-title">⏳ 상대가 1분 동안 응답이 없습니다</div>'
+  box.innerHTML = '<div class="void-title">⏳ 상대가 2분 동안 응답이 없습니다</div>'
     + '<div class="void-copy">이번 경기를 무효로 할까요? 무효로 하면 ' + (NET.lastStart?.ranked ? '등급 점수에 반영되지 않고 ' : '') + '두 사람 모두 로비로 돌아갑니다.</div>';
   const btns = document.createElement('div'); btns.className = 'void-btns';
   const yes = document.createElement('button'); yes.className = 'primary'; yes.textContent = '무효로 하고 나가기';
   yes.onclick = () => { yes.disabled = true; NET.send({t:'voidMatch'}); setTimeout(() => { if(document.getElementById('void-ask')) ttVoidClose(); TURN_TIMER._vSince = Date.now(); }, 4000); };
   const no = document.createElement('button'); no.textContent = '계속 기다리기';
-  no.onclick = () => { ttVoidClose(); TURN_TIMER._vSince = Date.now(); };   // 1분 더 기다린 뒤 다시 묻는다
+  no.onclick = () => { ttVoidClose(); TURN_TIMER._vSince = Date.now(); };   // 2분 더 기다린 뒤 다시 묻는다
   btns.append(yes, no); box.appendChild(btns);
   document.body.appendChild(box);
 }
