@@ -2350,6 +2350,25 @@ async function hideCardCore(p, handIdx, bfIdx, draft=null){
   // 룬을 건드리는 지불이면 인장 등 [반응] 자원 능력을 먼저 쓸지 묻는다 (357.1.a) — 취소하면 숨기지 않는다
   // 이 제목은 온라인 상대의 선택 대기 안내에도 표시된다. 뒷면 카드의 이름은 공개하지 않는다.
   if(!(await askResourceFunding(p, '카드 숨김', payment.energy, payment.pips, false, n, '숨김 취소'))) return false;
+  // 힘 비용을 룬 재활용으로 내야 하면 어느 룬을 돌릴지 플레이어가 고른다 (요청 2026-10-07 — 예전엔 자동으로 탈진 룬→앞 룬 순).
+  // 고른 룬은 먼저 재활용해 힘을 풀에 올리고, 이어지는 payCost가 그 풀에서 가져간다. 준비 룬이면 재활용 전에 탈진해 에너지를 풀에 남긴다(손해 없는 선택, recycleRune과 동일).
+  if(payment.pips.length){
+    const peek={...P.power}; const needRune=payment.pips.filter(pip=>!takeFromPool(peek,pip));
+    for(const pip of needRune){
+      const cands=P.runes.map((r,i)=>({r,i})).filter(x=>pipAllowsDom(pip, runeDomain(x.r.n)));
+      if(cands.length<2) continue;
+      const ordered=cands.sort((a,b)=>(a.r.ex?0:1)-(b.r.ex?0:1) || a.i-b.i);
+      const sel=await UI.pickOption(p,'숨김 비용(힘 1)으로 재활용할 룬 선택',
+        ordered.map(x=>({v:x.i, n:x.r.n, label:(DOMAIN_KO[runeDomain(x.r.n)]||runeDomain(x.r.n)||'룬')+' 룬'+(x.r.ex?' (탈진)':' (준비)')})));
+      if(sel==null || !P.runes[sel]) continue;   // 취소·동기화 오류면 자동 선택(payCost)에 맡긴다
+      const r0=P.runes[sel];
+      if(!r0.ex){ r0.ex=true; P.energy++; UI.log(`${pname(p)} 준비 룬을 먼저 탈진 → 에너지 1 풀에 유지 (재활용 전)`, 'p'+p); }
+      UI.fx.moveCard?.(p,r0.n,`#runes-${p} [data-rune-index="${sel}"]`,`#runedeck-${p}`,{rune:r0});
+      P.runes.splice(sel,1); P.runeDeck.push(r0.n);
+      const dom=runeDomain(r0.n); P.power[dom]=(P.power[dom]||0)+1;
+      UI.log(`${pname(p)} 숨김 비용: ${card(r0.n).ko} 재활용`, 'p'+p);
+    }
+  }
   payCost(p,payment.energy,payment.pips);
   if(fromChamp) P.champInZone=false; else P.hand.splice(handIdx,1);
   G.bfs[sel].hiddenCards.push({n, by:p, turn:G.turnCount});
