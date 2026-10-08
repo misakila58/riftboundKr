@@ -146,6 +146,27 @@ const locOpts=t=>OPTLIST.filter(x=>x.t===t).map(x=>x.o.map(o=>o.v));
   G.phase='action'; G.state='neutral';
   await endTurn();
   ok('추가 턴 소진 후 B의 턴', G.turn===1, 'turn='+G.turn);
+  G.phase='action'; G.state='neutral';
+  await endTurn();
+  ok('그다음은 다시 A (턴 순서 유지)', G.turn===0, 'turn='+G.turn);
+
+  // ══ ④-2 탈취된 시간 왜곡: A의 턴에 B가 추가 턴을 얻으면 [> A > B* > B > A >] (룰 739 · 제보 2026-10-08 신비한 전환) ══
+  fresh(); G.extraTurns=[1];   // B가 탈취해 해결한 시간 왜곡과 같은 상태
+  await endTurn();
+  ok('탈취 추가 턴: A 턴 뒤 B의 추가 턴', G.turn===1 && G._inExtraTurn===true, 'turn='+G.turn);
+  G.phase='action'; G.state='neutral';
+  await endTurn();
+  ok('탈취 추가 턴 뒤: B의 원래 턴이 이어짐', G.turn===1 && !G._inExtraTurn, 'turn='+G.turn);
+  G.phase='action'; G.state='neutral';
+  await endTurn();
+  ok('그다음은 A', G.turn===0, 'turn='+G.turn);
+  // ④-3 추가 턴 도중 또 시간 왜곡: [> A > A* > A* > B >]
+  fresh(); G.extraTurns=[0];
+  await endTurn(); G.phase='action'; G.state='neutral';
+  G.extraTurns.push(0);   // 추가 턴 중에 한 번 더
+  await endTurn(); ok('추가 턴 중 추가 턴: 다시 A', G.turn===0, 'turn='+G.turn);
+  G.phase='action'; G.state='neutral';
+  await endTurn(); ok('모든 추가 턴 뒤 B', G.turn===1, 'turn='+G.turn);
 
   // ══ ⑤ 정령 부름(94) · 보석 공예 예언자(100) ══
   fresh(); G.bfs[0].controller=0; unit(210,0,0);

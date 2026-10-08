@@ -1031,13 +1031,27 @@ async function finishEndTurn(p){
   UI.fx.turnEnd(p);
   UI.log(`${pname(p)} 턴 종료`, 'sys');
   G._endingTurn=null;
-  // 추가 턴 (시간 왜곡)
-  if(G.extraTurns && G.extraTurns.length){ G.turn=G.extraTurns.shift(); UI.log(`⏳ ${pname(G.turn)} 추가 턴!`, 'score'); }
-  else G.turn=opp(p);
+  // 추가 턴 (시간 왜곡) — 룰 736·739: 추가 턴은 현재 턴 뒤 큐에 '끼워 넣는' 것이고 턴 순서를 바꾸지 않는다.
+  // 추가 턴이 모두 끝나면 원래 다음 차례였던 플레이어의 턴으로 돌아간다 ([> A > B* > B > A >]).
+  // 예전엔 '다음 차례 = 추가 턴 주인'으로 덮어써서, 신비한 전환 등으로 상대가 탈취한 시간 왜곡은 상대의 원래 턴과 겹쳐
+  // 추가 턴이 사라졌다 (제보 2026-10-08: 로그엔 추가 턴인데 턴이 한 번 더 오지 않음).
+  if(G.extraTurns && G.extraTurns.length){
+    if(!G._inExtraTurn) (G.resumeTurns=G.resumeTurns||[]).unshift(opp(p));   // 일반 턴이 끝나며 추가 턴이 시작될 때만 원래 다음 차례를 기억
+    G.turn=G.extraTurns.shift(); G._inExtraTurn=true;
+    UI.log(`⏳ ${pname(G.turn)} 추가 턴!`, 'score');
+  } else if(G._inExtraTurn && G.resumeTurns && G.resumeTurns.length){
+    G.turn=G.resumeTurns.shift(); G._inExtraTurn=false;
+  } else { G.turn=opp(p); G._inExtraTurn=false; }
   await startTurn();
   return true;
 }
 
+// 이 턴(p의 턴)이 끝나면 누가 다음 턴을 갖는가 — endTurn의 추가 턴 큐와 같은 규칙 (봇 판단용)
+function nextTurnPlayer(p){
+  if(G.extraTurns && G.extraTurns.length) return G.extraTurns[0];
+  if(G._inExtraTurn && G.resumeTurns && G.resumeTurns.length) return G.resumeTurns[0];
+  return opp(p);
+}
 // ---------- 공용 헬퍼: 피해/버프/준비/이동/도구 폐기 ----------
 // 피해 적용 (치환·방지·칙령 처리). kind: 'spell'|'ability'|'effect'|'combat'|'unit'
 //  'unit' = 카드가 유닛을 피해 주체로 지정한 경우("They/It/We deal damage" — 도전·최후의 숨결·육식성 덩굴·신사의 결투·

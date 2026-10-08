@@ -5673,8 +5673,8 @@ async function polMfWithEmergency(p,emergency,run){
 // 같은 공개 보드에서 행동 + 남은 횟수 내의 후속 이동을 비교한다.
 // 상대는 응수를 가정하지 않으며 사본 밖에서는 아무 비용도 지불하지 않는다.
 function polNextTurnSpecial(p){
-  const next=G.extraTurns?.[0]??opp(p);
-  if(G.extraTurns?.length || !G.players[next].deck.length || hasEventListeners('onEndTurn',p) ||
+  const next=nextTurnPlayer(p);
+  if(G.extraTurns?.length || G._inExtraTurn || !G.players[next].deck.length || hasEventListeners('onEndTurn',p) ||
       hasEventListeners('onBeginning',next) || hasEventListeners('onYouReadyUnit',next) ||
       G.turnCount<2&&G.bfs.some(b=>FX[b.n]?.triggers?.onFirstBeginning?.length)) return true;
   if(everyUnit().some(u=>u.ctrl===next&&effKw(u).temporary&&
@@ -5701,7 +5701,7 @@ async function polNextTurnOutcome(p,force=false){
       let result=null;
       const value=await simTry(p,async()=>{
         polKaisaTurnPublicSample(p,sample);
-        const next=G.extraTurns?.[0]??opp(p),points=G.players[next].points;
+        const next=nextTurnPlayer(p),points=G.players[next].points;
         await endTurn();await simSettle(null,POLICY);
         result={won:G.winner===p,lost:G.winner===opp(p),
           points:Math.max(0,G.players[next].points-points),holds:evalHolds(next),turn:G.turn};
@@ -8118,11 +8118,11 @@ async function polKaisaWarpChoice(p,ctx){
     // First verify the next action window, independently of sampled future
     // draws. A long-horizon timeout must not spend away a proven survival turn.
     let survival=null;
-    if(evalHoldForecast(opp(p)).win&&G.extraTurns?.[0]!==p){
+    if(evalHoldForecast(opp(p)).win&&nextTurnPlayer(G.turn)!==p){
       const quick=await polKaisaTurnProbe(p,ctx,act,{quick:true,knownHandOnly:true});
       if(quick&&!quick.lost&&quick.turn===p)survival={...act,kaisaSurvival:true};
     }
-    if(evalHoldForecast(p).win&&G.extraTurns?.[0]!==p){
+    if(evalHoldForecast(p).win&&nextTurnPlayer(G.turn)!==p){
       const quick=await polKaisaTurnProbe(p,ctx,act,{quick:true});
       if(quick?.won){polSay('kaisa-warp','시간 왜곡','추가 턴 유지로 즉시 승리');return {...act,kaisaWin:true};}
     }
