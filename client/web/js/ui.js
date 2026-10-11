@@ -366,13 +366,14 @@ function appendBattlefieldSource(parent){
   // 어떤 유닛이 들어왔는지 보이지 않는다는 요청(2026-09-14). 표시 전용 — 선택값·게임 상태에는 관여하지 않는다.
   const sd=G && G.showdown;
   if(sd && G.bfs[sd.bfIdx] && G.bfs[sd.bfIdx].n===_battlefieldSource.n){
-    const side=(p,role,icon)=>{
+    const side=(p,role0,icon)=>{
+      const role=sd.hasCombat?role0:null;   // 무혈 결전엔 공격/방어 지정이 없다 — 맹공·보호막 없이 표시
       const us=G.bfs[sd.bfIdx].units.filter(u=>u.ctrl===p);
       if(!us.length) return `${icon} ${esc(pname(p))}: 유닛 없음`;
       // 기절 유닛은 위력이 0이 되는 게 아니라 전투 피해에 기여하지 않을 뿐(룰 4181·4184) — 원래 위력을 보이고 '기절'을 붙인다
       const full=u=>{ try{ return might(u, role, {forKill:true}); }catch(e){ return u.m; } };
       const contrib=u=>{ try{ return might(u, role); }catch(e){ return u.m; } };
-      return `${icon} ${esc(pname(p))} ${role==='attacker'?'공격':'방어'} ${us.map(u=>`${esc(unitName(u))}(${full(u)}${u.stunned?'·기절':''})`).join(', ')} · 전투 기여 합계 ${us.reduce((s,u)=>s+contrib(u),0)}`;
+      return `${icon} ${esc(pname(p))} ${sd.hasCombat?(role==='attacker'?'공격':'방어'):'(무혈 결전)'} ${us.map(u=>`${esc(unitName(u))}(${full(u)}${u.stunned?'·기절':''})`).join(', ')} · 전투 기여 합계 ${us.reduce((s,u)=>s+contrib(u),0)}`;
     };
     const combat=document.createElement('div'); combat.className='battlefield-source-combat';
     combat.innerHTML=[side(sd.attacker,'attacker','⚔'), side(sd.defender,'defender','🛡')].join('<br>');
@@ -2387,9 +2388,14 @@ function dropMove(uid, dest,dragUids=null){
   _moveArmed=false; _moveSel.clear(); updateButtons();
   requestUnitMove(p,units,dest,confirm);
 }
+// 화면 표시용 전투 지정. [맹공]은 '공격자' 지정을 유지하는 동안만 적용된다(종합 규칙 Assault — 공격자 지정 동안) —
+// 빈 전장에 들어가 열린 무혈 결전(전투 없음)에서는 공격자·방어자 지정이 없으므로 맹공·보호막을 위력에 더하지 않는다.
+// 예전엔 결전만 열려 있으면 공격자로 보고 맹공을 더해 표시해, 실제 위력 3인 유닛이 4로 보였다 (제보 2026-10-11: 트리파르 주둔지 + 대담한 포로).
 function combatRoleOf(u){
-  if(!G.showdown || u.loc!==G.showdown.bfIdx) return null;
-  return u.ctrl===G.showdown.attacker?'attacker':'defender';
+  const sd=G.showdown;
+  if(!sd || !sd.hasCombat || u.loc!==sd.bfIdx) return null;
+  if(sd.designated && !sd.designated[u.uid]) return null;
+  return u.ctrl===sd.attacker?'attacker':'defender';
 }
 
 // ---------- 인스펙터 ----------
