@@ -5,9 +5,14 @@
 //    열린 선택은 기본값(패스·건너뛰기 우선, 없으면 첫 후보)으로 답하고, 결전이면 패스, 내 턴이면 턴 종료.
 // ② 첫 게임 시작 단계(주사위·선후공·사이드보딩·멀리건)에서 상대 선택을 2분 넘게 기다리면 "이번 경기를 무효로 할까요?"를 묻는다.
 //    확인하면 서버(voidMatch)가 상대의 마지막 응답 시각을 확인해 무효 처리(등급 미반영, 양쪽 로비로), 취소하면 1분 더 기다린 뒤 다시 묻는다.
+// ③ 턴 총 시간 상한(2026-10-12): 무행동 1분은 행동할 때마다 다시 1분이라, 1분마다 작은 행동을 하면 턴을 끝없이 끌 수 있었다.
+//    턴 플레이어가 응답해야 하는 시간(자기 행동·결전 우선권·선택)을 한 턴 동안 합산해 3분이 되면 그 뒤로는 시간 초과와 같이
+//    자동 진행(패스·턴 종료)한다. 상대가 응수·선택하는 시간은 세지 않는다. 새로고침해도 쓴 시간은 이어서 센다(sessionStorage).
 // 턴 제한 시간은 방을 만들 때 고른다(기본 켬, 등급전은 항상 켬 — 서버 start.turnTimer). P2P 직결은 끔. 관전자는 밧줄만 본다. 봇전·핫시트·리플레이는 해당 없음. 재접속 따라잡기 중에는 멈춘다.
 const TURN_TIMER = {
   LIMIT_MS: 60 * 1000,      // 무행동 제한
+  TURN_MS: 3 * 60 * 1000,   // 턴 총 시간 상한 (턴 플레이어가 응답해야 하는 시간의 합)
+  _tKey: null, _tUsed: 0, _tLast: 0, _tSaved: 0,
   ROPE_MS: 20 * 1000,       // 밧줄이 보이는 마지막 구간
   VOID_MS: 120 * 1000,      // 시작 단계(사이드보딩 포함) 상대 무응답 → 무효 질문 (1분 → 2분, 2026-10-07: 사이드덱 교환 시간 부족 건의)
   activity: 0,              // 행동 실행·선택 응답마다 +1 (양쪽 화면이 같은 흐름을 본다)
@@ -139,20 +144,41 @@ function ttVoidTick(now){
   if(waiting && !T._vOpen && now - T._vSince >= T.VOID_MS) ttVoidAsk();
 }
 
+// ---------- 턴 총 시간 ----------
+function ttTurnKey(){ return `${NET.lastStart?.seed ?? ''}|${typeof MATCH !== 'undefined' ? MATCH.game : 1}|${G.turn}|${G.turnCount}`; }
+function ttTurnUsed(seat, now){
+  const T = TURN_TIMER;
+  const key = ttTurnKey();
+  if(key !== T._tKey){
+    T._tKey = key; T._tUsed = 0; T._tLast = now;
+    try{ const sv = JSON.parse(sessionStorage.getItem('rb_turn_used') || 'null'); if(sv && sv.key === key) T._tUsed = Math.max(0, +sv.used || 0); }catch(e){}
+  }
+  const dt = Math.min(2000, Math.max(0, now - T._tLast));   // 탭이 잠들었다 깨어난 큰 간격은 무행동 1분 쪽이 처리한다
+  T._tLast = now;
+  if(seat !== null && seat === G.turn) T._tUsed += dt;
+  if(now - T._tSaved > 1000){ T._tSaved = now; try{ sessionStorage.setItem('rb_turn_used', JSON.stringify({key, used:T._tUsed})); }catch(e){} }
+  return T._tUsed;
+}
+
 // ---------- 주기 ----------
 function ttTick(){
   const T = TURN_TIMER, now = Date.now();
   try{ ttVoidTick(now); }catch(e){ console.warn('void tick', e); }
   const seat = ttWaitingSeat();
+  // 시계는 매 틱 갱신해 두고(기다리는 동안의 간격이 다음 틱에 몰려 더해지지 않게), 턴 플레이어 차례일 때만 더한다
+  const used = (ttActive() && NET.lastStart?.turnTimer) ? ttTurnUsed(seat, now) : 0;
+  const turnRemain = seat !== null ? T.TURN_MS - used : Infinity;
   const key = seat === null ? null : `${seat}|${G.turn}|${G.turnCount}|${G.state}`;
   if(key !== T._key){ T._key = key; T._since = T.sinceNow(now); T._act = T.activity; T.forced = false; T._toasted = false; }
   else if(!T.forced && T.activity !== T._act){ T._act = T.activity; T._since = T.sinceNow(now); }
-  const remain = seat === null ? Infinity : T.LIMIT_MS - (now - T._since);
+  let remain = seat === null ? Infinity : T.LIMIT_MS - (now - T._since);
+  const overTurn = seat !== null && seat === G.turn && turnRemain < remain;
+  if(overTurn) remain = turnRemain;   // 턴 총 시간이 먼저 끝나면 그쪽 밧줄·시간 초과
   ttRope(seat, remain);
   if(seat === null || seat !== NET.seat || NET.spectating || remain > 0) return;
   // 내 시간이 다 됐다 — 차례가 넘어갈 때까지 자동 진행
   T.forced = true;
-  if(!T._toasted){ T._toasted = true; T.timeouts = (T.timeouts || 0) + 1; UI.toast('⏰ 시간 초과 — 자동으로 진행합니다', 'warn'); }
+  if(!T._toasted){ T._toasted = true; T.timeouts = (T.timeouts || 0) + 1; UI.toast(overTurn ? '⏰ 이번 턴 사용 시간(3분)을 다 썼습니다 — 자동으로 진행합니다' : '⏰ 시간 초과 — 자동으로 진행합니다', 'warn'); }
   if(now - T._forcedAt < 700) return;
   T._forcedAt = now;
   try{ ttForceStep(); }catch(e){ console.warn('turn timeout step', e); }

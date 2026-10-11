@@ -64,6 +64,19 @@ NET.getRecord   = ()=>NET.api('/api/record');
 NET.putRecord   = (body)=>NET.api('/api/record','POST',body);
 NET.clearRecord = ()=>NET.api('/api/record','DELETE');
 
+// ---------- 차단 목록 (2026-10-12) ----------
+// 차단한 상대: 등급전 매칭에서 서로 만나지 않고(서버), 그 상대의 채팅은 이 화면에 표시하지 않는다(여기).
+NET.blocked = new Set();
+NET.isBlocked = id => !!id && NET.blocked.has(id);
+NET.loadBlocks = async function(){
+  if(!NET.token) return;
+  try{ const d=await NET.api('/api/blocks'); NET.blocked=new Set(d.blocked||[]); }catch(e){}
+};
+NET.setBlock = async function(id, block){
+  const d=await NET.api('/api/blocks','POST',{id, block});
+  NET.blocked=new Set(d.blocked||[]);
+  return NET.blocked;
+};
 // ---------- WebSocket ----------
 NET.connect = function(){
   return new Promise((res,rej)=>{
@@ -110,6 +123,7 @@ NET.connect = function(){
         case 'chat':
           if(NET._selectionPreviewIntercept(m)) break;
           if(NET._verIntercept(m)) break;    // 버전 확인 메시지는 채팅으로 표시하지 않고 가로챈다
+          if(NET.isBlocked(String(m.from||'').replace(/ \(관전\)$/,''))) break;   // 차단한 상대의 채팅은 표시하지 않는다
           NET.onChat && NET.onChat(m);
           break;
         case 'act': NET._enqueueAction(m); break;

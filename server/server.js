@@ -940,6 +940,21 @@ const server = http.createServer(async (req, res) => {
       rk.title = { season: have.season, format: have.format }; saveDB();
       return json(res, 200, { ok: true, title: rk.title });
     }
+    // 차단 목록 (2026-10-12): 차단한 상대와는 등급전 매칭이 잡히지 않는다. 채팅 숨김은 클라이언트가 이 목록으로 처리한다.
+    if (p === '/api/blocks' && req.method === 'GET') return json(res, 200, { blocked: user.blocked || [] });
+    if (p === '/api/blocks' && req.method === 'POST') {
+      const b = await readBody(req);
+      const target = String((b && b.id) || '').slice(0, 40);
+      if (!target || target === user.id) return json(res, 400, { error: '차단할 상대가 올바르지 않습니다' });
+      if (!db.users[target]) return json(res, 404, { error: '없는 아이디입니다' });
+      user.blocked = (user.blocked || []).filter(x => x !== target);
+      if (b.block !== false) {
+        if (user.blocked.length >= 200) return json(res, 400, { error: '차단은 200명까지입니다' });
+        user.blocked.push(target);
+      }
+      saveDB();
+      return json(res, 200, { blocked: user.blocked });
+    }
     if (p === '/api/record' && req.method === 'DELETE') {
       delete user.record; delete user.recordTotal; saveDB();
       return json(res, 200, { ok: true });
@@ -1322,6 +1337,10 @@ function rankLive() {
   return out;
 }
 function rankDequeue(ws) { for (const f of ['bo1', 'bo3']) rankQueue[f] = rankQueue[f].filter(q => q.ws !== ws); }
+function rankBlocked(a, b) {
+  const A = db.users[a], B = db.users[b];
+  return !!((A && A.blocked && A.blocked.includes(b)) || (B && B.blocked && B.blocked.includes(a)));
+}
 function rankMatchmake() {
   if (draining) return;   // 배포 예약 중엔 새 매치를 만들지 않는다
   for (const f of ['bo1', 'bo3']) {
@@ -1335,6 +1354,7 @@ function rankMatchmake() {
       for (let j = i + 1; j < q.length; j++) {
         if (used.has(j) || q[j].id === q[i].id) continue;
         if (q[j].ver !== q[i].ver) continue;   // 버전이 다르면 짝짓지 않는다 (제보 2026-09-28: 주사위 전에 멈추고 재접속해도 그대로)
+        if (rankBlocked(q[i].id, q[j].id)) continue;   // 어느 한쪽이라도 상대를 차단했으면 짝짓지 않는다
         const gap = Math.abs(q[i].mmr - q[j].mmr);
         const allow = Math.min(600, 100 + 50 * Math.floor((Date.now() - Math.min(q[i].since, q[j].since)) / 10000));
         if (gap <= allow && gap < bestGap) { best = j; bestGap = gap; }

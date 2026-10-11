@@ -763,6 +763,7 @@ async function enterMenu(){
   document.getElementById('deck-count').textContent=myDecks.length;
   showScreen('menu-screen');
   if(typeof RANK!=='undefined') RANK.refresh().catch(()=>{});   // 메뉴의 등급 요약줄
+  NET.loadBlocks();   // 차단 목록 (채팅 숨김·등급전 매칭 제외)
 }
 
 // ---------- 메뉴 ----------
@@ -2328,6 +2329,24 @@ function confirmSurrender(){
   btns.appendChild(y); btns.appendChild(n); box.appendChild(btns);
   openModal(); markModalDismissable();
 }
+// 상대 차단/해제 확인 — 차단하면 등급전에서 서로 매칭되지 않고 그 상대의 채팅이 보이지 않는다. 진행 중인 경기는 그대로 계속된다.
+function confirmBlock(id, block){
+  const box=document.getElementById('modal-box');
+  box.innerHTML=`<h3>${block?'🚫 상대 차단':'✅ 차단 해제'}</h3>`;
+  const t=document.createElement('div'); t.className='modal-copy';
+  t.textContent = block
+    ? `${id}님을 차단합니다. 앞으로 등급전에서 이 상대와 매칭되지 않고, 이 상대의 채팅은 보이지 않습니다. 지금 경기는 그대로 계속됩니다. (차단 해제: 프로필 관리)`
+    : `${id}님의 차단을 해제합니다. 다시 등급전에서 매칭될 수 있고 채팅이 보입니다.`;
+  box.appendChild(t);
+  const btns=document.createElement('div'); btns.className='modal-btns';
+  const y=document.createElement('button'); y.className='primary'; y.textContent=block?'차단하기':'해제하기';
+  y.onclick=async()=>{ y.disabled=true;
+    try{ await NET.setBlock(id, block); closeModal(); UI.toast(block?`${id}님을 차단했습니다`:`${id}님의 차단을 해제했습니다`); }
+    catch(e){ y.disabled=false; UI.toast('처리하지 못했습니다 — '+e.message,'warn'); } };
+  const n=document.createElement('button'); n.textContent='취소'; n.onclick=closeModal;
+  btns.append(y,n); box.appendChild(btns);
+  openModal(); markModalDismissable();
+}
 function openSystemMenu(){
   const box=document.getElementById('modal-box');
   const inGame=currentScreen()==='game-screen' && !!G;
@@ -2444,6 +2463,12 @@ function openSystemMenu(){
       if(!NET.spectating) add(game,reqPending?'🔄 재대결 요청 수락 · 덱 선택':'🔄 상대와 다시 하기 · 덱 선택',
         ()=>{ closeModal(); RM.openPick(!!reqPending); },'primary');
       add(game,P2P.active?'🚪 나가기 · 연결 종료':'🚪 로비로 가기',()=>{ closeModal(); gameLeave(); });
+      // 상대 차단: 등급전에서 다시 매칭되지 않고 채팅이 보이지 않는다 (P2P 직결은 서버 계정이 없어 제외)
+      const oppId=!NET.spectating && !P2P.active && NET.token && NET.lastStart?.players?.[1-NET.seat]?.id;
+      if(oppId){
+        const blocked=NET.isBlocked(oppId);
+        add(game, blocked?`✅ ${oppId} 차단 해제`:`🚫 ${oppId} 차단 (매칭 제외 · 채팅 숨김)`, ()=>confirmBlock(oppId, !blocked));
+      }
     } else if(isBot){
       // 선택 모달을 취소하면 현재 판으로 돌아오므로 BOT.active는 새 게임 시작 시에만 바꾼다.
       add(game,'🔄 다시 하기 · 봇/덱 선택',()=>{ closeModal(); openBotSelect(); },'primary');

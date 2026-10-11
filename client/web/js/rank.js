@@ -200,8 +200,22 @@ const RANK = {
       </div>
       <h4 style="margin:10px 0 4px">🎖 시즌 칭호 (장착하면 상대에게 아이디 옆에 보입니다)</h4>
       <div id="profile-titles"></div>
+      <h4 style="margin:10px 0 4px">🚫 차단한 상대 (등급전 매칭 제외 · 채팅 숨김)</h4>
+      <div id="profile-blocks" class="hint" style="font-size:13px"></div>
       <div id="profile-email"></div>`;
     if(typeof ACCOUNT!=='undefined') ACCOUNT.renderSection(box.querySelector('#profile-email'));
+    const blocks=box.querySelector('#profile-blocks');
+    const renderBlocks=()=>{
+      blocks.innerHTML='';
+      const ids=[...NET.blocked];
+      if(!ids.length){ blocks.textContent='차단한 상대가 없습니다. 경기 중 ESC 메뉴에서 차단할 수 있습니다.'; return; }
+      ids.forEach(id=>{ const row=document.createElement('div'); row.className='rank-row';
+        const name=document.createElement('b'); name.textContent=id;
+        const b=document.createElement('button'); b.className='mid-btn'; b.textContent='차단 해제';
+        b.onclick=async()=>{ b.disabled=true; try{ await NET.setBlock(id,false); UI.toast(`${id}님의 차단을 해제했습니다`); renderBlocks(); }catch(e){ b.disabled=false; UI.toast('해제하지 못했습니다 — '+e.message,'warn'); } };
+        row.append(name,b); blocks.appendChild(row); });
+    };
+    await NET.loadBlocks(); renderBlocks();
     const list=box.querySelector('#profile-titles');
     const opt=(key,label,html)=>{ const l=document.createElement('label'); l.className='profile-title-opt'; l.innerHTML=`<input type="radio" name="profile-title" value="${esc(key)}"${key===cur?' checked':''}> ${html}`; list.appendChild(l); };
     opt('', '없음', '<span>칭호 없음</span>');
