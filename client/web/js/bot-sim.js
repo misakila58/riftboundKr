@@ -83,6 +83,7 @@ function simUI(policy){
     hideZoom:noop, showZoom:noop, logEntryEl:()=>null,
     isPicking:()=>false,
     revealAurora:async()=>{},
+    revealDeckCards:async()=>{},
     fx:{ unit:noop, cast:noop, chainAdd:noop, score:noop, turnEnd:noop, priority:noop, check:noop, setOn:noop, on:false },
     confirmP:     (p,t,c,x)   => simAnswer(()=>policy.confirm(p,t,c,x)),
     pickUnitFrom: (p,c,t,o,x) => simAnswer(()=>policy.unit(p,c,t,o,x)),

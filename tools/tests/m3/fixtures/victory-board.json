@@ -1,0 +1,384 @@
+{
+  "players": [
+    {
+      "idx": 0,
+      "name": "P0",
+      "legendN": 321,
+      "legendEx": false,
+      "arts": {},
+      "recruitToken": 271,
+      "champN": 314,
+      "champInZone": false,
+      "deck": [
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13
+      ],
+      "hand": [
+        13,
+        13,
+        13,
+        13,
+        13
+      ],
+      "trash": [
+        211,
+        105,
+        315,
+        314,
+        239,
+        233,
+        95,
+        210,
+        210,
+        209,
+        85
+      ],
+      "banish": [],
+      "runeDeck": [
+        214,
+        214,
+        214,
+        214,
+        89
+      ],
+      "runes": [
+        {
+          "n": 89,
+          "ex": true
+        },
+        {
+          "n": 89,
+          "ex": true
+        },
+        {
+          "n": 89,
+          "ex": true
+        },
+        {
+          "n": 89,
+          "ex": true
+        },
+        {
+          "n": 89,
+          "ex": true
+        },
+        {
+          "n": 89,
+          "ex": true
+        },
+        {
+          "n": 214,
+          "ex": true
+        }
+      ],
+      "base": [
+        {
+          "uid": 25,
+          "n": 216,
+          "ctrl": 0,
+          "owner": 0,
+          "loc": "base",
+          "ex": true,
+          "dmg": 0,
+          "buff": 0,
+          "tempM": [],
+          "grants": {},
+          "stunned": false,
+          "gear": [],
+          "isToken": false,
+          "turnPlayed": 16,
+          "playedTurn": 16,
+          "turnMoves": 0
+        }
+      ],
+      "gear": [],
+      "points": 5,
+      "energy": 0,
+      "energySpell": 0,
+      "powerSpell": 0,
+      "power": {
+        "Fury": 0,
+        "Calm": 0,
+        "Mind": 0,
+        "Body": 0,
+        "Order": 0,
+        "Chaos": 0,
+        "Any": 0
+      },
+      "playedCards": 0,
+      "playedSeq": 0,
+      "scoredBf": {},
+      "drewFromEmpty": false,
+      "mulliganCount": 0,
+      "legendUsed": false
+    },
+    {
+      "idx": 1,
+      "name": "P1",
+      "legendN": 247,
+      "legendEx": false,
+      "arts": {},
+      "recruitToken": 271,
+      "champN": 39,
+      "champInZone": false,
+      "deck": [
+        4,
+        4,
+        9,
+        12,
+        13,
+        13,
+        29,
+        87,
+        88,
+        95,
+        95,
+        96,
+        103,
+        104,
+        104,
+        116,
+        116,
+        116
+      ],
+      "hand": [
+        24,
+        9
+      ],
+      "trash": [
+        95,
+        9,
+        39,
+        87,
+        104,
+        29,
+        4,
+        29,
+        103,
+        96,
+        96,
+        27,
+        88,
+        248,
+        103,
+        13
+      ],
+      "banish": [
+        122,
+        122
+      ],
+      "runeDeck": [
+        7,
+        7
+      ],
+      "runes": [
+        {
+          "n": 7,
+          "ex": true
+        },
+        {
+          "n": 7,
+          "ex": true
+        },
+        {
+          "n": 89,
+          "ex": true
+        },
+        {
+          "n": 89,
+          "ex": true
+        },
+        {
+          "n": 7,
+          "ex": false
+        },
+        {
+          "n": 7,
+          "ex": false
+        },
+        {
+          "n": 89,
+          "ex": false
+        },
+        {
+          "n": 89,
+          "ex": false
+        },
+        {
+          "n": 89,
+          "ex": false
+        },
+        {
+          "n": 7,
+          "ex": false
+        }
+      ],
+      "base": [
+        {
+          "uid": 26,
+          "n": 27,
+          "ctrl": 1,
+          "owner": 1,
+          "loc": "base",
+          "ex": true,
+          "dmg": 0,
+          "buff": 0,
+          "tempM": [],
+          "grants": {},
+          "stunned": false,
+          "gear": [],
+          "isToken": false,
+          "turnPlayed": 17,
+          "playedTurn": 17
+        }
+      ],
+      "gear": [],
+      "points": 7,
+      "energy": 0,
+      "energySpell": 0,
+      "powerSpell": 0,
+      "power": {
+        "Fury": 0,
+        "Calm": 0,
+        "Mind": 0,
+        "Body": 0,
+        "Order": 0,
+        "Chaos": 0,
+        "Any": 0
+      },
+      "playedCards": 1,
+      "playedSeq": 1,
+      "scoredBf": {
+        "0": true
+      },
+      "drewFromEmpty": false,
+      "mulliganCount": 2,
+      "legendUsed": false
+    }
+  ],
+  "bfs": [
+    {
+      "n": 288,
+      "owner": 0,
+      "controller": 1,
+      "contestedBy": null,
+      "units": [
+        {
+          "uid": 23,
+          "n": 12,
+          "ctrl": 1,
+          "owner": 1,
+          "loc": 0,
+          "ex": true,
+          "dmg": 0,
+          "buff": 0,
+          "tempM": [],
+          "grants": {},
+          "stunned": false,
+          "gear": [],
+          "isToken": false,
+          "turnPlayed": 15,
+          "playedTurn": 15,
+          "turnMoves": 1,
+          "lastKnownMight": 4
+        }
+      ],
+      "hiddenCards": [],
+      "scored": {
+        "1": true
+      }
+    },
+    {
+      "n": 292,
+      "owner": 1,
+      "controller": null,
+      "contestedBy": null,
+      "units": [],
+      "hiddenCards": [],
+      "scored": {}
+    }
+  ],
+  "turn": 1,
+  "turnCount": 17,
+  "phase": "action",
+  "state": "neutral",
+  "showdown": null,
+  "winner": null,
+  "actingPlayer": 1,
+  "victory": 8,
+  "manual": false,
+  "tflags": {
+    "discarded": [
+      false,
+      false
+    ],
+    "nextSpellDisc": [
+      0,
+      0
+    ],
+    "nextSpellBonus": [
+      0,
+      0
+    ],
+    "nextUnitReady": [
+      false,
+      false
+    ],
+    "noPlay": [
+      false,
+      false
+    ],
+    "buffPlus": [
+      0,
+      0
+    ],
+    "preventSpellDmg": false,
+    "enterReady": [
+      false,
+      false
+    ],
+    "readyRunesAtEnd": [
+      0,
+      0
+    ],
+    "enemyDied": [
+      false,
+      false
+    ],
+    "freeHide": [
+      false,
+      false
+    ],
+    "dmgKill": false,
+    "bf292": [
+      {},
+      {}
+    ],
+    "udyrUsed": {}
+  },
+  "firstPlayer": 1,
+  "pendingChain": [],
+  "chainSequence": 32,
+  "extraTurns": []
+}

@@ -766,7 +766,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   on('rb-turnprev', ()=>REPLAY.jumpTurn(-1));
   on('rb-turnnext', ()=>REPLAY.jumpTurn(1));
   on('rb-play',  ()=>REPLAY.toggle());
-  on('rb-slider', function(){ REPLAY.pause(); REPLAY.seek(+this.value); }, 'oninput');
+  on('rb-slider', function(){ const index=+this.value; REPLAY.pause(); REPLAY.seek(index); }, 'oninput');
   on('rb-speed', function(){
     REPLAY.realtime = (this.value === 'real');
     if(!REPLAY.realtime) REPLAY.speedMs = +this.value;

@@ -18,8 +18,8 @@ const NET = {
 };
 
 // 방 입장·P2P·채팅 버전 확인에 쓰는 클라이언트 버전 문자열
-// 주문 준비 선택과 주사위 완료 동기화가 없는 원본 클라이언트와의 혼합 매치를 막는다.
-NET.clientVersion = ()=>(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');   // 빌드마다 버전이 오르므로 별도 접미사는 두지 않는다
+// 빌드 버전으로 기존 방, 등급전, P2P 버전 확인을 유지한다.
+NET.clientVersion = ()=>(typeof BUILDINFO!=='undefined'?BUILDINFO.version:'?');
 
 // 서버 주소 설정/정규화 (끝 슬래시 제거)
 NET.setBase = function(url){
@@ -108,6 +108,7 @@ NET.connect = function(){
         case 'opponentLeft': NET.oppAway=false; NET.clearRejoinFlag(); if(!NET.voided) NET.onOppLeft && NET.onOppLeft(); break;
         case 'matchVoided': NET.voided=true; NET.clearRejoinFlag(); NET.onMatchVoided && NET.onMatchVoided(m); break;   // 시작 단계 무응답 무효 (turn-timer.js)
         case 'chat':
+          if(NET._selectionPreviewIntercept(m)) break;
           if(NET._verIntercept(m)) break;    // 버전 확인 메시지는 채팅으로 표시하지 않고 가로챈다
           NET.onChat && NET.onChat(m);
           break;
@@ -183,14 +184,68 @@ NET.finishCatchUp = function(){
   UI.toast('진행 중이던 대전에 복귀했습니다');
 };
 // 새로고침·앱 재시작 뒤 자동 복귀용 표식 (기기 저장). 게임 시작 때 켜고, 방을 나가거나 상대가 나가면 끈다.
-NET.setRejoinFlag   = function(){ try{ localStorage.setItem('rb_rejoin', JSON.stringify({server:NET.base, at:Date.now()})); }catch(e){} };
+NET.setRejoinFlag   = function(){ try{ localStorage.setItem('rb_rejoin', JSON.stringify({server:NET.base, at:Date.now(),version:NET.clientVersion()})); }catch(e){} };
 NET.clearRejoinFlag = function(){ try{ localStorage.removeItem('rb_rejoin'); }catch(e){} };
-NET.readRejoinFlag  = function(){ try{ return JSON.parse(localStorage.getItem('rb_rejoin')||'null'); }catch(e){ return null; } };
+NET.readRejoinFlag  = function(){ try{
+  const flag=JSON.parse(localStorage.getItem('rb_rejoin')||'null');
+  // Historical choice logs must be replayed with the same client protocol.
+  if(flag&&flag.version!==NET.clientVersion()){ NET.clearRejoinFlag(); return null; }
+  return flag;
+}catch(e){ return null; } };
 // ── 클라이언트 간 버전 검증 (서버 무관) ──
 // 서버는 채팅을 그대로 릴레이하므로, 게임 시작 직후 채팅 채널로 버전 확인 메시지를 보낸다.
 // 신버전 클라는 이 메시지를 가로채 비교하고(화면에 안 보임), 구버전 클라는 채팅으로 그대로
 // 표시되므로 안내문 자체가 "당신이 구버전"이라는 경고가 된다. 서버를 업데이트하지 않아도 동작.
 const VERCHK_PREFIX = '[버전 확인] v';
+// Cosmetic selection updates use the existing chat relay, never the engine action queue.
+const MULLIGAN_PREVIEW_PREFIX='[mulligan-preview]';
+NET.sendMulliganPreview=(p,id,selected)=>NET.send({t:'chat',msg:MULLIGAN_PREVIEW_PREFIX+JSON.stringify({p,id,selected})});
+NET.requestMulliganPreview=(p,id)=>NET.send({t:'chat',msg:MULLIGAN_PREVIEW_PREFIX+JSON.stringify({p,id,request:true})});
+NET._mulliganPreviewIntercept=function(m){
+  if(typeof m.msg!=='string' || !m.msg.startsWith(MULLIGAN_PREVIEW_PREFIX)) return false;
+  const view=UI._mulliganView;
+  if(!NET.online || NET.catchingUp || !view || view.game!==G || G.winner!==null) return true;
+  let data;try{data=JSON.parse(m.msg.slice(MULLIGAN_PREVIEW_PREFIX.length));}catch(e){return true;}
+  if(!data || typeof data!=='object' || data.p!==view.p || data.id!==view.choiceId || !NET.pendingChoices[data.id]) return true;
+  const senderSeat=data.request===true?opp(view.p):view.p;
+  const sender=typeof P2P!=='undefined'&&P2P.active?P2P.peerName:NET.lastStart?.players?.[senderSeat]?.id;
+  if(typeof sender!=='string' || m.from!==sender) return true;
+  // Rejoining observers recover the current unconfirmed positions, never card identities.
+  if(data.request===true){
+    if(!view.remote && NET.seat===view.p && !view.locked && view.selected instanceof Set)
+      NET.sendMulliganPreview(view.p,view.choiceId,[...view.selected]);
+    return true;
+  }
+  if(!view.remote || !Array.isArray(data.selected) || data.selected.length>2
+    || data.selected.some(i=>!Number.isInteger(i)||i<0||i>=4) || new Set(data.selected).size!==data.selected.length) return true;
+  // Preview messages also arrive immediately after opening: keep the back-card deal running.
+  // Selection uses CSS translate, independently of the deal animation's transform.
+  view.cards.forEach((el,i)=>{el.classList.toggle('selected',data.selected.includes(i));});
+  return true;
+};
+const HAND_PREVIEW_PREFIX='[revealed-hand-preview]';
+NET.sendHandPreview=(p,id,selected)=>{try{NET.send({t:'chat',msg:HAND_PREVIEW_PREFIX+JSON.stringify({p,id,selected})});}catch(e){}};
+NET.requestHandPreview=(p,id)=>{try{NET.send({t:'chat',msg:HAND_PREVIEW_PREFIX+JSON.stringify({p,id,request:true})});}catch(e){}};
+NET._handPreviewIntercept=function(m){
+  if(typeof m.msg!=='string' || !m.msg.startsWith(HAND_PREVIEW_PREFIX)) return false;
+  const view=UI._revealedHandView;
+  if(!NET.online || NET.spectating || NET.reconnecting || NET.catchingUp || !view || view.game!==G || G.winner!==null
+    || G._revealHand?.p!==view.owner || G._revealHand.by!==view.p) return true;
+  let data;try{data=JSON.parse(m.msg.slice(HAND_PREVIEW_PREFIX.length));}catch(e){return true;}
+  if(!data || typeof data!=='object' || data.p!==view.p || data.id!==view.id || NET.pendingChoices[data.id]?.p!==view.p) return true;
+  const senderSeat=data.request===true?view.owner:view.p;
+  const sender=typeof P2P!=='undefined'&&P2P.active?P2P.peerName:NET.lastStart?.players?.[senderSeat]?.id;
+  if(typeof sender!=='string' || m.from!==sender) return true;
+  if(data.request===true){
+    if(NET.seat===view.p) NET.sendHandPreview(view.p,view.id,view.selected);
+    return true;
+  }
+  if(NET.seat!==view.owner || (data.selected!==null && (!Number.isInteger(data.selected) || !view.indices.includes(data.selected)))) return true;
+  view.selected=data.selected;
+  UI.mobileHand?.updateRevealedHandPreview(view);
+  return true;
+};
+NET._selectionPreviewIntercept=m=>NET._handPreviewIntercept(m)||NET._mulliganPreviewIntercept(m);
 NET._peerVer = null;
 NET._verSendCheck = function(){
   NET._peerVer = null; NET._verEcho = false;
@@ -443,7 +498,9 @@ NET.choice = function(p, interactiveFn, serialize, deserialize){
   } else {
     // 게임 시작 전(Bo3 전장 선택 등)에는 G가 없을 수 있다 — 시작 메시지의 이름으로 대신한다
     const nm=(typeof G!=='undefined'&&G&&G.players&&G.players[p])?pname(p):(NET.lastStart?.players?.[p]?.id||'상대');
-    const label=String(label0||'').replace(/\s+/g,' ').trim();   // 무엇을 고르는 중인지 — 멈춘 게 아니라는 걸 알 수 있게
+    const preparation=UI.hiddenPlayPreparation;
+    const privateHidden=!!preparation&&typeof G!=='undefined'&&preparation.game===G&&preparation.p===p&&!preparation.committed;
+    const label=privateHidden?'숨김 카드 사용 준비':String(label0||'').replace(/\s+/g,' ').trim();
     UI.prompt(`⏳ ${nm} 선택 대기 중${label?' — '+(label.length>48?label.slice(0,47)+'…':label):'...'}`);
   }
   return pr;
@@ -471,6 +528,7 @@ NET._resolveChoice = function(m){
 // 먼저 도착한 다음 게임의 행동/선택(actionQueue·earlyChoices)은 남긴다 — 비우면 상대가 먼저 시작해 보낸 행동이 사라져 어긋난다
 NET.resetGameSync = function(full){
   NET._turnSubmission=null;
+  UI.clearRevealedHandPreview?.();
   UI.resetScorePresentation?.();
   UI.resetSpellStage?.();
   NET.choiceSeq=0; NET.pendingChoices={};

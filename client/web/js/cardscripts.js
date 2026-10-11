@@ -443,7 +443,7 @@ const EXTRA_OPS = {
     const top=resume?resume.seen:P.deck.splice(0, op.n); if(!top.length) return;
     await nocturneOffer(ctx.p, top,{op:{op:'lookTopHand',...lookOp},ctx},resume?.index);   // 녹턴은 '본' 시점에 추방·플레이 가능 — 손패 1장과 별개 (RiftJudge #9759)
     if(top.length){
-      const sel=await UI.pickOption(ctx.p,'손패에 넣을 카드 1장',top.map(n=>({v:n,label:card(n).ko,n,visibleCardChoice:{kind:'hand',recycleBeforePlay:top.length>1}})));
+      const sel=await UI.pickOption(ctx.p,'손패에 넣을 카드 1장',top.map(n=>({v:n,label:card(n).ko,n,deckLook:{cards:top,kind:'hand'},visibleCardChoice:{kind:'hand',recycleBeforePlay:top.length>1}})));
       const take = sel!==null?sel:top[0];
       putCardInHand(ctx.p,take,`#deck-${ctx.p}`);
       top.splice(top.indexOf(take),1);
@@ -465,7 +465,7 @@ const EXTRA_OPS = {
     units=units.filter(n=>canPay(ctx.p, op.freePips?0:Math.max(0,(card(n).e||0)-(op.discE||0)), op.freePips?[]:powerPips(card(n))));
     if(units.length){
       const playOpts=op.freePips?{ignoreEnergy:true,ignorePower:true}:{discountE:op.discE||0};
-      const sel=await UI.pickOption(ctx.p,'플레이할 유닛 (선택)',units.map(n=>({v:n,label:card(n).ko,n,visibleCardChoice:{kind:'play',playOpts,recycleBeforePlay:top.length>1}})).concat([{v:'skip',label:'플레이 안 함'}]));
+      const sel=await UI.pickOption(ctx.p,'플레이할 유닛 (선택)',units.map(n=>({v:n,label:card(n).ko,n,deckLook:{cards:top,kind:'play'},visibleCardChoice:{kind:'play',playOpts,recycleBeforePlay:top.length>1}})).concat([{v:'skip',label:'플레이 안 함'}]));
       if(sel!=='skip'&&sel!==null){
         top.splice(top.indexOf(sel),1);
         UI.log(`${pname(ctx.p)} 「${card(sel).ko}」 덱 위에서 추방 → 플레이`,'p'+ctx.p);
@@ -542,7 +542,7 @@ const EXTRA_OPS = {
         if(!['Unit','Spell','Gear'].includes(c.type) || !canPay(pi, 0, powerPips(c), c.type==='Spell')) return false;
         return c.type!=='Spell' || spellHasTargets(n, pi); });
       if(cands.length){
-        const sel=await UI.pickOption(pi,`${pname(pi)}: 추방(플레이 예약)할 카드 1장`,cands.map(n=>({v:n,label:card(n).ko,n,visibleCardChoice:{kind:'play',playOpts:{ignoreEnergy:true},recycleAfterPlay:top.length>1}})));
+        const sel=await UI.pickOption(pi,`${pname(pi)}: 추방(플레이 예약)할 카드 1장`,cands.map(n=>({v:n,label:card(n).ko,n,deckLook:{cards:top,kind:'play'},visibleCardChoice:{kind:'play',playOpts:{ignoreEnergy:true},recycleAfterPlay:top.length>1}})));
         const pick=sel!==null?sel:cands[0];
         top.splice(top.indexOf(pick),1); picks[pi]=pick;
       } else UI.log(`${pname(pi)}: 낼 수 있는 카드가 없어 5장 모두 재활용`,'sys');
@@ -560,6 +560,7 @@ const EXTRA_OPS = {
   async dawnAurora(op, ctx, h){ const P=G.players[ctx.p];
     const index=P.deck.findIndex(n=>card(n).type==='Unit');
     const revealed=P.deck.slice(0,index<0?P.deck.length:index+1);
+    UI.log(`${pname(ctx.p)} 「눈부신 오로라」 덱 위 ${revealed.length}장 공개: ${revealed.map(n=>`「${card(n).ko}」`).join(', ')||'없음'}`,'p'+ctx.p);
     await UI.revealAurora(ctx.p,revealed,index);
     const tracked=trackRevealedDeck(P.deck,index<0?P.deck.length:index);
     P.deck=tracked.deck;
@@ -569,7 +570,7 @@ const EXTRA_OPS = {
         UI.log('「눈부신 오로라」: 「'+card(unitN).ko+'」 추방 후 무료 플레이!','p'+ctx.p);
         // 나머지 공개 카드는 원래 위치에 남아 등장 드로우가 그 카드를 뽑는다.
         // 플레이 불가로 false를 반환해도 다음 재활용 지시는 수행한다.
-        await playCardByEffect(ctx.p,unitN,{ignoreEnergy:true,ignorePower:true,fxSource:`#deck-${ctx.p}`});
+        await playCardByEffect(ctx.p,unitN,{ignoreEnergy:true,ignorePower:true,requiredPlacement:true,fxSource:`#deck-${ctx.p}`});
       }
       if(P.deck===tracked.deck){
         const recycled=[];
@@ -592,6 +593,7 @@ const EXTRA_OPS = {
     let t=null; try{ t=await pickBySpec(ctx.p,{side:'enemy',where:'here',count:1},'대상 적 유닛 선택'); } finally{ [_ctxBf,_ctxUnit]=saved; }
     top=P.deck.splice(0,5);
     const hiddenCnt=top.filter(n=>FX[n]&&FX[n].kw&&FX[n].kw.hidden).length;
+    if(typeof UI.revealDeckCards==='function') await UI.revealDeckCards(ctx.p,top,{kind:'teemo'});
     // 공개(reveal)는 개수뿐 아니라 공개된 카드의 정체도 양쪽 플레이어가 알 수 있어야 한다.
     // 공개 후 즉시 재활용되므로 순서를 복원할 수 없는 요약 개수만 남기면 규칙상 공개가 아니다.
     UI.log(`덱 위 ${top.length}장 공개: ${top.map(n=>`「${card(n).ko}」`).join(', ')||'없음'} — [숨겨짐] ${hiddenCnt}장`,'sys');
@@ -669,16 +671,51 @@ const EXTRA_OPS = {
     // 힘 0이면 피해 0이며 추가 피해도 붙지 않는다 (engine dmgPlus/dealDamage와 동일).
     const sel=(pre && pre.bf!==undefined) ? pre.bf
       : await UI.pickOption(ctx.p,'피해를 줄 전장',G.bfs.map((bf,i)=>({v:i,label:card(bf.n).ko})),'battlefield'); if(sel===null) return;
-    const n=maxP>0 ? (await UI.pickNumber(ctx.p,'지불할 힘(✳) 수',0,maxP,{bfIdx:sel}))||0 : 0;
+    const payment=maxP>0 ? (await UI.pickNumber(ctx.p,'지불할 힘(✳) 수',0,maxP,{bfIdx:sel,runeCount:true}))||0 : 0;
+    const n=typeof payment==='object'?payment.amount:payment;
+    const P=G.players[ctx.p],poolP=Object.values(P.power).reduce((a,b)=>a+b,0);
+    const selected=typeof payment==='object'?payment.runes:null;
+    // Validate the entire selected payment before mutating any resources.
+    if(!Number.isInteger(n) || n<0 || n>maxP) return;
+    let selectedPool=null;
+    if(selected!==null){
+      if(!Array.isArray(selected) || new Set(selected).size!==selected.length ||
+        selected.some(i=>!Number.isInteger(i) || !P.runes[i])) return;
+      selectedPool=payment.pool;
+      if(selectedPool===undefined){
+        // Recorded choices from the previous UI used pooled power first.
+        if(selected.length!==Math.max(0,n-poolP)) return;
+        const remaining={...P.power};
+        for(let i=0;i<n-selected.length;i++) takeFromPool(remaining,'Any');
+        selectedPool=Object.fromEntries(Object.entries(P.power).map(([dom,count])=>[dom,count-remaining[dom]]));
+      }
+      if(!selectedPool || typeof selectedPool!=='object' || Array.isArray(selectedPool) ||
+        Object.entries(selectedPool).some(([dom,count])=>!Object.hasOwn(P.power,dom) || !Number.isInteger(count) || count<0 || count>P.power[dom]) ||
+        Object.values(selectedPool).reduce((a,b)=>a+b,0)+selected.length!==n) return;
+    }
     const pips=[]; for(let i=0;i<n;i++) pips.push('Any');
     if(!canPay(ctx.p,0,pips)) return;
     if(n>0){
       // 재활용될 준비 룬은 먼저 탈진해 에너지 1씩 풀에 띄운다(응수 불가 [추가], 턴 끝까지 유지 — RiftJudge #2633 · #437 · #5521; recycleRune op와 동일)
-      const P=G.players[ctx.p]; const poolP=Object.values(P.power).reduce((a,b)=>a+b,0); const exh=P.runes.filter(r=>r.ex).length;
-      let need=Math.max(0, n-poolP-exh), floated=0;
-      for(const r of P.runes){ if(need<=0) break; if(!r.ex){ r.ex=true; P.energy++; need--; floated++; } }
-      if(floated) UI.log(`${pname(ctx.p)} 준비 룬 ${floated}개를 먼저 탈진 → 에너지 ${floated} 풀에 유지 (재활용 전)`, 'p'+ctx.p);
-      payCost(ctx.p,0,pips);
+      if(selected){
+        const recycled=[],runes=selected.map(i=>P.runes[i]);let floated=0;
+        for(const r of runes){
+          if(!r.ex){r.ex=true;P.energy++;floated++;}
+          const ri=P.runes.indexOf(r);
+          UI.fx.moveCard?.(ctx.p,r.n,`#runes-${ctx.p} [data-rune-index="${ri}"]`,`#runedeck-${ctx.p}`,{rune:r});
+          P.runes.splice(ri,1);P.runeDeck.push(r.n);
+          recycled.push(card(r.n).ko);
+        }
+        if(floated) UI.log(`${pname(ctx.p)} 준비 룬 ${floated}개를 먼저 탈진 → 에너지 ${floated} 풀에 유지 (재활용 전)`, 'p'+ctx.p);
+        for(const [dom,count] of Object.entries(selectedPool)) P.power[dom]-=count;
+        UI.log(`${pname(ctx.p)} 비용 지불: 힘 ${n}${recycled.length?' (선택한 룬 재활용: '+recycled.join(', ')+')':''}`, 'p'+ctx.p);
+      }else{
+        const exh=P.runes.filter(r=>r.ex).length;
+        let need=Math.max(0, n-poolP-exh), floated=0;
+        for(const r of P.runes){ if(need<=0) break; if(!r.ex){ r.ex=true; P.energy++; need--; floated++; } }
+        if(floated) UI.log(`${pname(ctx.p)} 준비 룬 ${floated}개를 먼저 탈진 → 에너지 ${floated} 풀에 유지 (재활용 전)`, 'p'+ctx.p);
+        payCost(ctx.p,0,pips);
+      }
     }
     G.bfs[sel].units.filter(u=>u.ctrl!==ctx.p).forEach(u=>dealDamage(u,dmgPlus(n,u,ctx.p),'spell')); },   // 힘 0이면 보너스 없음(717.3)
   async partyFavor(op, ctx, h){ const o=opp(ctx.p);
@@ -706,8 +743,11 @@ const EXTRA_OPS = {
     } finally { G._revealHand=null; UI.render(); }
     // 원문에 may가 없다("Choose a non-unit card ... and recycle") — 후보가 있으면 반드시 고른다, 손패만 보고 취소 불가 (RiftJudge #4264)
     if(!sel){ sel=cands[0]; UI.log(`「${card(sel.n).ko}」 — 취소할 수 없는 지시라 첫 후보로 확정`,'sys'); }
-    if(op.action==='discard'){ await discardFromHand(o, sel.i); }
-    else { O.hand.splice(sel.i,1); O.deck.push(sel.n); UI.log(`「${card(sel.n).ko}」 재활용됨`,'sys'); await fireEvent('onYouRecycle',{p:o}); } },
+    if(op.action==='discard'){ await discardFromHand(o, sel.i,{fxOrigin:sel.fxOrigin,faceUp:true}); }
+    else {
+      UI.fx.moveCard?.(o,sel.n,sel.fxOrigin||`#hand-${o} [data-hand-index="${sel.i}"]`,`#deck-${o}`,{handIndex:sel.i});
+      O.hand.splice(sel.i,1); O.deck.push(sel.n); UI.log(`「${card(sel.n).ko}」 재활용됨`,'sys'); await fireEvent('onYouRecycle',{p:o});
+    } },
   async kingsDecree(op, ctx, h){ const o=opp(ctx.p);
     const cands=everyUnit().filter(u=>u.ctrl!==ctx.p);
     if(!cands.length) return;
@@ -787,7 +827,8 @@ const EXTRA_OPS = {
     const opts=[];
     everyUnit().filter(u=>u.ctrl===ctx.p&&u.ex&&u!==ctx.unit).forEach(u=>opts.push({v:{t:'u',u},label:'유닛: '+unitLabel(u),card:unitCard(u)}));
     G.players[ctx.p].gear.forEach((g,i)=>{ if(g.ex) opts.push({v:{t:'g',g},label:'도구: '+card(g.n).ko,n:g.n,boardCard:{kind:'gear',p:ctx.p,index:i}}); });
-    G.players[ctx.p].runes.forEach(r=>{ if(r.ex) opts.push({v:{t:'r',r},label:'룬: '+card(r.n).ko,n:r.n}); });
+    G.players[ctx.p].runes.forEach((r,index)=>{ if(r.ex) opts.push({v:{t:'r',r},label:'룬: '+card(r.n).ko,n:r.n,
+      runePick:{p:ctx.p,index,action:'준비',required:false}}); });
     if(G.players[ctx.p].legendEx) opts.push({v:{t:'l'},label:'전설: '+card(G.players[ctx.p].legendN).ko,n:G.players[ctx.p].legendN});
     if(!opts.length) return;
     const scriptChoice={op:{...op,optional:true},ctx:{...ctx},remaining:G._botTriggerRemainder};
@@ -857,12 +898,14 @@ const EXTRA_OPS = {
       }
       }
       const rp=resume?.stage==='rune'&&resume.player===pi?[...resume.rp]:[];
+      const runeBatch={};
       for(let k=rp.length;k<2;k++){
         const cands=runeAll().filter(x=>!rp.includes(x.r));
         if(!cands.length) break;
         const scriptChoice={op:{op:'divineJudgment'},ctx:{...ctx},remaining:G._botTriggerRemainder,
           resume:{stage:'rune',order,playerIndex:order.indexOf(pi),player:pi,keepU,keepG,keepR,keepH,myPicks,gp,rp}};
-        const sel=await UI.pickOption(pi,`${pname(pi)}: 남길 룬 선택 (${k+1}/2)`,cands.map((x,i)=>({v:i,label:`${pname(x.pi)}: ${DOMAIN_KO[runeDomain(x.r.n)]||runeDomain(x.r.n)}${x.r.ex?' (탈진)':''}`,
+        const sel=await UI.pickOption(pi,`${pname(pi)}: 남길 룬 선택`,cands.map((x,i)=>({v:i,label:`${pname(x.pi)}: ${DOMAIN_KO[runeDomain(x.r.n)]||runeDomain(x.r.n)}${x.r.ex?' (탈진)':''}`,
+          runePick:{p:x.pi,index:G.players[x.pi].runes.indexOf(x.r),action:'남기기',required:true,batch:runeBatch,count:2-k},
           scriptChoice,judgmentKeep:{kind:'rune',p:x.pi,r:x.r,kept:keepR.has(x.r)}})));
         const x=cands[(typeof sel==='number' && cands[sel])?sel:0]; rp.push(x.r); keepR.add(x.r);
       }
@@ -873,7 +916,8 @@ const EXTRA_OPS = {
         const scriptChoice={op:{op:'divineJudgment'},ctx:{...ctx},remaining:G._botTriggerRemainder,
           resume:{stage:'hand',order,playerIndex:order.indexOf(pi),player:pi,keepU,keepG,keepR,keepH,myPicks}};
         const sel=await UI.pickOption(pi,`${pname(pi)}: 손패에서 남길 카드 선택 (${k+1}/2)`,cands.map((x,i)=>({v:i,label:card(x.n).ko,n:x.n,
-          scriptChoice,judgmentKeep:{kind:'hand',p:pi,n:x.n,kept:false},boardCard:{kind:'hand',p:pi,index:x.i}})),'cardsRequired');
+          scriptChoice,judgmentKeep:{kind:'hand',p:pi,n:x.n,kept:false,
+            keptTargets:[...keepH[pi]].map(index=>({kind:'hand',p:pi,index}))},boardCard:{kind:'hand',p:pi,index:x.i}})),'cardsRequired');
         keepH[pi].add(cands[(typeof sel==='number' && cands[sel])?sel:0].i);
       }
     }

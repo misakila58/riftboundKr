@@ -171,6 +171,18 @@ function polOffensiveOp(op){
     (['damage','damageAll','kill','stun','dealSplit','dmgEqMyMight','dmgLastDiscardCost','guillotine','extortion','foxfire'].includes(op.op)
       || op.op==='might' && op.n<0);
 }
+// Only a proved winning line may override the ordinary anti-friendly-fire policy.
+let polVictoryTarget=null;
+function polVictoryFriendly(p,n,u){
+  return polVictoryTarget?.p===p&&polVictoryTarget.n===n&&polVictoryTarget.uids.includes(u.uid);
+}
+function polVictoryPlayable(p,a){
+  const saved=polVictoryTarget;
+  try{
+    if(a.winTarget)polVictoryTarget={p,n:a.n,uids:a.winTarget.uids,area:a.winTarget.area};
+    return polCanPlay(p,card(a.n));
+  }finally{polVictoryTarget=saved;}
+}
 function polOffensivePlayable(p,n,bfIdx,fromHidden=false,paymentCost){
   if(card(n).type!=='Spell') return true;
   const fx=FX[n]||{}, saved=[_ctxBf,_hiddenBf,_ctxUnit,_curKind];
@@ -188,13 +200,14 @@ function polOffensivePlayable(p,n,bfIdx,fromHidden=false,paymentCost){
         const specs=preTargetSpecs(op);
         // 대상을 지정하지 않는 광역 공격도 실제 범위 안에 적이 있어야 한다.
         if(offensive && !specs.length && op.spec){
-          if(!unitsBySpec(op.spec,p).some(u=>u.ctrl!==p)) return false;
+          if(!unitsBySpec(op.spec,p).some(u=>u.ctrl!==p)&&
+              !(polVictoryTarget?.p===p&&polVictoryTarget.n===n&&polVictoryTarget.area)) return false;
         }
         for(const entry of specs){
           const spec=typeof entry==='function'?entry(p,prev):entry;
           if(spec.battlefield) continue;
           const eligible=unitsBySpec(spec,p).filter(u=>canPayDeflect(p,u,cost));
-          const useful=offensive?eligible.filter(u=>u.ctrl!==p||polKaisaSpellFriendly(p,n,u)):eligible;
+          const useful=offensive?eligible.filter(u=>u.ctrl!==p||polKaisaSpellFriendly(p,n,u)||polVictoryFriendly(p,n,u)):eligible;
           if(offensive && !useful.length && !spec.optional) return false;
           // 첫 선택부터 적이 전혀 없는 선택적 공격도 카드만 낭비하지 않는다.
           if(offensive && !useful.length && spec.optional && !prev.some(u=>u&&u.ctrl!==p)) return false;
@@ -238,7 +251,7 @@ function polSpellTargetPips(p,c){
           u:o.v?.t==='u'?everyUnit().find(u=>u.uid===o.v.uid):null, custom:true
         }));
       } else choices=unitsBySpec(spec,p).map(u=>({u,custom:false}));
-      if(offensive) choices=choices.filter(x=>x.u && (x.u.ctrl!==p||polKaisaSpellFriendly(p,c.n,x.u)));
+      if(offensive) choices=choices.filter(x=>x.u && (x.u.ctrl!==p||polKaisaSpellFriendly(p,c.n,x.u)||polVictoryFriendly(p,c.n,x.u)));
       if(spec.optional && (!offensive || prev.some(u=>u && u.ctrl!==p)))
         choices.push({u:null,custom:false});
       choices.sort((a,b)=>deflectPips(p,a.u).length-deflectPips(p,b.u).length);
@@ -1334,6 +1347,12 @@ async function polReadyTarget(p,candidates,optional,selection){
 }
 POLICY.unit = async function(p, candidates, promptText, optional, selection){
   if(!candidates || !candidates.length) return null;
+  if(polVictoryTarget?.p===p&&(selection?.ctx?.n===polVictoryTarget.n||
+      !selection?.ctx?.n&&FX[polVictoryTarget.n]?.playOps?.some(g=>g.ops.includes(selection?.op)))&&
+      polOffensiveOp(selection.op)&&polVictoryTarget.index<polVictoryTarget.uids.length){
+    const uid=polVictoryTarget.uids[polVictoryTarget.index++];
+    return candidates.find(u=>u.uid===uid)||null;
+  }
   const kaisaTarget=POLICY._kaisaSpellTarget;
   if(kaisaTarget?.pending && (G._rwFor!==p || G._returnPending?.pre!==kaisaTarget.pending.pre ||
     G._returnPending?.n!==kaisaTarget.pending.n)) POLICY._kaisaSpellTarget=null;
@@ -1388,7 +1407,7 @@ POLICY.unit = async function(p, candidates, promptText, optional, selection){
   const damage=txt.match(/피해를 배분할 유닛 선택 \(남은 피해 (\d+)\)/);
   if(damage){
     const role=candidates[0].ctrl===G.showdown?.attacker?'attacker':'defender';
-    return POLICY.assignTarget(p,candidates,+damage[1],role);
+    return POLICY.assignTarget(p,candidates,+damage[1],role,selection?.combatAssignment);
   }
   const assault=txt.match(/\[맹공 (\d+)\]/);
   if(assault) return polAssaultTarget(p,candidates,+assault[1])?.unit||null;
@@ -3610,12 +3629,12 @@ POLICY.mulligan = function(p){
 // ══════════ 전투 피해 배분 순서 ══════════
 // assignDamage enforces mandatory target priority. Within the legal candidates,
 // use the same aggregate casualty-value plan as combat prediction.
-POLICY.assignTarget = function(p, candidates, remain, role){
+POLICY.assignTarget = function(p, candidates, remain, role,assignment){
   if(!candidates.length) return null;
   if(!polSmart()) return candidates[0];
   const entries=candidates.map(u=>({u,lethal:Math.max(1,might(u,role,{forKill:true})-(u.dmg||0)),
     value:evalCombatRemovalValue(u),tank:!!effKw(u).tank,last:!!unitFx(u).combatLast,immune:!canTakeCombatDamage(u)}));
-  const u=evalCombatAllocation(remain,entries).order[0]?.u||candidates[0];
+  const u=evalCombatAllocation(remain,entries,assignment).order[0]?.u||candidates[0];
   polSay('assign',unitName(u),'치사량·처치 가치·강제 우선순위를 함께 계산',{remain});
   return u;
 };
@@ -6524,7 +6543,7 @@ function polOrderAction(p,a){
   }
   if(a.kind==='play'){
     const idx=G.players[p].hand.indexOf(a.n);
-    if(idx<0||!polCanPlay(p,card(a.n))||playRestriction(card(a.n),p,false))return null;
+    if(idx<0||!polVictoryPlayable(p,a)||playRestriction(card(a.n),p,false))return null;
     return {...a,idx};
   }
   if(a.kind==='champ')return G.players[p].champInZone&&G.players[p].champN===a.n&&
@@ -6558,7 +6577,8 @@ async function polOrderResolve(p,a,ctx){
     if(!(ctx.movesLeft>0||polMfExtraMove(p)))return null;
     if(a.orderTarget?.units){
       const resolved=polOrderAction(p,a);if(!resolved)return null;
-      const units=resolved.orderTarget.uids.map(uid=>everyUnit().find(u=>u.uid===uid&&u.ctrl===p&&!u.ex&&u.loc==='base'));
+      const units=resolved.orderTarget.uids.map(uid=>everyUnit().find(u=>u.uid===uid&&u.ctrl===p&&!u.ex&&
+        (u.loc==='base'||a.victoryMove&&effKw(u).ganking)));
       return units.every(Boolean)?{kind:'move',units,dest:a.dest}:null;
     }
     const mv=await polMfMoveChoice(p,true);return mv?{kind:'move',units:mv.units,dest:mv.dest}:null;
@@ -7231,9 +7251,125 @@ POLICY.baseNextAction = async function(p, ctx){
   if(a) return a;
   return { kind:'end' };
 };
+// Search known hand actions and public armies with the real engine. No score
+// bonus can justify self-harm: only an actual same-turn winner is accepted.
+function polVictoryCandidates(p,ctx,stock,movementOnly=false){
+  const P=G.players[p],out=[],harm=[];
+  for(const n of new Set(P.hand)){
+    if(movementOnly)break;
+    if(!(stock.get(n)>0)||ctx.tried?.has('h'+n)||playRestriction(card(n),p,false))continue;
+    const a={kind:'play',n};
+    if(polCanPlay(p,card(n)))out.push(a);
+    if(card(n).type!=='Spell')continue;
+    let variants=[{uids:[],prev:[],friendly:false}],area=false;
+    for(const group of FX[n]?.playOps||[]){
+      if(group.legion&&P.playedCards<1)continue;
+      for(const op of group.ops||[]){
+        if(!polOffensiveOp(op))continue;
+        const entries=preTargetSpecs(op);
+        if(!entries.length&&op.spec&&unitsBySpec(op.spec,p).some(u=>u.ctrl===p))area=true;
+        for(const entry of entries){
+          const next=[];
+          for(const v of variants){
+            const spec=typeof entry==='function'?entry(p,v.prev):entry;
+            if(spec.custom||spec.battlefield){next.push(v);continue;}
+            const units=unitsBySpec(spec,p);
+            for(const u of [...units.filter(u=>u.ctrl===p),...units.filter(u=>u.ctrl!==p),...(spec.optional?[null]:[])])
+              next.push({uids:[...v.uids,u?.uid??null],prev:[...v.prev,u],friendly:v.friendly||u?.ctrl===p});
+          }
+          variants=next.slice(0,24);
+        }
+      }
+    }
+    for(const v of variants){
+      if(!v.friendly&&!area)continue;
+      const targeted={...a,winTarget:{uids:v.uids,area,state:polBuffSequenceState(p)}};
+      if(polVictoryPlayable(p,targeted))harm.push(targeted);
+    }
+  }
+  if(!movementOnly){
+    if(P.champInZone&&!ctx.tried?.has('champ')&&polCanPlay(p,card(P.champN))&&
+        !playRestriction(card(P.champN),p,false))out.push({kind:'champ',n:P.champN});
+    for(const a of polAbList(p))
+      if(polAbLegal(p,a)&&!polAbilityTried(p,a,ctx))out.push({kind:'ability',key:a.key});
+  }
+  const moves=[];
+  if(ctx.movesLeft>0){
+    const ready=everyUnit().filter(u=>u.ctrl===p&&!u.ex&&!u.stunned);
+    G.bfs.forEach((b,dest)=>{
+      const available=ready.filter(u=>u.loc!==dest&&(u.loc==='base'||effKw(u).ganking));
+      const groups=[available,...available.map(u=>[u]),...polMfAttackGroups(available)],seen=new Set();
+      for(const units of groups){
+        if(!units.length)continue;
+        const ids=units.map(u=>u.uid),key=[...ids].sort((a,b)=>a-b).join(',');
+        if(seen.has(key))continue;seen.add(key);
+        moves.push({kind:'movePlan',victoryMove:true,dest,orderTarget:{units:units.map(u=>({uid:u.uid}))}});
+      }
+    });
+  }
+  return [...moves,...harm,...out];
+}
+async function polVictoryChoice(p,ctx){
+  if(!polHard()||NET.online||SIM.active||SIM.lock||G.winner!==null||
+      G.turn!==p||G.actingPlayer!==p||G.phase!=='action'||G.state!=='neutral')return null;
+  const stock=new Map();for(const n of G.players[p].hand)stock.set(n,(stock.get(n)||0)+1);
+  const root=polVictoryCandidates(p,ctx,stock);
+  // Ordinary play already has its own searches. Pay for this extra search only
+  // when a legal friendly-fire alternative would otherwise be excluded.
+  if(!root.some(a=>a.winTarget))return null;
+  const deadline=SIM.deadline;
+  SIM.deadline=Math.min(deadline||Infinity,Date.now()+1200);
+  const queue=root.filter(a=>a.winTarget).concat(root.filter(a=>!a.winTarget)).map(a=>[a]);
+  try{
+    for(let probes=0;queue.length&&probes<96&&Date.now()<SIM.deadline;probes++){
+      const steps=queue.shift();let result=null;
+      await simTry(p,async()=>{
+        polKaisaTurnPublicSample(p,0);
+        const originalDraw=drawCard;let drew=false;
+        drawCard=function(q,silent){
+          const count=G.players[q].hand.length,value=originalDraw(q,silent);
+          if(q===p&&G.players[q].hand.length>count)drew=true;
+          return value;
+        };
+        try{
+          const remaining=new Map(stock),local={...ctx,movesLeft:ctx.movesLeft},states=[],executed=[];
+          for(const step of steps){
+            if(SIM.deadline&&Date.now()>SIM.deadline)throw new SimBudget('deadline');
+            if(G.turn!==p||G.phase!=='action'||G.state!=='neutral'||G.winner!==null)return;
+            if(step.kind==='play'&&!(remaining.get(step.n)>0))return;
+            const act=await polOrderResolve(p,step,local);if(!act)return;
+            const before=polBuffSequenceState(p);
+            if(await POLICY.runAction(p,act)===false)return;
+            await simSettle(null,POLICY);
+            if(before===polBuffSequenceState(p))return;
+            if(step.kind==='play')remaining.set(step.n,remaining.get(step.n)-1);
+            if(step.kind==='movePlan')local.movesLeft--;
+            executed.push(step);states.push(polBuffSequenceState(p));
+            if(G.winner===p){result={won:true,steps:executed,states};return;}
+          }
+          if(G.winner===null&&steps.length<6&&G.turn===p&&G.state==='neutral')
+            // Unknown draws can change discard costs and target decisions. Only
+            // public army movement is proved past a draw; live play replans.
+            result={next:polVictoryCandidates(p,local,remaining,drew)};
+        }finally{drawCard=originalDraw;}
+      },POLICY,false,false);
+      if(result?.won){
+        const first=await polOrderResolve(p,result.steps[0],ctx);if(!first)continue;
+        return {...first,victoryLine:true,orderSequence:{steps:result.steps.slice(1),states:result.states}};
+      }
+      if(result?.next){
+        // Breadth first avoids spending the whole budget on one failed card.
+        for(const a of result.next)queue.push([...steps,a]);
+      }
+    }
+    return null;
+  }finally{SIM.deadline=deadline;}
+}
 POLICY.nextAction = async function(p,ctx){
   const follow=!SIM.active&&!NET.online?await polOrderFollowup(p,ctx):null;
   if(follow)return follow;
+  const victory=await polVictoryChoice(p,ctx);
+  if(victory)return victory;
   return polOrderChoice(p,ctx,await POLICY.baseNextAction(p,ctx));
 };
 
@@ -7292,6 +7428,14 @@ POLICY.runAction = async function(p, act){
     if(ok!==false&&plan.follow&&plan.expected===polBuffSequenceState(p))POLICY._buffFollowup={
       p,tc:G.turnCount,act:plan.follow,consumerN:plan.consumerN,payment:plan.payment,expected:plan.expected};
     return ok;
+  }
+  if(act.winTarget){
+    if(act.kind!=='play'||act.winTarget.state!==polBuffSequenceState(p)||
+        !polVictoryPlayable(p,act)||G.players[p].hand[act.idx]!==act.n)return false;
+    const saved=polVictoryTarget;
+    polVictoryTarget={p,n:act.n,uids:act.winTarget.uids,area:act.winTarget.area,index:0};
+    try{return await POLICY.runAction(p,{...act,winTarget:null});}
+    finally{polVictoryTarget=saved;}
   }
 
   if(['play','champ'].includes(act.kind)&&act.orderTarget?.uids){

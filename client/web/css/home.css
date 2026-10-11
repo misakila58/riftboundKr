@@ -308,7 +308,8 @@ body.start-menu-visible #build-tag { top:76px; right:31px; bottom:auto; color:#d
 @media (max-width:820px), (max-height:540px) {
   .start-subscreen {
     padding:8px 8px calc(var(--legal-h,0px) + 8px);
-    height:100dvh;
+    /* inset:0으로 화면을 채운다. 100dvh는 루트 zoom에 다시 축소되어 배경과 중심점이 어긋난다. */
+    height:auto;
   }
   .start-panel { padding:16px; }
   .start-panel-kicker { margin:0 40px 5px; font-size:10px; }

@@ -450,7 +450,7 @@ async function discardFromHand(p, idx, opts){
   const P=G.players[p];
   const n=P.hand.splice(idx,1)[0];
   if(n===undefined) return;
-  UI.fx.moveCard?.(p,n,`#hand-${p} [data-hand-index="${idx}"]`,`#trash-${p}`,{back:!handFaceUp(p),handIndex:idx});
+  UI.fx.moveCard?.(p,n,opts?.fxOrigin||`#hand-${p} [data-hand-index="${idx}"]`,`#trash-${p}`,{back:opts?.faceUp?false:!handFaceUp(p),handIndex:idx});
   P.trash.push(n);
   G._lastDiscard={p,n};
   TF().discarded[p]=true;
@@ -514,11 +514,13 @@ function readyRunes(p){ return G.players[p].runes.filter(r=>!r.ex); }
 // optional 이면 중간에 그만둘 수 있다. routedPick 경유라 온라인 락스텝에서도 안전하다.
 async function readyRunesPick(p, n, optional){
   let cnt=0;
+  const batch={}; // 한 효과의 준비 선택을 한 화면에서 모아도 기존 선택 번호 동기화는 유지한다.
   for(let i=0;i<n;i++){
     const opts=G.players[p].runes.map((r,idx)=>({r,idx})).filter(x=>x.r.ex);
     if(!opts.length) break;
     if(opts.length===1 && !optional){ opts[0].r.ex=false; cnt++; continue; }
-    const choices=opts.map(x=>({v:x, label:`${card(x.r.n).ko} (탈진)`, n:x.r.n}));
+    const choices=opts.map(x=>({v:x, label:`${card(x.r.n).ko} (탈진)`, n:x.r.n,
+      runePick:{p,index:x.idx,action:'준비',required:!optional,batch,count:n-i}}));
     if(optional) choices.push({v:'skip', label:'더 준비하지 않음'});
     const sel=await UI.pickOption(p, `준비할 룬 (${i+1}/${n})`, choices);
     if(sel===null || sel==='skip') break;
@@ -821,6 +823,7 @@ async function decideFirstPlayer(){
 // ---------- 멀리건 (공식 룰: 종합 규칙 110-118) ----------
 // 턴 순서대로: 손패에서 최대 2장을 따로 빼두고 → 그 수만큼 드로우 → 빼둔 카드를 덱 맨 아래로 재활용.
 async function mulliganPhase(){
+  const mulliganGame=G;
   const setupStage=!!G.reviewSetup;
   if(setupStage && UI.setSetupStage) UI.setSetupStage(true);
   try{
@@ -836,22 +839,19 @@ async function mulliganPhase(){
     G.reviewSetup=false;
     UI.render();
   }
-  // 온라인: 양쪽이 동시에 고른다 (상대가 끝날 때까지 기다리지 않게).
-  // 적용은 결과가 도착한 순서와 무관하게 항상 0번 → 1번 순으로 해서 양쪽 상태를 같게 유지한다.
-  if(NET.online){
-    const picks = await Promise.all([0,1].map(p=>
-      G.players[p].hand.length ? UI.pickMulligan(p) : Promise.resolve(null)));
-    for(const p of [0,1]) applyMulligan(p, picks[p]);
-    UI.render();
-    return;
-  }
-  // 핫시트/봇: 한 화면을 번갈아 쓰므로 순서대로 — 룰 118 "턴 순서대로 멀리건"
+  // 모든 대전에서 선공의 교체를 완전히 마친 다음 후공이 선택한다.
   for(const p of [G.turn, opp(G.turn)]){
     if(!G.players[p].hand.length) continue;
-    applyMulligan(p, await UI.pickMulligan(p));
+    const game=G, before=G.players[p].hand.slice();
+    const picks=await UI.pickMulligan(p);
+    if(G!==game || G.winner!==null) return;
+    applyMulligan(p, picks);
     UI.render();
+    if(UI.presentMulliganReplacement) await UI.presentMulliganReplacement(p,before,picks);
+    if(G!==game || G.winner!==null) return;
   }
   }finally{
+    UI.finishMulligan?.(mulliganGame);
     if(setupStage && UI.finishSetup) UI.finishSetup();
     if(setupStage && UI.setSetupStage) UI.setSetupStage(false);
   }
@@ -1452,7 +1452,7 @@ function unitPlayLocationOptions(p, n){
   return locs;
 }
 async function pickUnitPlayLocation(p, n, play){
-  const locs=unitPlayLocationOptions(p,n).map(o=>({...o,placement:{n,...play}}));
+  const locs=unitPlayLocationOptions(p,n).map(o=>({...o,requiredPlacement:!!play?.opts?.requiredPlacement,placement:{n,...play}}));
   return await UI.pickOption(p,'유닛을 배치할 위치',locs,'placement');
 }
 
@@ -1487,6 +1487,12 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
   // 평소의 타이밍 제한(내 턴·행동 단계)에 걸리면 안 된다 — 종료 단계에 발동하는 오로라가
   // 여기서 막혀 실패했고, 그래서 위치 선택도 없이 기지 폴백으로만 나왔다.
   const byEffect = !!(opts.fromDeck || opts.fromTrash || opts.byEffect);
+  // Capture the visible hand/champion card before removal/cost prompts replace its DOM.
+  // Explicit effect origins take precedence; temporary effect/hidden hands are not real departures.
+  const captureBoardPlayOrigin=()=>opts.fxOrigin||opts.fxSource||(opts.fromTrash?`#trash-${p}`:
+    opts.champZone?UI.fx.captureOrigin?.(`#champzone-${p} .card-mini`):
+    !byEffect && !opts.fromHidden && !opts.champZone && handIdx>=0
+      ?UI.fx.captureOrigin?.(`#hand-${p} [data-hand-index="${handIdx}"]`):null);
   // 단 '카드를 플레이할 수 없다'(브린히르 26 noPlay)는 타이밍이 아니라 금지라 효과 플레이에도 걸린다 —
   // 유망한 미래로 추방한 카드는 그대로 추방 상태로 남는다 (RiftJudge #6039 · 룰 100 불가능한 지시는 무시).
   const restr = byEffect ? (TF().noPlay[p] ? '이번 턴에는 카드를 플레이할 수 없습니다 (효과)' : null)
@@ -1516,22 +1522,26 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
       const locs=[{v:'base',label:'기지'}];
       G.bfs.forEach((bf,i)=>{ if(bf.controller===p) locs.push({v:i,n:bf.n,label:`전장: ${card(bf.n).ko}`}); });
       G.bfs.forEach((bf,i)=>{ if(bf.controller!==p) locs.push({v:i,n:bf.n,label:`⚠ ${card(bf.n).ko} — 미통제 (배치 허용 효과가 있을 때만)`}); });
+      if(opts.requiredPlacement) locs.forEach(o=>o.requiredPlacement=true);
       loc = hasPlayLoc ? opts.playLoc : await UI.pickOption(p,'유닛을 배치할 위치 — 기본 규칙: 기지 또는 통제 중인 전장', locs,'placement');
+      if(loc===null && opts.requiredPlacement) loc='base';
       if(loc===null) return false;
       if(loc!=='base' && G.bfs[loc].controller!==p)
         UI.log(`⚠ ${pname(p)} 미통제 전장에 배치 (수동) — 카드 효과가 허용하는 경우인지 확인하세요`, 'sys');
     }
+    const boardPlayOrigin=(c.type==='Unit'||c.type==='Gear')?captureBoardPlayOrigin():null;
+    commitHiddenPlay(p,opts);
     if(opts.champZone) P.champInZone=false;
     else if(handIdx>=0) P.hand.splice(handIdx,1);
     P.playedCards++;
     UI.log(`${pname(p)} 「${c.ko}」 플레이 (수동)`, 'p'+p);
     if(c.type==='Unit'){
       const u=makeUnit(n,p,{loc,ready:false});
-      if(opts.fxOrigin || opts.fxSource || opts.fromTrash) UI.fx.moveCard?.(p,n,opts.fxOrigin||opts.fxSource||`#trash-${p}`,`#board [data-uid="${u.uid}"]`,{unit:true});
+      if(boardPlayOrigin) UI.fx.moveCard?.(p,n,boardPlayOrigin,`#board [data-uid="${u.uid}"]`,{unit:true,opponentOnly:true});
       placeUnit(u,loc);
     }
     else if(c.type==='Gear'){
-      if(opts.fxOrigin || opts.fxSource || opts.fromTrash) UI.fx.moveCard?.(p,n,opts.fxOrigin||opts.fxSource||`#trash-${p}`,`#base-${p} [data-gear-index="${P.gear.length}"]`,{unit:true});
+      if(boardPlayOrigin) UI.fx.moveCard?.(p,n,boardPlayOrigin,`#base-${p} [data-gear-index="${P.gear.length}"]`,{unit:true,opponentOnly:true});
       P.gear.push({n,ex:false,attachedTo:null});
     }
     else { trashCard(p,n); if(draft) UI.playSpellStageSound?.('confirm'); } // 주문 등
@@ -1680,6 +1690,9 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
     if(opts.fromHidden) loc=opts.bfIdx;
     else {
       loc = hasPlayLoc ? opts.playLoc : await pickUnitPlayLocation(p, n, {handIdx,opts});
+      // Older replays or automated callers may still return cancel. Aurora's
+      // mandatory play uses the legal base location instead of forfeiting it.
+      if(loc===null && opts.requiredPlacement) loc='base';
       if(loc===null) return false;
     }
   }
@@ -1690,6 +1703,8 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
   })){
     toastP(p,'선택한 버프 상태가 바뀌었습니다. 다시 선택하세요','warn'); return false;
   }
+  const boardPlayOrigin=(c.type==='Unit'||c.type==='Gear')?captureBoardPlayOrigin():null;
+  commitHiddenPlay(p,opts);
   payCost(p, energy, pips, undefined, spellOK);
   // '다음 주문 할인'(성난 화염용 31)은 비용을 산정·지불하는 순간 소모된다 — 그 주문이 카운터당해도 되살아나지 않는다
   // (RiftJudge #4039 "consumed when you apply it during the process of playing"). 숨김·효과 플레이는 기본 비용이 0이라 적용된 적이 없다.
@@ -1754,7 +1769,7 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
 
     const u = makeUnit(n, p, {loc, ready:enterReady, owner:opts.owner});   // owner: 상대 카드를 내가 플레이(무분별한 분노 25)
     placedU=u; u.playedTurn=G.turnCount;
-    if(opts.fxOrigin || opts.fxSource || opts.fromTrash) UI.fx.moveCard?.(p,n,opts.fxOrigin||opts.fxSource||`#trash-${p}`,`#board [data-uid="${u.uid}"]`,{unit:true});
+    if(boardPlayOrigin) UI.fx.moveCard?.(p,n,boardPlayOrigin,`#board [data-uid="${u.uid}"]`,{unit:true,opponentOnly:true});
     placeUnit(u, loc);
     UI.render();
     // 위력적 유닛 훅 (볼리베어) — '플레이할 때' 판정은 유닛이 확정·등장한 직후, 등장 격발이 해결되기 전이다
@@ -1836,7 +1851,7 @@ async function playCardFromHandCore(p, handIdx, opts={}, draft=null){
     else { trashCard(p, n); TF().nextSpellBonus[p]=0; }   // 카운터당해도 파이널라이즈된 '다음 주문'이라 마도서(32) 보너스는 소모(420.3.b)
   }
   else if(c.type==='Gear'){
-    if(opts.fxOrigin || opts.fxSource || opts.fromTrash) UI.fx.moveCard?.(p,n,opts.fxOrigin||opts.fxSource||`#trash-${p}`,`#base-${p} [data-gear-index="${P.gear.length}"]`,{unit:true});
+    if(boardPlayOrigin) UI.fx.moveCard?.(p,n,boardPlayOrigin,`#base-${p} [data-gear-index="${P.gear.length}"]`,{unit:true,opponentOnly:true});
     P.gear.push({n, ex:!!fx.entersExhausted, attachedTo:null, playedTurn:G.turnCount, loc:opts.fromHidden?opts.bfIdx:'base'});
     UI.render();
     if(fx.kw.vision){ if(G.manual) await visionCheck(p); else queueTrigger({ops:[{op:'visionCheck'}]}, {p, n, kind:'effect'}); }
@@ -2297,7 +2312,7 @@ async function visionCheck(p,resume=null){
     if(!seen.length) return;
     P.deck.unshift(top);
   }
-  const yes = await UI.confirmP(p, `[통찰] 덱 맨 위: 「${card(top).ko}」 — 덱 맨 아래로 되돌릴까요?`, card(top),{publicLabel:'[통찰] 덱 맨 위 카드 확인',decision:{title:'통찰',result:'확인한 카드를 덱 위에 유지하거나 맨 아래로 보냅니다.',accept:'덱 아래로 보내기',decline:'덱 위에 유지'}});
+  const yes = await UI.confirmP(p, `[통찰] 덱 맨 위: 「${card(top).ko}」 — 덱 맨 아래로 되돌릴까요?`, card(top),{publicLabel:'[통찰] 덱 맨 위 카드 확인',deckReveal:true,decision:{title:'통찰',result:'확인한 카드를 덱 위에 유지하거나 맨 아래로 보냅니다.',accept:'덱 아래로 보내기',decline:'덱 위에 유지'}});
   if(yes){ P.deck.shift(); P.deck.push(top); UI.log(`${pname(p)} [통찰]로 덱 맨 위 카드를 재활용`, 'p'+p); await fireEvent('onYouRecycle',{p}); }
 }
 
@@ -2348,47 +2363,63 @@ async function hideCardCore(p, handIdx, bfIdx, draft=null){
   if(!costs.length){ toastP(p,`자원이 부족합니다 (${hideCostLabel(p)} 필요)`,'warn'); return false; }
   const sel = bfIdx!==undefined ? bfIdx : await UI.pickOption(p,'카드를 숨길 전장', myBfs.map(x=>({v:x.i,label:card(x.bf.n).ko,n:x.bf.n})),'battlefield');
   if(sel===null) return false;
-  const choice=costs.length===1?costs[0].v:await UI.pickOption(p,'숨김 비용 선택',costs.map(c=>({...c,hidePayment:true})));
-  const payment=costs.find(c=>c.v===choice);
-  if(!payment) return false;
-  // 목적지와 지불 방식을 모두 고른 뒤 한 번만 소비한다. 취소는 카드와 자원을 보존한다.
-  if(!myBfs.some(x=>x.i===sel) || !canPayWithFunding(p,payment.energy,payment.pips,false)) return false;
-  if(draft){
-    draft.hidePayment=payment.label;
-    await UI.confirmSpellStage(draft,[{kind:'battlefield',bf:sel,label:card(G.bfs[sel].n).ko}]);
-  }
-  // Confirmation may wait on an online choice. Recheck the destination and
-  // original card before committing a hidden card or paying its cost.
-  if(!canHideCardAt(p,n,sel) || (fromChamp?!P.champInZone||P.champN!==n:P.hand[handIdx]!==n)
-    || !canPayWithFunding(p,payment.energy,payment.pips,false)) return false;
-  // 룬을 건드리는 지불이면 인장 등 [반응] 자원 능력을 먼저 쓸지 묻는다 (357.1.a) — 취소하면 숨기지 않는다
-  // 이 제목은 온라인 상대의 선택 대기 안내에도 표시된다. 뒷면 카드의 이름은 공개하지 않는다.
-  if(!(await askResourceFunding(p, '카드 숨김', payment.energy, payment.pips, false, n, '숨김 취소'))) return false;
-  // 힘 비용을 룬 재활용으로 내야 하면 어느 룬을 돌릴지 플레이어가 고른다 (요청 2026-10-07 — 예전엔 자동으로 탈진 룬→앞 룬 순).
-  // 고른 룬은 먼저 재활용해 힘을 풀에 올리고, 이어지는 payCost가 그 풀에서 가져간다. 준비 룬이면 재활용 전에 탈진해 에너지를 풀에 남긴다(손해 없는 선택, recycleRune과 동일).
-  if(payment.pips.length){
-    const peek={...P.power}; const needRune=payment.pips.filter(pip=>!takeFromPool(peek,pip));
-    for(const pip of needRune){
-      const cands=P.runes.map((r,i)=>({r,i})).filter(x=>pipAllowsDom(pip, runeDomain(x.r.n)));
-      if(cands.length<2) continue;
-      const ordered=cands.sort((a,b)=>(a.r.ex?0:1)-(b.r.ex?0:1) || a.i-b.i);
-      const sel=await UI.pickOption(p,'숨김 비용(힘 1)으로 재활용할 룬 선택',
-        ordered.map(x=>({v:x.i, n:x.r.n, label:(DOMAIN_KO[runeDomain(x.r.n)]||runeDomain(x.r.n)||'룬')+' 룬'+(x.r.ex?' (탈진)':' (준비)')})));
-      if(sel==null || !P.runes[sel]) continue;   // 취소·동기화 오류면 자동 선택(payCost)에 맡긴다
-      const r0=P.runes[sel];
-      if(!r0.ex){ r0.ex=true; P.energy++; UI.log(`${pname(p)} 준비 룬을 먼저 탈진 → 에너지 1 풀에 유지 (재활용 전)`, 'p'+p); }
-      UI.fx.moveCard?.(p,r0.n,`#runes-${p} [data-rune-index="${sel}"]`,`#runedeck-${p}`,{rune:r0});
-      P.runes.splice(sel,1); P.runeDeck.push(r0.n);
-      const dom=runeDomain(r0.n); P.power[dom]=(P.power[dom]||0)+1;
-      UI.log(`${pname(p)} 숨김 비용: ${card(r0.n).ko} 재활용`, 'p'+p);
+  let backToCost=false;
+  chooseHideCost: while(true){
+    const costs=hideCosts(p);
+    if(!costs.length) return false;
+    // 대체 숨김 비용이 있는 경우에만 취소 후 비용 선택창으로 돌아간다.
+    const choice=costs.length===1 && !backToCost?costs[0].v:await UI.pickOption(p,'숨김 비용 선택',costs.map(c=>({...c,hidePayment:true})));
+    const payment=costs.find(c=>c.v===choice);
+    if(!payment) return false;
+    // 목적지와 지불 방식을 모두 고른 뒤 한 번만 소비한다. 취소는 카드와 자원을 보존한다.
+    if(!myBfs.some(x=>x.i===sel) || !canPayWithFunding(p,payment.energy,payment.pips,false)) return false;
+    if(draft && !draft.committed){
+      draft.hidePayment=payment.label;
+      await UI.confirmSpellStage(draft,[{kind:'battlefield',bf:sel,label:card(G.bfs[sel].n).ko}]);
     }
+    // Confirmation may wait on an online choice. Recheck the destination and
+    // original card before committing a hidden card or paying its cost.
+    if(!canHideCardAt(p,n,sel) || (fromChamp?!P.champInZone||P.champN!==n:P.hand[handIdx]!==n)
+      || !canPayWithFunding(p,payment.energy,payment.pips,false)) return false;
+    // 룬을 건드리는 지불이면 인장 등 [반응] 자원 능력을 먼저 쓸지 묻는다 (357.1.a) — 취소하면 숨기지 않는다
+    // 이 제목은 온라인 상대의 선택 대기 안내에도 표시된다. 뒷면 카드의 이름은 공개하지 않는다.
+    if(!(await askResourceFunding(p, '카드 숨김', payment.energy, payment.pips, false, n, '숨김 취소'))) return false;
+    // 힘 비용을 룬 재활용으로 내야 하면 어느 룬을 돌릴지 플레이어가 고른다 (요청 2026-10-07 — 예전엔 자동으로 탈진 룬→앞 룬 순).
+    // 고른 룬은 먼저 재활용해 힘을 풀에 올리고, 이어지는 payCost가 그 풀에서 가져간다. 준비 룬이면 재활용 전에 탈진해 에너지를 풀에 남긴다(손해 없는 선택, recycleRune과 동일).
+    if(payment.pips.length){
+      const peek={...P.power}; const needRune=payment.pips.filter(pip=>!takeFromPool(peek,pip));
+      for(const pip of needRune){
+        const cands=P.runes.map((r,i)=>({r,i})).filter(x=>pipAllowsDom(pip, runeDomain(x.r.n)));
+        if(!cands.length) return false;
+        const ordered=cands.sort((a,b)=>(a.r.ex?0:1)-(b.r.ex?0:1) || a.i-b.i);
+        const runeSel=await UI.pickOption(p,'숨김 비용(힘 1)으로 재활용할 룬 선택',
+          ordered.map(x=>({v:x.i, n:x.r.n, hideRuneCost:true, label:(DOMAIN_KO[runeDomain(x.r.n)]||runeDomain(x.r.n)||'룬')+' 룬'+(x.r.ex?' (탈진)':' (준비)')})));
+        if(runeSel==null){
+          if(FX[P.legendN]?.altHideCost) backToCost=true;
+          else{
+            if(!draft || !UI.resumeSpellStage?.(draft)) return false;
+            backToCost=false;
+          }
+          continue chooseHideCost;
+        }
+        if(!cands.some(x=>x.i===runeSel && P.runes[runeSel]===x.r)
+          || !canHideCardAt(p,n,sel)
+          || (fromChamp?!P.champInZone||P.champN!==n:P.hand[handIdx]!==n)) return false;
+        const r0=P.runes[runeSel];
+        if(!r0.ex){ r0.ex=true; P.energy++; UI.log(`${pname(p)} 준비 룬을 먼저 탈진 → 에너지 1 풀에 유지 (재활용 전)`, 'p'+p); }
+        UI.fx.moveCard?.(p,r0.n,`#runes-${p} [data-rune-index="${runeSel}"]`,`#runedeck-${p}`,{rune:r0});
+        P.runes.splice(runeSel,1); P.runeDeck.push(r0.n);
+        const dom=runeDomain(r0.n); P.power[dom]=(P.power[dom]||0)+1;
+        UI.log(`${pname(p)} 숨김 비용: ${card(r0.n).ko} 재활용`, 'p'+p);
+      }
+    }
+    payCost(p,payment.energy,payment.pips);
+    if(fromChamp) P.champInZone=false; else P.hand.splice(handIdx,1);
+    G.bfs[sel].hiddenCards.push({n, by:p, turn:G.turnCount});
+    UI.log(`${pname(p)} ${fromChamp?'챔피언 존의 카드':'카드'}를 전장에 뒷면으로 숨김`, 'p'+p);
+    UI.render();
+    return true;
   }
-  payCost(p,payment.energy,payment.pips);
-  if(fromChamp) P.champInZone=false; else P.hand.splice(handIdx,1);
-  G.bfs[sel].hiddenCards.push({n, by:p, turn:G.turnCount});
-  UI.log(`${pname(p)} ${fromChamp?'챔피언 존의 카드':'카드'}를 전장에 뒷면으로 숨김`, 'p'+p);
-  UI.render();
-  return true;
 }
 
 // 대상 주문은 '모든' 대상에 적법한 후보가 있어야 체인에 올릴 수 있다 (룰 352.8 "valid choices must be made for
@@ -2418,6 +2449,14 @@ function spellHasTargets(n, p, bfIdx, fromHidden, paymentCost){
   return true;
 }
 
+// Presentation-only scope: keep cancellable preparation private, then publish
+// at the existing payment/finalization boundary. No extra lockstep choice.
+function commitHiddenPlay(p,opts){
+  const preparation=UI.hiddenPlayPreparation;
+  if(!opts.fromHidden||preparation?.game!==G||preparation.p!==p||preparation.committed)return;
+  preparation.committed=true;
+  UI.log(`${pname(p)} 전장의 숨김 카드를 공개!`, 'p'+p);
+}
 async function playHidden(p, bfIdx, chosen){   // chosen: 호출자가 이미 고른 숨김 카드 항목 (중립 응수 창)
   const bf=G.bfs[bfIdx];
   if(!bf || bf.controller!==p) return false;
@@ -2446,15 +2485,25 @@ async function playHidden(p, bfIdx, chosen){   // chosen: 호출자가 이미 �
   // 합법 배치 위치가 없다 → 공개(확정) 불가 (RiftJudge #4573 · #344)
   if(card(n).type==='Unit' && !unitPlayLocationOptions(p, n).some(x=>x.v===bfIdx)){
     toastP(p,'이 전장에 유닛을 낼 수 없어 숨김에서 공개할 수 없습니다 (마력척결관 간수 등)','warn'); return; }
-  bf.hiddenCards.splice(bf.hiddenCards.indexOf(h),1);
+  const hiddenIndex=bf.hiddenCards.indexOf(h),presentation=UI,previous=presentation.hiddenPlayPreparation;
+  const preparation={game:G,p,committed:false};
+  presentation.hiddenPlayPreparation=preparation;
+  bf.hiddenCards.splice(hiddenIndex,1);
   // 유닛·주문·도구 모두 정식 플레이 경로를 탄다 — 비용 0(738.1), 유닛은 이 전장에 등장(737.2),
   // 주문 대상도 이 전장 컨텍스트(bfIdx), 결전 중이면 체인에 적재.
   // 예전엔 주문/도구를 여기서 직접 해결해서 결전 중엔 체인을 건너뛰었고,
   // 유닛은 playRestriction에 막혀 결전 중 공개가 아예 불가능했다(739.1 위반).
-  UI.log(`${pname(p)} 전장의 숨김 카드를 공개!`, 'p'+p);
-  const ok = await playCardFromHand(p, -1, {fromHidden:true, bfIdx, directN:n});
-  if(ok===false){ bf.hiddenCards.push(h); UI.render(); }   // 예상 밖 실패 — 다시 숨김
-  return ok!==false;
+  try{
+    const ok = await playCardFromHand(p, -1, {fromHidden:true, bfIdx, directN:n});
+    return ok!==false;
+  }finally{
+    presentation.hiddenPlayPreparation=previous;
+    if(!preparation.committed){
+      // Preserve 1.0.122's cancellation order; hiddenIndex actions stay compatible.
+      bf.hiddenCards.push(h);
+      UI.render();
+    }
+  }
 }
 
 // playCardFromHand에서 fromHidden 유닛의 카드 번호 참조 보정
@@ -2463,9 +2512,12 @@ playCardFromHand = async function(p, handIdx, opts={}){
   if(opts.fromHidden && opts.directN){
     const P=G.players[p];
     P.hand.unshift(opts.directN); // 임시 삽입
-    const r = await _origPlay(p, 0, {...opts});
-    if(r===false && P.hand[0]===opts.directN) P.hand.shift(); // 실패 시 임시 삽입 회수 (손패로 순간이동 방지)
-    return r;
+    const preparation=UI.hiddenPlayPreparation;let r;
+    try{ r=await _origPlay(p, 0, {...opts});return r; }
+    finally{
+      if((r===false||r===undefined&&!preparation?.committed)&&P.hand[0]===opts.directN)
+        P.hand.shift(); // Failed preparation must not leave the temporary card in hand.
+    }
   }
   return _origPlay(p, handIdx, opts);
 };
@@ -2944,7 +2996,8 @@ async function assignDamage(assigner, total, targets, role){
     if(candidates.length===1) pick=candidates[0];
     else {
       pick = await UI.pickUnitFrom(assigner, candidates,
-        `${pname(assigner)}: 피해를 배분할 유닛 선택 (남은 피해 ${remain})`);
+        `${pname(assigner)}: 피해를 배분할 유닛 선택 (남은 피해 ${remain})`,false,
+        {combatAssignment:{role,assigned:result.map(([u,damage])=>({uid:u.uid,damage}))}});
       if(!pick) pick=candidates[0];
     }
     const m = might(pick, role, {forKill:true}); // 기절 유닛도 원래 전투력만큼 치명 배분 필요
@@ -4062,6 +4115,7 @@ async function execOpsInner(ops, ctx){
   _curKind = ctx.kind||'effect';
   let it = ctx.it||null;
   const pre = ctx.pre||null;   // 플레이 시점에 고른 대상 (Map op→uid) — preTargetSpell
+  const recycleBatches=new Map();
   for(const op of ops){
     if(G.winner!==null) return;
     { const v=(pre && pre.has(op)) ? pre.get(op) : undefined; _preTarget = Array.isArray(v) ? [...v] : v; }   // 배열은 소비되므로 복사
@@ -4441,6 +4495,13 @@ async function execOpsInner(ops, ctx){
         break; }
       case 'recycleRune': {
         const P=G.players[p];
+        const opIndex=ops.indexOf(op), total=op.n??1;
+        let end=opIndex+1;
+        while(end<ops.length && ops[end].op==='recycleRune') end++;
+        const batch=recycleBatches.get(opIndex)||{};
+        for(let j=opIndex+1;j<end;j++) recycleBatches.set(j,batch);
+        for(let k=0;k<total;k++){
+        const remaining=total-k+ops.slice(opIndex+1,end).reduce((sum,next)=>sum+(next.n??1),0);
         if(P.runes.length){
           // 어느 룬을 돌릴지는 항상 플레이어 선택(준비/탈진 표시) — 예전엔 색이 같으면 마지막 룬을 자동으로 돌려
           // 탈진 룬을 두고 준비 룬이 사라졌다. 탈진 룬을 앞에 두어 기본 선택(봇)은 탈진 룬부터.
@@ -4448,7 +4509,8 @@ async function execOpsInner(ops, ctx){
           let ri=ordered[0].i;
           if(P.runes.length>1){
             const sel=await UI.pickOption(p,'재활용할 룬 선택 (강제)',
-              ordered.map(x=>({v:x.i, label:(DOMAIN_KO[runeDomain(x.r.n)]||runeDomain(x.r.n)||'룬')+(x.r.ex?' (탈진)':' (준비)')})));
+              ordered.map(x=>({v:x.i, label:(DOMAIN_KO[runeDomain(x.r.n)]||runeDomain(x.r.n)||'룬')+(x.r.ex?' (탈진)':' (준비)'),
+                runePick:{p,index:x.i,action:'재활용',required:true,batch,count:remaining}})));
             if(sel!=null) ri=sel;
           }
           // 준비 룬을 돌리기 전에 룬을 탈진해(응수 불가 [추가] 능력) 에너지를 풀에 띄워 둘 수 있다 — 손해가 없는
@@ -4458,6 +4520,7 @@ async function execOpsInner(ops, ctx){
           UI.fx.moveCard?.(p,P.runes[ri].n,`#runes-${p} [data-rune-index="${ri}"]`,`#runedeck-${p}`,{rune:P.runes[ri]});
           const r=P.runes.splice(ri,1)[0]; P.runeDeck.push(r.n);
           UI.log(`${pname(p)} 룬 1개 재활용 (강제)`, 'p'+p);
+        }
         }
         break; }
       case 'gainPoints': addPoints(p,op.n,'effect'); break;
@@ -4487,15 +4550,15 @@ async function execOpsInner(ops, ctx){
         await nocturneOffer(p, seen,{op:lookOp,ctx},resume?.index);   // 녹턴 판단에도 남은 재순환 절차를 함께 비교한다.
         if(!seen.length) break;
         const names=seen.map(n=>`「${card(n).ko}」`).join(' · ');
-        const keep=[], recList=[]; let rec=false;
-        for(const n of seen){
-          const yes=await UI.confirmP(p, `덱 위 ${seen.length}장: ${names} — 「${card(n).ko}」를 재순환(덱 맨 아래)할까요?`, card(n), {publicLabel:`덱 위 ${seen.length}장 확인 — 재순환할지 선택`});
+        const keep=[], recList=[],deckScry={cards:seen}; let rec=false;
+        for(const [index,n] of seen.entries()){
+          const yes=await UI.confirmP(p, `덱 위 ${seen.length}장: ${names} — 「${card(n).ko}」를 재순환(덱 맨 아래)할까요?`, card(n), {publicLabel:`덱 위 ${seen.length}장 확인 — 재순환할지 선택`,deckScry,deckScryIndex:index});
           if(yes){ recList.push(n); rec=true; } else keep.push(n);
         }
         // 남긴 카드가 2장 이상이면 되돌릴 순서를 고른다 (위에 둘 카드부터)
         const order=[];
         while(keep.length>1){
-          const sel=await UI.pickOption(p, '덱 맨 위에 둘 카드부터 차례로 선택', keep.map((n,i)=>({v:i, label:card(n).ko, n})));
+          const sel=await UI.pickOption(p, '덱 맨 위에 둘 카드부터 차례로 선택', keep.map((n,i)=>({v:i, label:card(n).ko, n,deckLook:{cards:keep,kind:'top'}})));
           const i=(sel==null)?0:sel;
           order.push(keep.splice(i,1)[0]);
         }

@@ -372,7 +372,7 @@ P2P._onMsg = function(m){
         break;
       }
       case 'act': case 'choice': P2P.relay(m, 1); break;
-      case 'chat': NET.onChat && NET.onChat({t:'chat', from:P2P.peerName, msg:m.msg}); break;
+      case 'chat': {const chat={t:'chat',from:P2P.peerName,msg:m.msg};if(!NET._selectionPreviewIntercept(chat)) NET.onChat && NET.onChat(chat);break;}
     }
   } else {
     switch(m.t){
@@ -392,7 +392,7 @@ P2P._onMsg = function(m){
       case 'err': P2P.active=false; NET.onErr && NET.onErr(m.msg); break;
       case 'act': NET._enqueueAction(m); break;
       case 'choice': NET._resolveChoice(m); break;
-      case 'chat': NET.onChat && NET.onChat(m); break;
+      case 'chat': if(!NET._selectionPreviewIntercept(m)) NET.onChat && NET.onChat(m); break;
     }
   }
 };

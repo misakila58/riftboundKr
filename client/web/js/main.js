@@ -101,7 +101,9 @@ const UISCALE_KEY='rb_ui_scale';
 function uiScale(){ const v=parseFloat(localStorage.getItem(UISCALE_KEY)); return (v>=0.6&&v<=1.6)?v:1; }
 function applyUiScale(v){
   document.documentElement.style.zoom=v; updateLegalPad();
+  UI.reflowChoiceModal?.();
   UI.mobileHand?.render(); UI.mobileLog?.layout();
+  requestAnimationFrame(()=>{ UI.mobileHand?.render(); updateBattlefieldScroll(); });
 }
 // 화면 배치만 기기에 저장한다. 좌석과 게임 상태, 온라인 액션은 바꾸지 않는다.
 const GAME_LAYOUT = {
@@ -1072,7 +1074,7 @@ function initDecks(){
 // ---------- 덱 편집기 ----------
 // champOverride: 유저가 직접 고른 챔피언 (null이면 전설 기준 자동 = 견본덱 방식)
 const ED = { index:null, main:[], side:[], runes:{}, bfs:[], legendN:null, champOverride:null, selN:null,
-             arts:{}, recruitToken:271 };   // 카드번호 → 일러스트 인덱스 (0/없음 = 기본 그림)
+             arts:{}, recruitToken:271, runeLegendN:null };   // 카드번호 → 일러스트 인덱스 (0/없음 = 기본 그림)
 function deckRecruitToken(d){ return [272,273].includes(d?.recruitToken) ? d.recruitToken : 271; }
 function cardCreatesRecruit(n){
   const creates=value=>{
@@ -1090,16 +1092,22 @@ function renderRecruitTokenPicker(){
   const deck={legendN:edLegend()?.n??edLegendForChamp(edChampN()),main:ED.main,side:ED.side,bfs:ED.bfs};
   section.hidden=!deckCreatesRecruit(deck);
   if(section.hidden){ ED.recruitToken=271;section.replaceChildren();return; }
-  section.innerHTML='<b>신병 토큰 그림</b><p class="ed-token-help">이 덱이 생성하는 신병에 사용합니다. 기본 그림은 271입니다.</p><div class="ed-token-options"></div>';
+  section.open=false;
+  section.innerHTML='<summary></summary><div class="ed-token-options" role="group" aria-label="신병 카드 그림 선택"></div>';
+  const summary=section.querySelector('summary');
+  summary.textContent='신병 카드 선택: '+deckRecruitToken(ED);
   const options=section.querySelector('.ed-token-options');
   for(const n of [271,272,273]){
-    const label=document.createElement('label');label.className='ed-token-option';
+    const button=document.createElement('button');button.type='button';button.className='ed-token-option';
+    button.setAttribute('aria-label','신병 '+n+(n===271?' (기본)':''));
+    button.setAttribute('aria-pressed',String(deckRecruitToken(ED)===n));
     const img=document.createElement('img');img.src=tokenImg('Recruit',n);img.alt='신병 '+n;img.draggable=false;
-    const caption=document.createElement('span'),radio=document.createElement('input');
-    radio.type='radio';radio.name='ed-recruit-token';radio.value=n;radio.checked=deckRecruitToken(ED)===n;
-    radio.onchange=()=>{ ED.recruitToken=n; };
-    caption.append(radio,String(n)+(n===271?' (기본)':''));label.append(img,caption);options.appendChild(label);
+    const caption=document.createElement('span');caption.textContent=String(n)+(n===271?' (기본)':'');
+    button.onclick=()=>{ ED.recruitToken=n;renderRecruitTokenPicker();section.querySelector('summary').focus(); };
+    button.append(img,caption);options.appendChild(button);
   }
+  section.onkeydown=e=>{ if(e.key==='Escape'){ section.open=false;summary.focus();e.stopPropagation(); } };
+  section.ontoggle=()=>{ if(section.open) options.scrollIntoView({block:'nearest',inline:'nearest'}); };
 }
 // 사이드덱 최대 장수 — 2026-07-24 대회 규정으로 8장에서 10장으로 늘었다.
 // 공식 문구는 "10 or fewer"라 그 안에서는 몇 장이든 된다 (정확히 N장이 아니다).
@@ -1113,6 +1121,7 @@ function edToSide(e){
 
 function openEditor(index){
   ED.index=index;
+  ED.runeLegendN=null;
   if(index!==null){
     const d=myDecks[index];
     ED.legendN=d.legendN;
@@ -1251,6 +1260,49 @@ function edLegendForChamp(champN){
   return best.n;
 }
 
+// 저장된 유효한 배분은 유지하고, 전설 변경 또는 잘못된 룬 구성은 기본 배분으로 맞춘다.
+function edSyncRunes(){
+  const legend=edLegend() || (edChampN()!=null ? card(edLegendForChamp(edChampN())) : null);
+  const runeCards=legend ? legend.dom.map(d=>CARDS.find(c=>c.type==='Rune'&&c.dom[0]===d)).filter(Boolean) : [];
+  const legendN=legend?.n??null;
+  const valid=runeCards.length>0
+    && Object.entries(ED.runes).every(([n,cnt])=>runeCards.some(c=>c.n===+n)&&Number.isInteger(cnt)&&cnt>=0)
+    && runeCards.reduce((sum,c)=>sum+(ED.runes[c.n]||0),0)===12;
+  if(!valid || ED.runeLegendN!==null && ED.runeLegendN!==legendN){
+    ED.runes={};
+    runeCards.forEach((c,i)=>ED.runes[c.n]=Math.floor(12/runeCards.length)+(i<12%runeCards.length?1:0));
+  }
+  ED.runeLegendN=legendN;
+  return runeCards;
+}
+
+function edAdjustRune(n){
+  const runeCards=edSyncRunes();
+  const other=runeCards.find(c=>c.n!==n);
+  const cnt=ED.runes[n]||0;
+  if(!other || !runeCards.some(c=>c.n===n) || cnt>=12) return;
+  ED.runes[n]=cnt+1;
+  ED.runes[other.n]=12-ED.runes[n];
+  // 룬 영역만 갱신해 연속 클릭과 키보드 초점을 유지한다.
+  const animate=!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll('#ed-runes .ed-rune-ctl').forEach(button=>{
+    const runeN=+button.dataset.runeN;
+    const count=ED.runes[runeN]||0;
+    const num=button.querySelector('.ed-rune-count');
+    num.textContent=count;
+    button.disabled=count===12;
+    button.setAttribute('aria-label',`${button.dataset.runeName} 룬 ${count}장, 클릭하면 1장 증가`);
+    if(animate){
+      num.getAnimations().forEach(a=>a.cancel());
+      num.animate([{transform:`translateY(${runeN===n?7:-7}px) scale(.8)`,opacity:.4},{transform:'translateY(0) scale(1)',opacity:1}],{duration:220,easing:'ease-out'});
+      if(runeN===n){
+        button.getAnimations().forEach(a=>a.cancel());
+        button.animate([{transform:'scale(1)'},{transform:'scale(.94)',offset:.35},{transform:'scale(1)'}],{duration:200,easing:'ease-out'});
+      }
+    }
+  });
+}
+
 // 카드 1장 추가/제거 (성공 시 true) — 풀 클릭 확대 팝업의 ＋/− 버튼에서 사용
 // 같은 카드는 메인·사이드를 합쳐 3장까지 (공식 규칙)
 function edCopies(n){ return ED.main.filter(x=>x===n).length + ED.side.filter(x=>x===n).length; }
@@ -1385,18 +1437,24 @@ function renderEditor(){
   // 룬
   const runesEl=document.getElementById('ed-runes');
   runesEl.innerHTML='';
-  const runeCards=CARDS.filter(c=>c.type==='Rune');
-  let runeTotal=0; Object.values(ED.runes).forEach(v=>runeTotal+=v);
+  const runeCards=edSyncRunes();
+  const runeTotal=runeCards.reduce((sum,c)=>sum+(ED.runes[c.n]||0),0);
+  if(!runeCards.length) runesEl.textContent='선발 챔피언을 선택하면 연결된 전설의 룬이 표시됩니다.';
   runeCards.forEach(rc=>{
-    const ctl=document.createElement('div'); ctl.className='ed-rune-ctl';
+    const ctl=document.createElement('button'); ctl.type='button'; ctl.className='ed-rune-ctl';
     const cnt=ED.runes[rc.n]||0;
-    ctl.innerHTML=`${DOMAIN_ICON[rc.dom[0]]||'◆'} ${esc(DOMAIN_KO[rc.dom[0]]||rc.ko)} `;
-    const minus=document.createElement('button'); minus.textContent='−';
-    minus.onclick=()=>{ if(cnt>0){ED.runes[rc.n]=cnt-1; renderEditor();} };
-    const num=document.createElement('b'); num.textContent=cnt;
-    const plus=document.createElement('button'); plus.textContent='＋';
-    plus.onclick=()=>{ if(runeTotal<12){ED.runes[rc.n]=cnt+1; renderEditor();} };
-    ctl.appendChild(minus); ctl.appendChild(num); ctl.appendChild(plus);
+    const name=DOMAIN_KO[rc.dom[0]]||rc.ko;
+    ctl.dataset.runeN=rc.n; ctl.dataset.runeName=name;
+    ctl.setAttribute('aria-label',`${name} 룬 ${cnt}장, 클릭하면 1장 증가`);
+    ctl.title='클릭: 이 룬 1장 증가, 다른 룬 1장 감소';
+    ctl.disabled=runeCards.length!==2||cnt===12;
+    ctl.onclick=()=>edAdjustRune(rc.n);
+    const image=document.createElement('span'); image.className='ed-rune-image';
+    const img=document.createElement('img'); img.src=artImg(rc); img.alt=rc.ko; img.draggable=false;
+    image.appendChild(img);
+    const label=document.createElement('span'); label.textContent=name;
+    const num=document.createElement('b'); num.className='ed-rune-count'; num.textContent=cnt;
+    ctl.append(image,label,num);
     runesEl.appendChild(ctl);
   });
   document.getElementById('ed-rune-count').textContent=runeTotal;
@@ -1505,6 +1563,7 @@ function initEditor(){
   document.getElementById('btn-ed-save').onclick=async ()=>{
     const msg=document.getElementById('ed-msg');
     msg.textContent='';
+    edSyncRunes();
     const runes=[];
     Object.entries(ED.runes).forEach(([n,cnt])=>{ for(let i=0;i<cnt;i++) runes.push(+n); });
     const champN=edChampN();
@@ -1721,6 +1780,7 @@ function p2pRefreshDecks(){
   });
 }
 function p2pGetDeck(){
+  if(UI.onlineRevealPreviewDeck) return structuredClone(UI.onlineRevealPreviewDeck);
   const v=document.getElementById('p2p-deck').value;
   if(v==='auto'){
     const l=legendList()[Math.floor(Math.random()*legendList().length)];
@@ -2405,6 +2465,7 @@ function openSystemMenu(){
 
 // ---------- 게임 시작 ----------
 async function startOnlineGame(m){
+  if(UI.startOnlineRevealPreview) return UI.startOnlineRevealPreview(m);
   NET.spectating=!!m.spectate;
   // 첫 게임은 등록 덱 그대로 시작한다 (대회 규정 403.6 "첫 게임엔 사이드 사용 불가"). 단판(Bo1)은 대회 규정 406.1.f의 변형 시작 절차대로
   // 전장 공개·선후공 결정 뒤 손패를 뽑기 전에 사이드보딩한다(mulliganPhase → UI.sideboardStep). Bo3는 게임 사이(MATCH.next)에서만.
@@ -2677,6 +2738,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   // 화면 배율: 저장값 적용. 시작 화면의 옵션과 인게임 설정에서 공통으로 변경한다.
   applyUiScale(uiScale());
   updateStatsNotice();
+  if(['forced-rune-recycle','divine-judgment','sabotage','mindsplitter','vision','vision-play','deck-look'].includes(new URLSearchParams(location.search).get('preview'))) return;
   STATS.launch();
   const isMobileUA=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
   const needScale = isMobileUA && !localStorage.getItem(UISCALE_KEY) && !localStorage.getItem('rb_ui_scale_seen');

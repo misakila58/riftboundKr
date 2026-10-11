@@ -125,13 +125,18 @@ UI.fx.beforeRender=function(){
   for(const [key,next] of fxStates()){
     const previous=fxCardStates.get(key); if(!previous) continue;
     const resolve=()=>{ const state=fxCardStates.get(key); return state?[...document.querySelectorAll(state.selector)]:[]; };
-    if(next.ex!==previous.ex) fxCardAction(fxStateKey(key),resolve,'turn',previous.ex,next.ex);
-    if(next.signature!==previous.signature) fxPulseCard(next.selector);
     const direct=next.u && localControlsPlayer(next.ctrl)
       && (next.preview || previous.preview || fxDirectMoves.get(next.u.uid)===next.loc);
-    if(next.u && (next.loc!==previous.loc || next.ctrl!==previous.ctrl) && !direct){
-      UI.fx.moveCard(next.u.ctrl,next.u.n,previous.selector,next.selector,{unit:true});
-    }
+    const flying=next.u && (next.loc!==previous.loc || next.ctrl!==previous.ctrl)
+      && !direct && !localControlsPlayer(next.ctrl);
+    if(flying){
+      // The flight owns the rotation. A separate turn on the hidden arrival
+      // would make its computed angle look upright when the flight starts.
+      const turnKey=fxStateKey(key)+':turn', turn=fxCardActions.get(turnKey);
+      turn?.animations?.forEach(a=>a.cancel()); fxCardActions.delete(turnKey);
+      UI.fx.moveCard(next.u.ctrl,next.u.n,previous.selector,next.selector,{unit:true,opponentOnly:true});
+    }else if(next.ex!==previous.ex) fxCardAction(fxStateKey(key),resolve,'turn',previous.ex,next.ex);
+    if(next.signature!==previous.signature) fxPulseCard(next.selector);
   }
   fxDirectMoves.clear();
 };
@@ -148,7 +153,7 @@ function fxRefreshArrivals(){
   });
   const held=new Set();
   for(const m of fxArrivals){
-    const el=document.querySelector(m.to); if(!el) continue;
+    const el=document.querySelector(m.to); if(!el || m.keepTargetVisible) continue;
     if(m.trash && !held.has(m.to)){
       el.dataset.fxTrash=''; el.style.setProperty('--pile-image',m.trash.image);
       el.classList.toggle('has-card-image',m.trash.hasImage); held.add(m.to);
@@ -160,16 +165,19 @@ function fxRefreshArrivals(){
 UI.fx.captureOrigin=function(selector){
   if(G!==fxMoveGame || !fxMotionEnabled()) return null;
   const source=document.querySelector(selector), rect=source?.getBoundingClientRect();
-  return rect?.width && rect.height ? {game:G,anchor:fxAnchor(source)} : null;
+  if(!rect?.width || !rect.height) return null;
+  const matrix=new DOMMatrix(getComputedStyle(source).transform);
+  return {game:G,anchor:fxAnchor(source),angle:Math.atan2(matrix.b,matrix.a)*180/Math.PI};
 };
 UI.fx.moveCard = function(p, n, from, to, options={}){
   if(!fxMotionEnabled() || G!==fxMoveGame || G.phase==='setup') return;
+  if(options.opponentOnly && localControlsPlayer(p)) return;
   // Several removals can occur before the next render: engine indices have
   // shifted, but the departing DOM cards still have their previous indices.
   if(options.handIndex!==undefined){
     const slot=fxHandSlots[p].splice(options.handIndex,1)[0];
     if(slot===undefined) return;
-    from=`#hand-${p} [data-hand-index="${slot}"]`;
+    if(typeof from==='string') from=`#hand-${p} [data-hand-index="${slot}"]`;
   }
   if(options.rune){
     const slot=fxRuneSlots[p].indexOf(options.rune);
@@ -179,7 +187,7 @@ UI.fx.moveCard = function(p, n, from, to, options={}){
   const origin=typeof from==='string'?UI.fx.captureOrigin(from):from;
   if(!origin || origin.game!==G) return;
   const pile=document.querySelector(to);
-  fxMoves.push({p,n,anchor:origin.anchor,to,back:!!options.back,unit:options.unit,handLayout:options.handLayout,
+  fxMoves.push({p,n,anchor:origin.anchor,angle:origin.angle,to,back:!!options.back,unit:options.unit,handLayout:options.handLayout,keepTargetVisible:!!options.keepTargetVisible,
     trash:pile?.classList.contains('trash')?{image:pile.style.getPropertyValue('--pile-image'),hasImage:pile.classList.contains('has-card-image')}:null});
 };
 
@@ -201,7 +209,8 @@ UI.fx.handLayout=function(hz,origins){
   const p=+hz.id.slice(-1);
   const runes=hz.classList.contains('runes-zone');
   for(const {index,rect} of origins){
-    const n=runes?G.players[p].runes[index]?.n:G.players[p].hand[index];
+    // 효과 선택 화면의 표시 인덱스는 원래 룬 인덱스와 다를 수 있다.
+    const n=runes?(hz.querySelector(`[data-rune-index="${index}"]`)?._card?.n??G.players[p].runes[index]?.n):G.players[p].hand[index];
     if(n===undefined) continue;
     UI.fx.moveCard(p,n,{game:G,anchor:()=>rect},`#${hz.id} [data-${runes?'rune':'hand'}-index="${index}"]`,{unit:true,handLayout:hz.id});
   }
@@ -258,6 +267,7 @@ UI.fx.renderMoves = function(){
     moves.forEach((m,i)=>{
       if(m.handLayout && !fxArrivals.has(m)) return;
       const target=document.querySelector(m.to);
+      const movingCard=m.unit?target?._card:card(m.n);
       const handArrival=!m.handLayout && target?.matches('[data-hand-index]') &&
         target.closest('.mobile-hand, .mobile-opp-hand');
       // Another action can shift hand indices before the presentation frame.
@@ -270,8 +280,8 @@ UI.fx.renderMoves = function(){
       el.className='fx-card-flight'+(m.back?' card-back':'');
       el.setAttribute('aria-hidden','true');
       el.style.cssText=`left:${start.left}px;top:${start.top}px;width:${start.width}px;height:${start.height}px`;
-      if(!m.back){
-        const img=artImg(card(m.n),m.p);
+      if(!m.back && !m.unit){
+        const img=artImg(movingCard,m.p);
         if(img) el.style.backgroundImage=`url("${cardImgUrl(img,280)}")`;
       }
       fxLayer().appendChild(el);
@@ -287,13 +297,14 @@ UI.fx.renderMoves = function(){
         face.removeAttribute('data-uid'); face.removeAttribute('data-fx-arrival');
         face.removeAttribute('data-fx-hand-arrival');
         face.removeAttribute('data-board-choice');
+        if(m.keepTargetVisible) face.querySelector('.rune-payment-count')?.remove();
         face.classList.remove('chosen-target','targetable','selected');
         // The flight lives outside the hand zone; retain the expanded card's
         // frame and badges there as well as on the eventual destination.
         if((m.handLayout || handArrival) && target.closest('.mobile-hand-open')) face.classList.add('mobile-hand-face');
-        if(m.handLayout && target.closest('.mobile-runes-open')) face.classList.add('mobile-rune-face');
+        if(m.handLayout && target.closest('.mobile-runes-open, #mobile-rune-recycled')) face.classList.add('mobile-rune-face');
         Object.assign(face.style,{position:'absolute',left:'50%',top:'50%',margin:'0',visibility:'visible',transformOrigin:'center'});
-        if(m.handLayout || handArrival) face.style.transition='none'; // 비행 좌표에 별도의 호버 전환이 섞이지 않게 한다.
+        face.style.transition='none'; // 비행 좌표에 별도의 호버 전환이 섞이지 않게 한다.
         stage.appendChild(face); el.appendChild(stage);
       }
       const frames=()=>{
@@ -301,38 +312,50 @@ UI.fx.renderMoves = function(){
         if(!source.width || !source.height) return null;
         const target=document.querySelector(m.to);
         if(handArrival && !m.back && target?._card?.n!==m.n) return null;
+        // The flight must land on the final hand pose, not the intermediate
+        // rotation of the hand's own CSS transition. Restore hover transitions
+        // after the layout read; the flight owns this arrival's visible motion.
+        const settleHand=(m.handLayout || handArrival) && target?.matches('[data-hand-index]');
+        const transition=settleHand?target.style.transition:null;
+        if(settleHand) target.style.transition='none';
         const destination=target?.getBoundingClientRect();
+        const transform=stage && target?getComputedStyle(target).transform:null;
+        if(settleHand) target.style.transition=transition;
         if(!destination?.width || !destination.height) return null;
         const end=fxRect(destination);
+        // 룬은 재배치와 선택 영역 이동 모두 출발점에서 도착점까지 직선으로 움직인다.
+        const arc=movingCard?.type==='Rune'?0:Math.min(35,fxLayer().clientHeight*.045);
         // 펼치는 손패는 최종 크기로 그린 뒤 축소에서 1배까지 이동한다.
         // 작은 비행 레이어와 내부 카드의 반대 방향 확대를 겹치지 않는다.
-        const finalSize=handArrival || m.handLayout && target.closest('.mobile-hand-open, .mobile-runes-open');
+        const uniformFlight=!!stage;
+        const finalSize=uniformFlight || m.handLayout && target.closest('.mobile-hand-open, .mobile-runes-open, #mobile-rune-recycled');
         const size=finalSize?end:source;
         el.style.left=source.left+'px'; el.style.top=source.top+'px';
         el.style.width=size.width+'px'; el.style.height=size.height+'px';
         if(stage){
           if(handArrival) face.classList.toggle('mobile-hand-face',!!target.closest('.mobile-hand-open'));
-          const matrix=new DOMMatrix(getComputedStyle(target).transform);
+          const matrix=new DOMMatrix(transform);
           const angle=Math.atan2(matrix.b,matrix.a)*180/Math.PI, scale=Math.hypot(matrix.a,matrix.b);
           stage.style.cssText=`position:absolute;left:0;top:0;width:${end.width}px;height:${end.height}px;transform-origin:top left;transform:scale(${size.width/end.width},${size.height/end.height})`;
           face.style.width=target.offsetWidth+'px'; face.style.height=target.offsetHeight+'px';
           face.style.transform=`translate(-50%,-50%) rotate(${angle}deg) scale(${scale})`;
-          if(handArrival){
-            // Mobile piles are horizontal. Fly a complete card at a uniform
-            // scale, rotating it upright, instead of cropping art to the pile.
-            const fromAngle=source.width>source.height?90:0;
-            const width=(fromAngle?target.offsetHeight:target.offsetWidth)*scale;
-            const height=(fromAngle?target.offsetWidth:target.offsetHeight)*scale;
+          if(uniformFlight){
+            // All cloned cards retain their departure angle and proportions,
+            // then rotate along the shortest path to the destination angle.
+            const fromAngle=Number.isFinite(m.angle)?m.angle:source.width>source.height?90:0;
+            const radians=fromAngle*Math.PI/180, cos=Math.abs(Math.cos(radians)), sin=Math.abs(Math.sin(radians));
+            const width=(target.offsetWidth*cos+target.offsetHeight*sin)*scale;
+            const height=(target.offsetWidth*sin+target.offsetHeight*cos)*scale;
+            const rotation=((fromAngle-angle)%360+540)%360-180;
             const fromScale=Math.min(source.width/width,source.height/height);
             const dx=end.left+end.width/2-source.left-source.width/2;
             const dy=end.top+end.height/2-source.top-source.height/2;
-            const arc=Math.min(35,fxLayer().clientHeight*.045);
             el.style.left=(source.left+(source.width-end.width)/2)+'px';
             el.style.top=(source.top+(source.height-end.height)/2)+'px';
             el.style.transformOrigin='center';
             return [
-              {transform:`translate(0,0) rotate(${fromAngle-angle}deg) scale(${fromScale})`,opacity:1},
-              {transform:`translate(${dx*.48}px,${dy*.48-arc}px) rotate(${(fromAngle-angle)*.52}deg) scale(${fromScale+(1-fromScale)*.48})`,opacity:1,offset:.48},
+              {transform:`translate(0,0) rotate(${rotation}deg) scale(${fromScale})`,opacity:1},
+              {transform:`translate(${dx*.48}px,${dy*.48-arc}px) rotate(${rotation*.52}deg) scale(${fromScale+(1-fromScale)*.48})`,opacity:1,offset:.48},
               {transform:`translate(${dx}px,${dy}px) rotate(0deg) scale(1)`,opacity:1}
             ];
           }
@@ -340,7 +363,6 @@ UI.fx.renderMoves = function(){
         const dx=end.left-source.left, dy=end.top-source.top;
         const fromX=source.width/size.width, fromY=source.height/size.height;
         const sx=end.width/size.width, sy=end.height/size.height;
-        const arc=Math.min(35,fxLayer().clientHeight*.045);
         return [
           {transform:`translate(0,0) scale(${fromX},${fromY})`,opacity:1},
           {transform:`translate(${dx*.48}px,${dy*.48-arc}px) scale(${(fromX+sx)/2},${(fromY+sy)/2})`,opacity:1,offset:.48},
@@ -348,12 +370,17 @@ UI.fx.renderMoves = function(){
         ];
       };
       const initial=frames();
+      if(!initial){ el.remove(); fxArrivals.delete(m); fxRefreshArrivals(); return; }
       let geometry=JSON.stringify(initial);
+      let viewportRevision=fxViewportRevision;
       const speed=m.handLayout?2.25:1;
       const a=el.animate(initial,{duration:460/speed,delay:Math.min(i,6)*(m.handLayout?20:65)/speed,fill:'both',easing:'cubic-bezier(.22,.65,.3,1)'});
-      // Keep the timeline, but recompute geometry as cards reflow, scroll or zoom.
+      // Ordinary re-renders must not rewrite a running flight's path. Only
+      // actual viewport/zoom/scroll changes require new measurements.
       const unfollow=fxFollow(el,()=>{
         if(G!==game || !fxMotionEnabled()){ stop(); return; }
+        if(viewportRevision===fxViewportRevision) return;
+        viewportRevision=fxViewportRevision;
         const next=frames();
         if(!next){ stop(); return; }
         const key=JSON.stringify(next);
@@ -390,15 +417,19 @@ function fxRect(rect){
   return {left:pos.x,top:pos.y,width:size.x,height:size.y};
 }
 
+let fxViewportRevision=0, fxViewportSignature='';
 function fxSyncViewport(){
   const layer=document.getElementById('fx-layer');
   if(!layer) return;
   const view=window.visualViewport;
   const pos=fixedLayoutSpace(view?.offsetLeft||0,view?.offsetTop||0);
   const size=fixedLayoutSpace(view?.width||innerWidth,view?.height||innerHeight);
+  const signature=[innerWidth,innerHeight,pos.x,pos.y,size.x,size.y,fixedLayoutSpace(1,1).x].join(':');
+  if(signature!==fxViewportSignature){ fxViewportSignature=signature; fxViewportRevision++; }
   layer.style.cssText=`left:${pos.x}px;top:${pos.y}px;width:${size.x}px;height:${size.y}px;right:auto;bottom:auto`;
 }
 window.addEventListener('resize',fxSyncViewport);
+window.addEventListener('scroll',()=>{ fxViewportRevision++; },true);
 window.visualViewport?.addEventListener('resize',fxSyncViewport);
 window.visualViewport?.addEventListener('scroll',fxSyncViewport);
 new MutationObserver(fxSyncViewport).observe(document.documentElement,{attributes:true,attributeFilter:['style']});

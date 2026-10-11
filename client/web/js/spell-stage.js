@@ -11,11 +11,17 @@ window.addEventListener('keydown',e=>{
 
 UI.beginSpellStage=function(p,handIdx,n,opts={}){
   const draft={game:G,p,handIdx,n,mode:opts.mode||'cast',ready:false,submitted:false,cancelRequested:false,committed:false};
+  const origin=!NET.catchingUp && !NET.reconnecting && !replayLock()
+    ?UI.fx.captureOrigin?.(`#hand-${p} [data-hand-index="${handIdx}"]`):null;
   UI.spellStage=draft;
   UI.spellStageSubmitting=false;
   hideMenu(); closeModal(); UI.hideZoom();
   _moveArmed=false; _moveSel.clear();
   UI.render();
+  if(origin){
+    UI.fx.moveCard?.(p,n,origin,'#spell-stage .spell-stage-card',{unit:true,back:!localControlsPlayer(p),opponentOnly:true});
+    UI.fx.renderMoves?.();
+  }
   UI.playSpellStageSound?.('place');
   return draft;
 };
@@ -90,8 +96,11 @@ UI.confirmSpellStage=async function(draft,targets){
   UI.endSpellStage(draft);
 };
 
-UI.endSpellStage=function(draft){
+UI.endSpellStage=function(draft,opts={}){
   if(UI.spellStage!==draft) return;
+  const returning=opts.animateReturn!==false && !draft.committed && draft.game===G && G.winner===null
+    && !NET.catchingUp && !NET.reconnecting && !replayLock() && G.players[draft.p].hand[draft.handIdx]===draft.n;
+  const origin=returning?UI.fx.captureOrigin?.('#spell-stage .spell-stage-card'):null;
   draft.cancelPick=null;
   draft.dispose?.();
   UI.spellStage=null;
@@ -102,11 +111,26 @@ UI.endSpellStage=function(draft){
   document.body.classList.remove('spell-staging');
   UI.renderSelectedTargets?.();
   if(G){ UI.render(); UI.promptForState(); }
+  if(origin){
+    UI.fx.moveCard?.(draft.p,draft.n,origin,`#hand-${draft.p} [data-hand-index="${draft.handIdx}"]`,{unit:true,back:!localControlsPlayer(draft.p),opponentOnly:true});
+    UI.fx.renderMoves?.();
+  }
+};
+
+// 비용 룬 선택을 취소하면 아직 지불하지 않은 같은 주문을 확인 대기로 되돌린다.
+UI.resumeSpellStage=function(draft){
+  if(draft.game!==G || (UI.spellStage && UI.spellStage!==draft)) return false;
+  draft.ready=false; draft.submitted=false; draft.cancelRequested=false; draft.committed=false; draft.confirming=false;
+  UI.spellStage=draft;
+  UI.spellStageSubmitting=false;
+  hideMenu(); closeModal(); UI.hideZoom();
+  UI.render();
+  return true;
 };
 UI.resetSpellStage=function(){
   UI.spellStageSubmitting=false;
   const draft=UI.spellStage;
-  if(draft){ draft.cancelPick?.(); UI.endSpellStage(draft); }
+  if(draft){ draft.cancelPick?.(); UI.endSpellStage(draft,{animateReturn:false}); }
 };
 
 UI.renderSpellStage=function(){

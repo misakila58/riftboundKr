@@ -174,3 +174,92 @@ body.setup-in-progress #modal-box { border-color:#8b785657; background:#0b1829ed
   .setup-review figcaption { margin-top:4px; font-size:10px; }
   .setup-review figure > div { margin-bottom:4px; font-size:10px; }
 }
+
+/* 멀리건은 박스 대신 펼친 손패와 작은 확인 영역만 표시한다. */
+body.deck-reveal-open #modal-overlay { background:rgba(5,8,16,.45); }
+/* Floating deck cards can cross the sidebar. Keep its information behind them,
+   as in the mulligan, so it cannot cover a card or intercept its selection. */
+body.deck-reveal-open #inspector { position:relative; z-index:0; }
+body.deck-reveal-open #modal-shell #modal-box {
+  width:min(440px,100%); padding:8px; border:0; border-radius:0; background:none; box-shadow:none;
+  max-height:calc(var(--choice-viewport-height,100dvh) - 2 * var(--choice-edge,8px));
+  display:flex; flex-direction:column; align-items:center; overflow:auto;
+}
+body.deck-reveal-open #modal-box > h3 { margin:0 0 8px; text-shadow:0 2px 5px #000; }
+body.deck-reveal-open .decision-content { flex:none; flex-direction:column; align-items:center; gap:8px; overflow:visible; }
+body.deck-reveal-open .decision-source { flex:none; gap:6px; }
+body.deck-reveal-open .decision-source .decision-preview {
+  width:min(260px,100%,calc(var(--choice-card-height,200px) * .7115)); flex:none;
+}
+body.deck-reveal-open .decision-preview img {
+  width:100%; aspect-ratio:744 / 1039;
+  object-fit:contain; border-radius:8px; box-shadow:0 5px 18px #0009;
+}
+#modal-overlay > .deck-preview-flight img { width:100%; height:100%; object-fit:contain; }
+.modal-peeking #modal-overlay > .deck-preview-flight { visibility:hidden; }
+body.deck-reveal-open .decision-details { flex:none; text-align:center; font-size:12px; }
+body.deck-reveal-open .decision-row { padding:0; background:none; border:0; }
+body.deck-reveal-open .decision-row small { display:none; }
+body.deck-reveal-open #modal-box .decision-actions {
+  flex:none; width:min(360px,100%); margin:10px 0 0; padding:6px 10px; border:0; border-radius:12px;
+  background:#121c30e8; box-shadow:0 3px 12px #0005;
+}
+body.deck-look-open #modal-shell { width:960px; }
+body.deck-look-open #modal-shell #modal-box { width:100%; }
+body.deck-look-open .deck-look-grid { display:flex; justify-content:center; align-items:flex-start; gap:8px; width:100%; padding:8px 0; }
+body.deck-look-open .deck-look-card { min-width:0; flex:0 1 160px; max-width:calc(var(--choice-card-height,225px) * .7115); display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; font-size:12px; transition:translate .16s; }
+body.deck-look-open .deck-look-card.selected { translate:0 -12px; z-index:2; }
+body.deck-look-open .decision-preview img { width:100%; }
+body.deck-look-open .decision-preview { width:100%; border-radius:8px; cursor:pointer; }
+body.deck-look-open .deck-look-card.selected .decision-preview { outline:3px solid #ffe09a; box-shadow:0 0 16px #e8b45180; }
+body.deck-look-open .deck-look-card.unavailable .decision-preview { filter:saturate(.35); opacity:.65; }
+body.deck-look-open .deck-look-card strong { width:100%; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+body.mulligan-open #modal-overlay { background:rgba(5,8,16,.45); }
+body.mulligan-open #modal-shell { width:820px; }
+body.mulligan-open #modal-shell #modal-box {
+  width:min(820px,100%); padding:8px; border:0; border-radius:0; background:none; box-shadow:none;
+  max-height:calc(var(--choice-viewport-height,100dvh) - 2 * var(--choice-edge,8px));
+  display:flex; flex-direction:column; align-items:center; overflow:visible;
+}
+body.mulligan-open:not(.modal-peeking) #board .hand-zone { visibility:hidden; }
+body.mulligan-open .mulligan-heading { margin:0 0 12px; text-shadow:0 2px 5px #000; }
+body.mulligan-open #modal-box .mulligan-heading h3 { font-size:18px; margin:5px 0; }
+body.mulligan-open .mulligan-grid {
+  --mulligan-width:min(176px,calc((100% - 24px) / 4),calc(var(--choice-card-height,247px) * .7115));
+  display:flex; grid-template-columns:none; justify-content:center; align-items:center; gap:8px;
+  width:100%; padding:16px 10px 22px; overflow:visible; max-height:none; flex:none;
+}
+body.mulligan-open .mulligan-grid .mulligan-card {
+  width:var(--mulligan-width); height:auto; margin:0;
+  box-shadow:0 5px 18px #0009; transition:translate .16s,box-shadow .16s; z-index:1;
+}
+body.mulligan-open .mulligan-grid .mulligan-card.selected { transform:none; translate:0 -12px; z-index:2; }
+body.mulligan-open .mulligan-card:hover { z-index:3; }
+body.mulligan-open #modal-box .mulligan-actions {
+  flex:none; width:min(360px,100%); margin:8px 0 0; padding:6px 10px; border-radius:12px;
+  background:#121c30e8; box-shadow:0 3px 12px #0005;
+}
+@media(max-height:540px) {
+  body.mulligan-open .mulligan-heading { margin-bottom:2px; }
+  body.mulligan-open #modal-box .mulligan-heading h3 { font-size:15px; margin:2px 0; }
+  body.mulligan-open .mulligan-grid { padding:10px 8px 14px; }
+  body.mulligan-open #modal-box .mulligan-actions { margin-top:0; }
+}
+
+/* Reserve the eye control inside the viewport, including desktop root zoom. */
+#modal-overlay {
+  --choice-edge:calc(8 * var(--choice-pixel,1px));
+  --choice-eye-size:max(36px,calc(44 * var(--choice-pixel,1px)));
+  padding:var(--choice-edge);
+  padding-left:calc(var(--choice-edge) + var(--choice-eye-size) + 8px);
+}
+#modal-overlay:has(#modal-visibility-toggle[hidden]) { padding-left:var(--choice-edge); }
+#modal-shell { display:flex; max-width:100%; max-height:100%; min-height:0; }
+#modal-shell #modal-box {
+  min-height:0; max-width:100%;
+  max-height:calc(var(--choice-viewport-height,100dvh) - 2 * var(--choice-edge));
+}
+#modal-visibility-toggle {
+  left:calc(-1 * var(--choice-eye-size) - 8px);
+  width:var(--choice-eye-size); height:var(--choice-eye-size);
+}

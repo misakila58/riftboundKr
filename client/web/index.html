@@ -16,10 +16,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="리프트바운드">
 <link rel="apple-touch-icon" href="assets/logo.png">
-<link rel="stylesheet" href="css/style.css">
-<link rel="stylesheet" href="css/home.css">
+<link rel="stylesheet" href="css/style.css?v=mixed-ready-cards">
+<link rel="stylesheet" href="css/home.css?v=home-panel-scale">
 <link rel="stylesheet" href="css/mobile-popups.css">
-<link rel="stylesheet" href="css/setup-preview.css">
+<link rel="stylesheet" href="css/setup-preview.css?v=deck-selection-layer-restore">
 </head>
 <body>
 <!-- ══════════ 시작 화면 ══════════ -->
@@ -200,7 +200,6 @@
       <div id="ed-pool" class="ed-pool"></div>
     </div>
     <div id="ed-deck-panel">
-      <div id="ed-recruit-token" class="ed-section" hidden></div>
       <label class="ed-imgview" title="켜면 메인·사이드·전장 목록이 이름 대신 카드 그림으로 보입니다 (한 줄 10장)"><input type="checkbox" id="ed-img-view"> 🖼 이미지로 보기</label>
       <div class="ed-section"><b>메인 덱 <span id="ed-main-count">0</span>/40</b> (같은 카드 3장까지 · 클릭=제거)
         <div id="ed-main" class="ed-cardlist"></div>
@@ -209,9 +208,14 @@
         <div id="ed-side" class="ed-cardlist"></div>
       </div>
       <div class="ed-section"><b>룬 <span id="ed-rune-count">0</span>/12</b>
+        <div class="hint">늘릴 룬을 눌러 주세요. 다른 룬은 1장 줄어들며 합계 12장을 유지합니다.</div>
         <div id="ed-runes" class="ed-runes"></div>
       </div>
-      <div class="ed-section"><b>전장 <span id="ed-bf-count">0</span>/3</b> (클릭=제거)
+      <div class="ed-section">
+        <div class="ed-section-head">
+          <span><b>전장 <span id="ed-bf-count">0</span>/3</b> (클릭=제거)</span>
+          <details id="ed-recruit-token" class="ed-token-picker" hidden></details>
+        </div>
         <div id="ed-bfs" class="ed-cardlist"></div>
       </div>
       <div class="ed-section"><b>선발 챔피언</b>
@@ -621,7 +625,7 @@
 </div>
 
 <script src="js/boot-guard.js"></script>
-<script src="js/buildinfo.js"></script>
+<script src="js/buildinfo.js?v=aurora-no-ack"></script>
 <script src="js/patchnotes.js"></script>
 <!-- 로컬 카드 이미지 목록 (생성물 · 없으면 CDN에서 받도록 자동 폴백) -->
 <script src="js/imgmap.js"></script>
@@ -630,22 +634,22 @@
 <script src="js/banlist.js"></script>
 <script src="js/loc.js"></script>
 <script src="js/effects.js"></script>
-<script src="js/cardscripts.js"></script>
-<script src="js/engine.js"></script>
+<script src="js/cardscripts.js?v=revealed-hand-departure"></script>
+<script src="js/engine.js?v=opponent-play-flight"></script>
 <script src="js/stats.js"></script>
-<script src="js/net.js"></script>
+<script src="js/net.js?v=mulligan-observer-deal"></script>
 <script src="js/signal.js"></script>
-<script src="js/p2p.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/spell-stage.js"></script>
+<script src="js/p2p.js?v=revealed-hand-observer"></script>
+<script src="js/ui.js?v=unit-pointer-center"></script>
+<script src="js/spell-stage.js?v=opponent-play-flight"></script>
 <script src="js/vendor/cannon-es-0.20.0.js"></script>
 <script src="js/setup-dice-physics.js"></script>
 <script src="js/setup-preview.js"></script>
-<script src="js/fx.js"></script>
+<script src="js/fx.js?v=hand-final-pose"></script>
 <script src="js/sfx.js"></script>
 <script src="js/dice-audio.js"></script>
 <script src="js/tutorial.js"></script>
-<script src="js/main.js"></script>
+<script src="js/main.js?v=choice-viewport-fit"></script>
 <script src="js/rank.js"></script>
 <script src="js/turn-timer.js"></script>
 <script src="js/deckimage.js"></script>
@@ -653,12 +657,13 @@
 <script src="js/home.js"></script>
 <script src="js/botdecks.js"></script>
 <script src="js/bot-eval.js"></script>
-<script src="js/bot-sim.js"></script>
+<script src="js/bot-sim.js?v=public-deck-auto"></script>
 <script src="js/bot-policy.js"></script>
 <script src="js/bot.js"></script>
 <script src="js/undo.js"></script>
-<script src="js/mobile.js"></script>
+<script src="js/mobile.js?v=revealed-hand-departure"></script>
 <!-- replay.js는 newGame/UI.log/UI.render/UI.showVictory를 감싸므로 반드시 마지막에 로드 -->
-<script src="js/replay.js"></script>
+<script src="js/replay.js?v=slider-seek-position"></script>
+<script src="js/rune-preview.js?v=aurora-ten-spells-preview"></script>
 </body>
 </html>
