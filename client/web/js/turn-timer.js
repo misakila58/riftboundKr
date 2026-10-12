@@ -121,9 +121,11 @@ function ttVoidAsk(){
   TURN_TIMER._vOpen = true;
   const box = document.createElement('div'); box.id = 'void-ask'; box.setAttribute('role', 'dialog');
   box.innerHTML = '<div class="void-title">⏳ 상대가 2분 동안 응답이 없습니다</div>'
-    + '<div class="void-copy">이번 경기를 무효로 할까요? 무효로 하면 ' + (NET.lastStart?.ranked ? '등급 점수에 반영되지 않고 ' : '') + '두 사람 모두 로비로 돌아갑니다.</div>';
+    + '<div class="void-copy">' + (NET.lastStart?.ranked
+      ? '무응답 승리로 끝낼까요? 상대는 무응답 패배로 등급에 반영되고 두 사람 모두 로비로 돌아갑니다.'
+      : '이번 경기를 무효로 할까요? 무효로 하면 두 사람 모두 로비로 돌아갑니다.') + '</div>';
   const btns = document.createElement('div'); btns.className = 'void-btns';
-  const yes = document.createElement('button'); yes.className = 'primary'; yes.textContent = '무효로 하고 나가기';
+  const yes = document.createElement('button'); yes.className = 'primary'; yes.textContent = NET.lastStart?.ranked ? '무응답 승리로 끝내기' : '무효로 하고 나가기';
   yes.onclick = () => { yes.disabled = true; NET.send({t:'voidMatch'}); setTimeout(() => { if(document.getElementById('void-ask')) ttVoidClose(); TURN_TIMER._vSince = Date.now(); }, 4000); };
   const no = document.createElement('button'); no.textContent = '계속 기다리기';
   no.onclick = () => { ttVoidClose(); TURN_TIMER._vSince = Date.now(); };   // 2분 더 기다린 뒤 다시 묻는다

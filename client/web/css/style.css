@@ -635,6 +635,7 @@ body.fx-disabled .hand-zone.mobile-hand-open > [data-hand-index] { transition:no
 }
 .card-mini.exhausted .board-order-badge { transform:translate(-50%,-50%) rotate(-90deg); }
 .board-pick-alternative { display:inline-flex; align-items:center; gap:6px; text-align:left; }
+#board-extra-options { max-height:38vh; overflow-y:auto; overscroll-behavior:contain; }   /* 후보가 많으면 목록 안에서 스크롤 (보드 카드도 목록에 포함, 2026-10-12) */
 .board-pick-alternative img { width:30px; height:42px; object-fit:cover; border-radius:3px; }
 .card-mini.stunned {
   border-color:#7cc8ff;

@@ -55,3 +55,5 @@ tools/data/errata-2026-01-12.pdf
 tools/data/rules-audit-2026/
 tools/data/replays/
 tools/data/botlog/
+
+tools/server-tests/tmp-*/

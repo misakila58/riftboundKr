@@ -767,16 +767,21 @@ function _pickCardOptionLocal(p,title,options,targets,cancel=true,centerActions=
     const centerBtns=document.createElement('div'); centerBtns.id='board-order-controls';
     const extras=document.createElement('div'); extras.id='board-extra-options';
     extras.setAttribute('aria-label',_reactionPick?'추가 반응 능력':'추가 선택지');
+    // 보드 위 후보(유닛·도구·전설)도 목록에 함께 넣는다 — 작은 화면에서 강조된 카드가 화면 밖(전장 가로 스크롤 등)에 있으면 고를 수 없던 제보
+    // (2026-10-12, 미스 포츈 선장 '준비시킬 대상'에 룬만 보임). 손패·숨김 카드(응수 창)는 그대로 보드에서 고른다.
+    let boardListed=0;
     options.forEach((o,i)=>{
-      if(targets[i]) return;
-      const b=document.createElement('button'); b.className='board-pick-alternative';
+      const t=targets[i];
+      if(t && !(['unit','gear','legend','attached'].includes(t.kind) && !_reactionPick)) return;
+      const b=document.createElement('button'); b.className='board-pick-alternative'+(t?' board-pick-boardcard':'');
+      if(t){ boardListed++; }
       const inCenter=centerActions || o.v===null;
       if(inCenter){ b.type='button'; b.classList.add(o.v==='reset'?'order-reset':'order-confirm'); }
       const c=optionCard(o);
       if(c?.img){const img=document.createElement('img');img.src=cardImgUrl(c.img,120);img.alt='';b.appendChild(img);}
       const label=document.createElement('span');label.textContent=o.label;b.appendChild(label);
       b.type='button';
-      b.onclick=()=>finish(i);attachCardHover(b,c);(inCenter?centerBtns:extras).appendChild(b);
+      b.onclick=()=>finish(i);attachCardHover(b,c);(inCenter&&!t?centerBtns:extras).appendChild(b);
       if(o.v==='done' || o.v==='default') UI.markSpaceConfirm(b);
     });
     if(cancel && !options.some(o=>o.v===null)){
@@ -785,7 +790,7 @@ function _pickCardOptionLocal(p,title,options,targets,cancel=true,centerActions=
     }
     if(extras.childElementCount){
       const label=document.createElement('strong'); label.className='board-extra-heading';
-      label.textContent=_reactionPick?'추가 반응 능력':'추가 선택지';
+      label.textContent=_reactionPick?'추가 반응 능력':(boardListed?'선택지 (보드 카드를 눌러도 됩니다)':'추가 선택지');
       centerBtns.prepend(label,extras);
       document.getElementById('center-info').classList.add('board-extra-picking');
     }

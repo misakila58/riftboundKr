@@ -1752,8 +1752,13 @@ function initLobby(){
   NET.onServerUpdate=()=>serverUpdateNotice();
   // 시작 단계 무응답으로 경기가 무효 처리됨 (turn-timer.js 질문 → 서버 voidMatch) — 승패·리플레이 없이 로비로
   NET.onMatchVoided=m=>{
+    if(m.forfeit){   // 등급전 시작 단계 무응답 → 무응답 쪽 패배 (등급 반영)
+      alert(m.won ? '상대가 시작 단계에서 2분 넘게 응답하지 않아 무응답 승리로 처리했습니다 (등급 반영). 로비로 돌아갑니다.'
+                  : '시작 단계에서 2분 넘게 응답하지 않아 무응답 패배로 처리됐습니다 (등급 반영). 로비로 돌아갑니다.');
+      location.reload(); return;
+    }
     alert(m.byMe ? '경기를 무효로 처리했습니다'+(NET.lastStart?.ranked?' (등급 미반영)':'')+'. 로비로 돌아갑니다.'
-                 : '시작 단계에서 1분 넘게 응답이 없어 상대가 경기를 무효로 처리했습니다'+(NET.lastStart?.ranked?' (등급 미반영)':'')+'. 로비로 돌아갑니다.');
+                 : '시작 단계에서 2분 넘게 응답이 없어 상대가 경기를 무효로 처리했습니다'+(NET.lastStart?.ranked?' (등급 미반영)':'')+'. 로비로 돌아갑니다.');
     location.reload();
   };
   NET.onOppLeft=async()=>{

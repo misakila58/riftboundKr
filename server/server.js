@@ -1113,6 +1113,19 @@ function voidRoom(r, by, how) {
   (r.spectators || []).forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); });
   broadcastLobby(); persistRooms();
 }
+// 등급전 무응답 패배: 결과를 반영하고 방을 닫는다. 요청자는 승리, 무응답 쪽은 패배 — 양쪽에 matchVoided(forfeit:true)로 안내
+function forfeitRoom(r, winner, loser, how) {
+  rankSettle(r, winner.seat, loser.id + ' ' + how);
+  rooms.delete(r.id);
+  r.players.forEach(pl => {
+    clearTimeout(pl.timer);
+    if (!pl.ws) return;
+    pl.ws._room = null;
+    wsSend(pl.ws, { t: 'matchVoided', how, byMe: pl === winner, forfeit: true, won: pl === winner });
+  });
+  (r.spectators || []).forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); });
+  broadcastLobby(); persistRooms();
+}
 function roomVerMismatch(r) { return r.players.length === 2 && String(r.players[0].ver) !== String(r.players[1].ver); }
 function closeMismatchRoom(r, how) {
   if (r.ranked && !r.rankSettled) { r.rankSettled = true; r.rankResultMsgs = {}; r.players.forEach(pl => { r.rankResultMsgs[pl.seat] = { t: 'rankUpdate', void: true, format: r.format, how }; }); }
@@ -1597,6 +1610,9 @@ wss.on('connection', (ws, req) => {
           return wsSend(ws, { t: 'err', msg: '이미 진행된 경기는 무효로 할 수 없습니다' });
         const quiet = Date.now() - Math.max((opp && opp.lastAct) || 0, r.startedAt || 0, SERVER_STARTED_AT);
         if (opp && quiet < LIMITS.VOID_IDLE_MS) return wsSend(ws, { t: 'err', msg: '상대가 방금 응답했습니다 — 조금 더 기다려 주세요' });
+        // 등급전: 무효가 아니라 무응답 쪽 패배 — 멀리건·첫 턴에서 버텨 무효를 유도하는 악용 차단 (2026-10-12). 접속이 살아 있는데
+        // 2분 넘게 응답이 없는 것은 자리 비움이든 고의든 패배로 본다(끊긴 경우는 유예 뒤 이탈 패배로 따로 처리됨). 일반 방은 전처럼 방만 닫는다.
+        if (r.ranked && opp && !r.rankSettled) { forfeitRoom(r, me, opp, '무응답(시작 단계)'); break; }
         voidRoom(r, me, '상대 무응답(시작 단계)');
         break;
       }
