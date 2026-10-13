@@ -1146,6 +1146,48 @@ function roomInfo(r) {
 // 로비에 보이는 방: 아직 시작 전이거나, 시작했어도 관전을 허용한 방
 function lobbyRooms() { return [...rooms.values()].filter(r => !r.started || r.allowSpectate).map(roomInfo); }
 // 게임 시작 메시지 — 플레이어는 자기 좌석, 관전자는 좌석 -1
+// 계정 기준으로 끝나지 않은 등급전 좌석 — 소켓이 끊겨 유예 중이거나 다른 접속이 쥐고 있어도 찾는다.
+// 새 접속(다른 창·기기)이 등급전 참가·방 만들기·입장을 시도하면 새 매칭 대신 이 경기로 되돌린다 — 유예 중인 좌석을 버려 두고 다른 경기를 시작해
+// 두 등급전에 동시에 속하던 허점(2026-10-13 제보: karina 전 이탈 패배 + Snap 전 동시 진행).
+function pendingRankSeat(userId) {
+  for (const r of rooms.values()) {
+    if (!r.started || !r.ranked || r.rankSettled || r.players.length < 2) continue;
+    const pl = r.players.find(q => q.id === userId); if (pl) return { r, pl };
+  }
+  return null;
+}
+// 같은 계정의 시작된 방 좌석에 소켓을 다시 붙이고 start + 그동안의 행동/선택 로그를 보내 따라잡게 한다. 성공하면 true, 아니면 rejoinNone을 보내고 false.
+// pick을 주면 그 좌석(다른 접속이 쥐고 있어도 가져옴), 없으면 빈 좌석만 찾는다.
+function rejoinSeat(ws, pick) {
+  let found = pick ? pick.r : null, seat = pick ? pick.pl : null;
+  if (!pick) for (const r of rooms.values()) { const pl = r.started && r.players.find(q => q.id === ws._userId && !q.ws); if (pl) { found = r; seat = pl; break; } }
+  if (!found) { wsSend(ws, { t: 'rejoinNone' }); return false; }
+  if (roomVerMismatch(found)) { closeMismatchRoom(found, '앱 버전 불일치(진행 불가)'); wsSend(ws, { t: 'rejoinNone' }); return false; }
+  if (found.players.length < 2) {   // 내가 끊긴 사이 상대가 이미 나감(판 종료 뒤 퇴장 등) — 혼자 남은 방엔 복귀시키지 않는다(클라이언트가 상대 정보 없이 시작하다 멈춤)
+    clearTimeout(seat.timer);
+    if (found.rankResultMsgs && found.rankResultMsgs[seat.seat]) wsSend(ws, found.rankResultMsgs[seat.seat]);   // 이미 확정된 등급 결과는 알려 준다
+    found.players.splice(found.players.indexOf(seat), 1);
+    if (!found.players.length) { rooms.delete(found.id); (found.spectators || []).forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); }); }
+    broadcastLobby(); persistRooms();
+    wsSend(ws, { t: 'rejoinNone' }); return false;
+  }
+  if (seat.ws && seat.ws !== ws) {   // 다른 접속이 좌석을 쥐고 있으면 새 접속이 가져온다 (옛 접속은 경기에서 분리)
+    const old = seat.ws; old._room = null; wsSend(old, { t: 'err', msg: '같은 계정이 다른 접속에서 이 경기에 복귀했습니다' }); try { old.close(); } catch (e) {}
+  }
+  clearTimeout(seat.timer); if (seat.gone) seat.awayMs = (seat.awayMs || 0) + Math.max(0, Date.now() - seat.gone);   // 누적 자리 비움(유예 축소 판단용)
+  seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false;
+  found.rejoins = (found.rejoins || 0) + 1;   // 통계: 매치 중 재접속 횟수
+  // 자리 비운 동안에도 턴 제한 시간은 흐른다 — 방의 마지막 행동/선택 이후 지난 시간을 알려 주면 클라이언트가 그만큼 이미 흐른 것으로 친다
+  // (끊었다 들어와 턴 시간을 새로 받는 이득 제거, 2026-10-07)
+  const idleMs = Math.max(0, Date.now() - Math.max(...found.players.map(q => q.lastAct || 0), found.startedAt || 0, SERVER_STARTED_AT));
+  wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true, idleMs });
+  (found.log || []).forEach(o => wsSend(ws, o));
+  wsSend(ws, { t: 'rejoinDone' });
+  if (found.rankResultMsgs && found.rankResultMsgs[seat.seat]) wsSend(ws, found.rankResultMsgs[seat.seat]);   // 이미 확정된 등급 결과
+  roomEveryone(found).forEach(q => { if (q.ws !== ws) wsSend(q.ws, { t: 'opponentBack', id: ws._userId }); });
+  broadcastLobby(); persistRooms();
+  return true;
+}
 function startMsg(r, seat) {
   return { t: 'start', seed: r.seed, yourSeat: seat, spectate: seat < 0, manual: r.manual !== false, banRule: !!r.banRule, format: r.format || 'bo1',
     turnTimer: roomTurnTimer(r), undo: roomUndo(r),
@@ -1454,6 +1496,7 @@ wss.on('connection', (ws, req) => {
       wss.clients.forEach(c => { if (c !== ws && c._userId === user.id) { if (!dropPlayer(c)) leaveRoom(c); c.close(); } });   // 같은 계정의 새 접속 — 옛 소켓의 좌석은 유예로 남겨 rejoin 가능
       ws._authed = true; ws._userId = user.id;
       wsSend(ws, { t: 'authOk', id: user.id, ver: WEB_VERSION || null, draining });   // ver: 서버가 제공하는 웹 클라 버전 — 클라가 자기 버전과 비교해 새로고침 안내
+      if (pendingRankSeat(user.id)) wsSend(ws, { t: 'rejoinPending', ranked: true });   // 진행 중 등급전이 있음 — 클라이언트가 바로 rejoin을 보낼 수 있게 (옛 클라이언트는 무시)
       broadcastLobby();
       return;
     }
@@ -1467,6 +1510,7 @@ wss.on('connection', (ws, req) => {
         break;
       case 'createRoom': {
         if (ws._room) return;
+        { const pend = pendingRankSeat(ws._userId); if (pend) { wsSend(ws, { t: 'err', msg: '⚠ 진행 중인 등급전이 있어 그 경기로 복귀합니다 — 끝내지 않고 나가면 패배로 기록됩니다' }); rejoinSeat(ws, pend); break; } }
         if (rooms.size >= LIMITS.MAX_ROOMS) return wsSend(ws, { t: 'err', msg: '서버 방이 가득 찼습니다.' });
         const deck = resolveDeck(ws, m);
         if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요 (덱 형식 오류 포함)' });
@@ -1489,6 +1533,7 @@ wss.on('connection', (ws, req) => {
       }
       case 'joinRoom': {
         if (ws._room) return;
+        { const pend = pendingRankSeat(ws._userId); if (pend) { wsSend(ws, { t: 'err', msg: '⚠ 진행 중인 등급전이 있어 그 경기로 복귀합니다 — 끝내지 않고 나가면 패배로 기록됩니다' }); rejoinSeat(ws, pend); break; } }
         const r = rooms.get(m.roomId);
         if (!r || r.started || r.players.length >= 2) return wsSend(ws, { t: 'err', msg: '입장할 수 없는 방입니다' });
         if (r.players[0].id === ws._userId) return wsSend(ws, { t: 'err', msg: '자신의 방에는 입장할 수 없습니다' });
@@ -1539,6 +1584,7 @@ wss.on('connection', (ws, req) => {
       case 'leaveRoom': leaveRoom(ws); break;
       case 'rankQueue': {
         if (ws._room) return wsSend(ws, { t: 'err', msg: '이미 방에 있습니다' });
+        { const pend = pendingRankSeat(ws._userId); if (pend) { wsSend(ws, { t: 'err', msg: '⚠ 진행 중인 등급전이 있어 그 경기로 복귀합니다 — 끝내지 않고 나가면 패배로 기록됩니다' }); rejoinSeat(ws, pend); break; } }
         const format = m.format === 'bo3' ? 'bo3' : 'bo1';
         const deck = resolveDeck(ws, m);
         if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요 (덱 형식 오류 포함)' });
@@ -1554,32 +1600,9 @@ wss.on('connection', (ws, req) => {
       case 'rankResult': rankReport(ws, m); break;
       case 'rankGame': rankGameReport(ws, m); break;
       case 'rejoin': {
-        // 같은 계정의 빈 좌석이 있는 시작된 방을 찾아 소켓을 다시 붙이고, start + 그동안의 행동/선택 로그를 보내 따라잡게 한다
+        // 같은 계정의 빈 좌석이 있는 시작된 방을 찾아 소켓을 다시 붙이고, start + 그동안의 행동/선택 로그를 보내 따라잡게 한다 (본문은 rejoinSeat)
         if (ws._room) return;
-        let found = null, seat = null;
-        for (const r of rooms.values()) { const pl = r.started && r.players.find(q => q.id === ws._userId && !q.ws); if (pl) { found = r; seat = pl; break; } }
-        if (!found) return wsSend(ws, { t: 'rejoinNone' });
-        if (roomVerMismatch(found)) { closeMismatchRoom(found, '앱 버전 불일치(진행 불가)'); return wsSend(ws, { t: 'rejoinNone' }); }
-        if (found.players.length < 2) {   // 내가 끊긴 사이 상대가 이미 나감(판 종료 뒤 퇴장 등) — 혼자 남은 방엔 복귀시키지 않는다(클라이언트가 상대 정보 없이 시작하다 멈춤)
-          clearTimeout(seat.timer);
-          if (found.rankResultMsgs && found.rankResultMsgs[seat.seat]) wsSend(ws, found.rankResultMsgs[seat.seat]);   // 이미 확정된 등급 결과는 알려 준다
-          found.players.splice(found.players.indexOf(seat), 1);
-          if (!found.players.length) { rooms.delete(found.id); (found.spectators || []).forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); }); }
-          broadcastLobby(); persistRooms();
-          return wsSend(ws, { t: 'rejoinNone' });
-        }
-        clearTimeout(seat.timer); if (seat.gone) seat.awayMs = (seat.awayMs || 0) + Math.max(0, Date.now() - seat.gone);   // 누적 자리 비움(유예 축소 판단용)
-        seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false;
-        found.rejoins = (found.rejoins || 0) + 1;   // 통계: 매치 중 재접속 횟수
-        // 자리 비운 동안에도 턴 제한 시간은 흐른다 — 방의 마지막 행동/선택 이후 지난 시간을 알려 주면 클라이언트가 그만큼 이미 흐른 것으로 친다
-        // (끊었다 들어와 턴 시간을 새로 받는 이득 제거, 2026-10-07)
-        const idleMs = Math.max(0, Date.now() - Math.max(...found.players.map(q => q.lastAct || 0), found.startedAt || 0, SERVER_STARTED_AT));
-        wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true, idleMs });
-        (found.log || []).forEach(o => wsSend(ws, o));
-        wsSend(ws, { t: 'rejoinDone' });
-        if (found.rankResultMsgs && found.rankResultMsgs[seat.seat]) wsSend(ws, found.rankResultMsgs[seat.seat]);   // 이미 확정된 등급 결과
-        roomEveryone(found).forEach(q => { if (q.ws !== ws) wsSend(q.ws, { t: 'opponentBack', id: ws._userId }); });
-        broadcastLobby(); persistRooms();
+        rejoinSeat(ws, null);
         break;
       }
       case 'act':
