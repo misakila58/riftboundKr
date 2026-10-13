@@ -3081,10 +3081,11 @@ async function killUnit(u, opts){
     if(zi>=0) cands.push({ id:'zhonya',label:'존야의 모래시계 — 도구를 대신 폐기', forced:true,
       run: async () => { await killGear(u.ctrl, zi); recall('존야'); return true; } });
     // 무허가 무기고(23): "you may pay 분노" — 선택
-    if(u._armory && canPay(u.ctrl,0,['Fury'])) cands.push({ id:'armory',label:'무허가 무기고 — 분노 힘 1 지불', forced:false,
+    if(u._armory && canPayWithFunding(u.ctrl,0,['Fury'],false)) cands.push({ id:'armory',label:'무허가 무기고 — 분노 힘 1 지불', forced:false,
       run: async () => {
         const yes = await UI.confirmP(u.ctrl, `[무허가 무기고] 분노 힘 1을 지불하고 「${unitName(u)}」을(를) 회수할까요?`, unitCard(u),{botChoice:saveChoice(false,['Fury']),decision:{title:'무허가 무기고: 사망 시 회수',cost:'분노 힘 1',result:`「${unitName(u)}」을(를) 치유하고 탈진 상태로 기지에 회수`,accept:'지불하고 회수',decline:'회수 안 함'}});
         if(!yes) return false;
+        if(!(await askResourceFunding(u.ctrl, '무허가 무기고', 0, ['Fury'], false, 23, '회수 취소'))) return false;
         payCost(u.ctrl,0,['Fury']); u._armory=Math.max(0,(u._armory|0)-1); recall('무허가 무기고'); return true;   // 한 장만 소모(#686)
       } });
     // 세트 - 두목 전설(269): "you may pay ✳ and exhaust me" — 선택 (예전엔 라벨이 '미스 포츈'으로 잘못 적혀 있었다)
@@ -3094,7 +3095,7 @@ async function killUnit(u, opts){
         if(P.legendEx)
           // 전설 탈진이 비용이라 한 턴에 한 번뿐이다. 아무 말 없이 그냥 죽으면 버그로 보인다.
           UI.log(`「세트 - 두목」: 전설이 이미 탈진되어 「${unitName(u)}」에는 쓸 수 없습니다`, 'sys');
-        else if(!canPay(u.ctrl,0,['Any']))
+        else if(!canPayWithFunding(u.ctrl,0,['Any'],false))   // 인장·전설 같은 [반응] 자원 능력으로 낼 수 있어도 후보에 둔다 (제보 2026-10-13: 힘의 문장이 안 쓰임)
           UI.log(`「세트 - 두목」: 힘(✳)이 부족해 「${unitName(u)}」에는 쓸 수 없습니다`, 'sys');
         else
           cands.push({ id:'sett',label:'세트 - 두목 — ✳1 지불 + 전설 탈진 + 버프 소모', forced:false,
@@ -3111,6 +3112,8 @@ async function killUnit(u, opts){
               // 사이드바 안내 칸에만 작게 놓여 "무조건 회수해야 넘어간다"로 보였다 (제보 2026-09-17, v1.0.69).
               const yes = await UI.confirmP(u.ctrl, `[세트 - 두목] ✳1 지불+전설 탈진+버프 소모로 「${unitName(u)}」을(를) 회수할까요? (아니오를 누르면 그대로 죽습니다)${alsoDying}`, [card(P.legendN),unitCard(u)],{botChoice:saveChoice(true,['Any']),decision:{title:'세트: 사망 시 회수',cost:'아무 영역 힘 1, 전설 탈진, 이 유닛의 버프 1개 소모',result:`「${unitName(u)}」을(를) 치유하고 탈진 상태로 기지에 회수`,note:'회수하지 않으면 사망 처리를 계속합니다.'+alsoDying,accept:'지불하고 회수',decline:'회수 안 함'}});
               if(!yes) return false;
+              // 룰 357.1.a: 룬을 재활용하기 전에 인장 등 [반응] 자원 능력을 먼저 쓸지 묻고, 모자라면 충당한다 (취소하면 그대로 죽음)
+              if(!(await askResourceFunding(u.ctrl, card(P.legendN).ko, 0, ['Any'], false, P.legendN, '회수 취소'))) return false;
               payCost(u.ctrl,0,['Any']); P.legendEx=true; u.buff=Math.max(0,u.buff-1);
               recall('세트 - 두목'); return true;
             } });

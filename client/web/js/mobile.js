@@ -1191,3 +1191,18 @@
     if(opened?.contains(el)) close(true,+el.dataset.handIndex);
   }};
 })();
+
+// ══════════ 모바일: 카드 정보 칸 접기/펼치기 ══════════
+// 작은 화면에서 카드 정보 칸이 보드를 밀어내 상대 기지 유닛이 가려지거나 누르기 어렵다는 제보(2026-10-13).
+// 버튼(#insp-min)으로 한 줄(카드 이름만)로 접고, 상태는 기기에 저장한다(rb_insp_min). 데스크톱은 CSS가 버튼을 숨긴다.
+(function(){
+  const KEY='rb_insp_min';
+  function init(){
+    const btn=document.getElementById('insp-min'); if(!btn) return;
+    const apply=on=>{ document.body.classList.toggle('insp-min',on); btn.textContent=on?'▸':'▾'; btn.title=on?'카드 정보 펼치기':'카드 정보 접기'; btn.setAttribute('aria-label',btn.title); btn.setAttribute('aria-expanded',on?'false':'true'); };
+    let on=false; try{ on=localStorage.getItem(KEY)==='on'; }catch(e){}
+    apply(on);
+    btn.addEventListener('click',e=>{ e.stopPropagation(); on=!on; apply(on); try{ localStorage.setItem(KEY,on?'on':'off'); }catch(e){} });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init); else init();
+})();

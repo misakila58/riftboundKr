@@ -2423,12 +2423,12 @@ UI.cardInfoHTML = function(c, owner){
   `;
 };
 UI.inspect = function(c, owner){
-  document.getElementById('inspector').innerHTML = UI.cardInfoHTML(c, owner);
+  document.getElementById('insp-body').innerHTML = UI.cardInfoHTML(c, owner);
 };
 UI.inspectUnit = function(u){
   if(u.isToken){
     const img=unitCard(u).img;
-    document.getElementById('inspector').innerHTML=`
+    document.getElementById('insp-body').innerHTML=`
       ${img?`<img src="${esc(cardImgUrl(img,480))}" alt="${esc(unitName(u))}">`:''}
       <div class="insp-name">${esc(unitName(u))}</div>
       <div class="insp-type">토큰 유닛 · 위력 ${might(u)}</div>
