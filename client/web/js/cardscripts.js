@@ -436,9 +436,27 @@ const EXTRA_OPS = {
       picked.push(P.trash.splice((idx===null||idx===undefined)?P.trash.length-1:idx,1)[0]);
     }
     // 룰 403.5: 동시에 재활용되는 카드들은 무작위 순서로 덱 맨 아래에 놓인다
-    if(picked.length){ P.deck.push(...shuffle(picked));
+    if(picked.length){ P.deck.push(...shuffleFor(ctx.p, picked));
       UI.log(`${pname(ctx.p)} 폐기장 ${picked.length}장 재활용`,'p'+ctx.p); await fireEvent('onYouRecycle',{p:ctx.p}); } },
   async lookTopHand(op, ctx, h){ const P=G.players[ctx.p];
+    if(G.masked){
+      // 주인만 본다 — 손패로 가져갈 카드 번호만 주인이 정한다(상대는 어떤 카드인지 모른다)
+      const top=P.deck.splice(0, op.n); if(!top.length) return;
+      await nocturneOfferMasked(ctx.p, top);
+      if(top.length){
+        const i=await privateDecision(ctx.p, async()=>{
+          const sel=await UI.pickOption(ctx.p,'손패에 넣을 카드 1장',top.map(n=>({v:n,label:card(n).ko,n,deckLook:{cards:top,kind:'hand'},visibleCardChoice:{kind:'hand',recycleBeforePlay:top.length>1}})));
+          const k=top.indexOf(sel); return k<0?0:k;
+        }, 'look-hand');
+        const k=(i>=0 && i<top.length)?i:0;
+        putCardInHand(ctx.p, top[k], `#deck-${ctx.p}`);
+        top.splice(k,1);
+      }
+      P.deck.push(...shuffleFor(ctx.p, top));
+      if(top.length) await fireEvent('onYouRecycle',{p:ctx.p});
+      UI.log(`${pname(ctx.p)} 덱 위 ${op.n}장 확인 → 1장 손패`,'p'+ctx.p);
+      return;
+    }
     const {nocturneResume:resume,...lookOp}=op;
     const top=resume?resume.seen:P.deck.splice(0, op.n); if(!top.length) return;
     await nocturneOffer(ctx.p, top,{op:{op:'lookTopHand',...lookOp},ctx},resume?.index);   // 녹턴은 '본' 시점에 추방·플레이 가능 — 손패 1장과 별개 (RiftJudge #9759)
@@ -448,7 +466,7 @@ const EXTRA_OPS = {
       putCardInHand(ctx.p,take,`#deck-${ctx.p}`);
       top.splice(top.indexOf(take),1);
     }
-    P.deck.push(...shuffle(top));
+    P.deck.push(...shuffleFor(ctx.p, top));
     if(top.length) await fireEvent('onYouRecycle',{p:ctx.p});
     UI.log(`${pname(ctx.p)} 덱 위 ${op.n}장 확인 → 1장 손패`,'p'+ctx.p); },
   // 지원(62)·미끼 갈고리(242): 덱 위 N장을 보고 유닛 하나를 추방한 뒤 정식 플레이 경로(playCardByEffect)로 낸다.
@@ -456,6 +474,29 @@ const EXTRA_OPS = {
   // (비워진 통제 전장 포함 — 클린업 전이라 통제 유지)·플레이 이벤트(다리우스·[군단])는 손패 플레이와 같다
   // (RiftJudge #10924 · #5989 · #10517 · #8008). 지원 할인은 [가속] 에너지에도 적용(#5164 → discountE).
   async lookTopPlayUnit(op, ctx, h){ const P=G.players[ctx.p];
+    if(G.masked){
+      // 주인만 본다 — 낼 유닛의 번호만 주인이 정하고, 낼 카드는 공개해 정식 플레이 경로로 낸다
+      const top=P.deck.splice(0, op.n); if(!top.length) return; let toPlay=null;
+      await nocturneOfferMasked(ctx.p, top);
+      const i=await privateDecision(ctx.p, async()=>{
+        let units=top.filter(n=>card(n).type==='Unit');
+        if(op.maxM!==undefined) units=units.filter(n=>(card(n).m||0)<=op.maxM);
+        units=units.filter(n=>canPay(ctx.p, op.freePips?0:Math.max(0,(card(n).e||0)-(op.discE||0)), op.freePips?[]:powerPips(card(n))));
+        if(!units.length) return -1;
+        const playOpts=op.freePips?{ignoreEnergy:true,ignorePower:true}:{discountE:op.discE||0};
+        const sel=await UI.pickOption(ctx.p,'플레이할 유닛 (선택)',units.map(n=>({v:n,label:card(n).ko,n,deckLook:{cards:top,kind:'play'},visibleCardChoice:{kind:'play',playOpts,recycleBeforePlay:top.length>1}})).concat([{v:'skip',label:'플레이 안 함'}]));
+        return (sel==='skip'||sel===null||sel===undefined) ? -1 : top.indexOf(sel);
+      }, 'look-play');
+      if(i>=0 && i<top.length){
+        const [n]=await revealCards(ctx.p, ()=>[top[i]], 'look-play');
+        top.splice(i,1); toPlay=n;
+        UI.log(`${pname(ctx.p)} 「${card(n).ko}」 덱 위에서 추방 → 플레이`,'p'+ctx.p);
+      }
+      P.deck.push(...shuffleFor(ctx.p, top));
+      if(top.length) await fireEvent('onYouRecycle',{p:ctx.p});
+      if(toPlay!==null) await playCardByEffect(ctx.p, toPlay, {fxSource:`#deck-${ctx.p}`, ...(op.freePips ? {ignoreEnergy:true, ignorePower:true} : {discountE:op.discE||0})});
+      return;
+    }
     const {nocturneResume:resume,...lookOp}=op;
     const top=resume?resume.seen:P.deck.splice(0, op.n); if(!top.length) return; let toPlay=null;
     await nocturneOffer(ctx.p, top,{op:{op:'lookTopPlayUnit',...lookOp},ctx},resume?.index);
@@ -472,7 +513,7 @@ const EXTRA_OPS = {
         toPlay=sel;
       }
     }
-    P.deck.push(...shuffle(top));
+    P.deck.push(...shuffleFor(ctx.p, top));
     if(top.length) await fireEvent('onYouRecycle',{p:ctx.p});   // 나머지 재활용이 먼저 — 방금 고른 유닛은 대기 항목이라 이 재활용에 격발하지 않는다(카르마 235 · RiftJudge #2869)
     if(toPlay!==null) await playCardByEffect(ctx.p, toPlay, {fxSource:`#deck-${ctx.p}`, ...(op.freePips ? {ignoreEnergy:true, ignorePower:true} : {discountE:op.discE||0})}); },
   async luredHook(op, ctx, h){
@@ -510,6 +551,7 @@ const EXTRA_OPS = {
     // 431.1.b 덱 맨 위 카드를 다른 존(추방)으로 옮기는 지시 — 덱이 비면 상대가 번아웃(폐기장→덱, 이쪽 1점)한 뒤 나머지를 완료(431.3 반복 포함)
     ensureDeck(o);
     if(!O.deck.length) return;
+    if(G.masked) await revealDeckTop(o, 1, 'blind-rage');   // 공개한다 — 덱 주인 화면이 정체를 알려 준다
     const top=O.deck.shift(); const c=card(top);
     O.banish.push(top);                       // 추방 (플레이 실패해도 추방 상태 유지)
     UI.log(`상대 덱 맨 위 공개·추방: 「${c.ko}」 — 비용 무시로 플레이`,'sys');
@@ -531,6 +573,33 @@ const EXTRA_OPS = {
   // 재활용 격발(카르마 235)은 플레이가 모두 끝난 뒤 — 격발은 해결 중인 효과가 끝난 뒤 체인에 오르므로(376.4.b)
   // 유망한 미래로 나온 유닛도 버프 대상이 된다 (#3319).
   async promisingFuture(op, ctx, h){
+    if(G.masked){
+      // 각자 자기 덱 위 5장을 몰래 보고 1장을 고른다 — 고른 카드는 낼 때 공개된다
+      const picks={}, recycled=[];
+      for(const pi of [ctx.p,opp(ctx.p)]){ const P=G.players[pi];
+        const top=P.deck.splice(0,5); if(!top.length) continue;
+        await nocturneOfferMasked(pi, top);
+        const i=await privateDecision(pi, async()=>{
+          const cands=top.filter(n=>{ const c=card(n);
+            if(!['Unit','Spell','Gear'].includes(c.type) || !canPay(pi, 0, powerPips(c), c.type==='Spell')) return false;
+            return c.type!=='Spell' || spellHasTargets(n, pi); });
+          if(!cands.length) return -1;
+          const sel=await UI.pickOption(pi,`${pname(pi)}: 추방(플레이 예약)할 카드 1장`,cands.map(n=>({v:n,label:card(n).ko,n,deckLook:{cards:top,kind:'play'},visibleCardChoice:{kind:'play',playOpts:{ignoreEnergy:true},recycleAfterPlay:top.length>1}})));
+          return top.indexOf(sel!==null&&sel!==undefined?sel:cands[0]);
+        }, 'future');
+        if(i>=0 && i<top.length){ const [n]=await revealCards(pi, ()=>[top[i]], 'future'); top.splice(i,1); picks[pi]=n; }
+        else UI.log(`${pname(pi)}: 낼 수 있는 카드가 없어 5장 모두 재활용`,'sys');
+        P.deck.push(...shuffleFor(pi, top)); if(top.length) recycled.push(pi);
+      }
+      for(const pi of [opp(ctx.p), ctx.p]){
+        const n=picks[pi]; if(n===undefined) continue;
+        UI.log(`${pname(pi)} 「${card(n).ko}」 플레이 (에너지 무시)`,'p'+pi);
+        await playCardByEffect(pi, n, {ignoreEnergy:true, deferResolve:true,fxSource:`#deck-${pi}`});
+      }
+      { const q=G._deferredSpells||[]; G._deferredSpells=[]; for(const it of q.reverse()){ if(G.winner!==null) break; await resolveSpellEffects(it.p, it.n, it.fx, it.o); } }
+      for(const pi of recycled) await fireEvent('onYouRecycle',{p:pi});
+      return;
+    }
     const {nocturneResume:resume,...lookOp}=op;
     const picks=resume?resume.after.picks:{}, recycled=resume?resume.after.recycled:[];
     const players=[ctx.p,opp(ctx.p)];
@@ -546,7 +615,7 @@ const EXTRA_OPS = {
         const pick=sel!==null?sel:cands[0];
         top.splice(top.indexOf(pick),1); picks[pi]=pick;
       } else UI.log(`${pname(pi)}: 낼 수 있는 카드가 없어 5장 모두 재활용`,'sys');
-      P.deck.push(...shuffle(top)); if(top.length) recycled.push(pi);
+      P.deck.push(...shuffleFor(pi, top)); if(top.length) recycled.push(pi);
     }
     for(const pi of [opp(ctx.p), ctx.p]){
       const n=picks[pi]; if(n===undefined) continue;
@@ -558,6 +627,10 @@ const EXTRA_OPS = {
     { const q=G._deferredSpells||[]; G._deferredSpells=[]; for(const it of q.reverse()){ if(G.winner!==null) break; await resolveSpellEffects(it.p, it.n, it.fx, it.o); } }
     for(const pi of recycled) await fireEvent('onYouRecycle',{p:pi}); },
   async dawnAurora(op, ctx, h){ const P=G.players[ctx.p];
+    if(G.masked){   // 유닛이 나올 때까지 공개한다 — 덱 주인 화면이 공개된 부분을 알려 준다
+      const shown=await revealCards(ctx.p, ()=>{ const k=P.deck.findIndex(n=>card(n).type==='Unit'); return P.deck.slice(0, k<0?P.deck.length:k+1); }, 'aurora');
+      if(Array.isArray(shown)) shown.forEach((n,i)=>{ if(i<P.deck.length && n!==HID) P.deck[i]=n; });
+    }
     const index=P.deck.findIndex(n=>card(n).type==='Unit');
     const revealed=P.deck.slice(0,index<0?P.deck.length:index+1);
     UI.log(`${pname(ctx.p)} 「눈부신 오로라」 덱 위 ${revealed.length}장 공개: ${revealed.map(n=>`「${card(n).ko}」`).join(', ')||'없음'}`,'p'+ctx.p);
@@ -575,7 +648,7 @@ const EXTRA_OPS = {
       if(P.deck===tracked.deck){
         const recycled=[];
         for(const i of tracked.indices().reverse()) recycled.unshift(P.deck.splice(i,1)[0]);
-        P.deck.push(...shuffle(recycled));
+        P.deck.push(...shuffleFor(ctx.p, recycled));
         if(recycled.length) await fireEvent('onYouRecycle',{p:ctx.p});
       }
     }finally{
@@ -591,6 +664,7 @@ const EXTRA_OPS = {
     // '이곳'은 티모의 격발 위치 — 실행 문맥에 위치가 없으면(직접 호출) 티모가 지금 있는 전장. 격발원이 떠났으면 대상 없음(359.3.f)
     const saved=[_ctxBf,_ctxUnit]; if(_ctxBf===null && ctx.unit && !ctx.sourceGone){ _ctxUnit=ctx.unit; _ctxBf=(ctx.bfIdx??((ctx.unit.loc!=='base'&&everyUnit().includes(ctx.unit))?ctx.unit.loc:null)); }
     let t=null; try{ t=await pickBySpec(ctx.p,{side:'enemy',where:'here',count:1},'대상 적 유닛 선택'); } finally{ [_ctxBf,_ctxUnit]=saved; }
+    if(G.masked) await revealDeckTop(ctx.p, 5, 'teemo');   // 공개한다 — 덱 주인 화면이 정체를 알려 준다
     top=P.deck.splice(0,5);
     const hiddenCnt=top.filter(n=>FX[n]&&FX[n].kw&&FX[n].kw.hidden).length;
     if(typeof UI.revealDeckCards==='function') await UI.revealDeckCards(ctx.p,top,{kind:'teemo'});
@@ -601,7 +675,7 @@ const EXTRA_OPS = {
     }
     // 공개도 녹턴을 깨운다(에라타 후 '보거나 공개할 때' · RiftJudge #157) — 플레이한 녹턴은 재활용 목록에서 빠진다 (제보 2026-10-06)
     await nocturneOffer(ctx.p, top,{op:revealOp,ctx},resume?.index);
-    P.deck.push(...shuffle(top));
+    P.deck.push(...shuffleFor(ctx.p, top));
     if(top.length) await fireEvent('onYouRecycle',{p:ctx.p}); },
   async tfGamble(op, ctx, h){ const P=G.players[ctx.p];
     if(!P.runeDeck.length) return;
@@ -626,6 +700,24 @@ const EXTRA_OPS = {
     const loc=ctx.sourceGone ? null : ctx.unit && everyUnit().includes(ctx.unit) ? ctx.unit.loc : ctx.bfIdx??null;
     const cands=P.hand.map((n,i)=>({n,i})).filter(x=>FX[x.n]&&FX[x.n].kw&&FX[x.n].kw.hidden
       && (card(x.n).type!=='Unit' || loc!==null));
+    if(G.masked){
+      // 손패의 [숨겨짐] 후보는 주인만 안다 — 낼지·무엇을 낼지 주인이 몰래 정하고, 낸 카드는 플레이하며 공개된다
+      const i=await privateDecision(ctx.p, async()=>{
+        if(!cands.length) return -1;
+        if(!ctx.triggered){
+          if(!canPay(ctx.p,0,['Mind'])) return -1;
+          const yes=await UI.confirmP(ctx.p,'정신 힘 1을 지불하고 [숨겨짐] 카드를 무료로 플레이할까요?',null,{botChoice:{kind:'hiddenPlay',loc,unitUid:ctx.unit?.uid,candidates:cands.map(x=>x.n)}}); if(!yes) return -1;
+        }
+        const sel=await UI.pickOption(ctx.p,'플레이할 [숨겨짐] 카드',cands.map(x=>({v:x,label:card(x.n).ko,n:x.n,hiddenEffectPlay:true,hiddenEffectLoc:loc,hiddenEffectSourceUid:ctx.unit?.uid})));
+        return sel ? sel.i : -1;
+      }, 'ava');
+      if(!(i>=0 && i<P.hand.length)) return;
+      if(!ctx.triggered){ if(!canPay(ctx.p,0,['Mind'])) return; payCost(ctx.p,0,['Mind']); }
+      const n=await revealHandCard(ctx.p, i, 'ava'); const c=card(n);
+      const ok=await playCardFromHand(ctx.p, i, {byEffect:true, ignoreEnergy:true, ignorePower:true, ...(c.type==='Unit' ? {playLoc:loc, locByEffect:true} : {})});
+      if(ok===false) UI.log(`「${c.ko}」 플레이하지 못함 — 손패에 남음`, 'sys');
+      return;
+    }
     if(!cands.length) return;
     if(!ctx.triggered){
       if(!canPay(ctx.p,0,['Mind'])) return;
@@ -724,6 +816,7 @@ const EXTRA_OPS = {
     else { drawCard(ctx.p); drawCard(o); } },
   async revealHandPick(op, ctx, h){ const o=opp(ctx.p); const O=G.players[o];
     if(!O.hand.length){ toastP(ctx.p,'상대 손패가 없습니다','warn'); return; }
+    if(G.masked) await revealHandAll(o, 'reveal-hand');   // "손패를 공개한다" — 손패 주인 화면이 정체를 알려 준다
     let cands=O.hand.map((n,i)=>({n,i}));
     if(op.filter==='nonunit') cands=cands.filter(x=>card(x.n).type!=='Unit');
     UI.log(`상대 손패 공개: ${O.hand.map(n=>card(n).ko).join(', ')}`,'sys');
@@ -937,7 +1030,7 @@ const EXTRA_OPS = {
       P.runes.splice(P.runes.indexOf(r),1); P.runeDeck.push(r.n); }   // 룬은 카드가 아니다 — onYouRecycle(카르마 235) 미발화
     for(const pi of [0,1]){ const P=G.players[pi]; const keep=P.hand.filter((n,i)=>keepH[pi].has(i)); const rest=P.hand.filter((n,i)=>!keepH[pi].has(i));
       toDeck[pi].push(...rest); P.hand=keep;
-      if(toDeck[pi].length){ P.deck.push(...shuffle(toDeck[pi])); recycledFor.add(pi); } }
+      if(toDeck[pi].length){ P.deck.push(...shuffleFor(pi, toDeck[pi])); recycledFor.add(pi); } }
     G.players.forEach(P=>P.gear.forEach(g=>{ delete g._keep; }));
     for(const pi of recycledFor) await fireEvent('onYouRecycle',{p:pi});
     UI.log('「신성한 심판」: 각자 고른 유닛·도구·룬 2개(보드 전체)와 손패 2장만 남기고 재활용','sys'); },
@@ -1185,7 +1278,7 @@ Object.assign(EXTRA_OPS, {
         if(ti<0){ UI.log(`「${card(pk.n).ko}」은(는) 이미 폐기장에 없어 재활용하지 않음`, 'sys'); continue; }
         toDeck[pk.pi].push(P.trash.splice(ti,1)[0]); recycledFor.add(pk.pi); left--;
       }
-      for(const pi of recycledFor){ G.players[pi].deck.push(...shuffle(toDeck[pi])); await fireEvent('onYouRecycle',{p:pi}); }
+      for(const pi of recycledFor){ G.players[pi].deck.push(...shuffleFor(pi, toDeck[pi])); await fireEvent('onYouRecycle',{p:pi}); }
       if(left<op.n) UI.log(`「미래의 대장간」: ${op.n-left}장 재활용`,'p'+ctx.p);
       return;
     }
@@ -1200,7 +1293,7 @@ Object.assign(EXTRA_OPS, {
       const P=G.players[sel.pi]; toDeck2[sel.pi].push(P.trash.splice(sel.i,1)[0]);
       recycledFor.add(sel.pi); left--;
     }
-    for(const pi of recycledFor){ G.players[pi].deck.push(...shuffle(toDeck2[pi])); await fireEvent('onYouRecycle',{p:pi}); }   // 무작위 순서 (417.1)
+    for(const pi of recycledFor){ G.players[pi].deck.push(...shuffleFor(pi, toDeck2[pi])); await fireEvent('onYouRecycle',{p:pi}); }   // 무작위 순서 (417.1)
     if(left<op.n) UI.log(`「미래의 대장간」: ${op.n-left}장 재활용`,'p'+ctx.p); },
   // 안면 강타(220): 같은 전장의 아군 1 + 적 1 기절. 양측이 함께 있는 전장이 있으면 그곳으로 제한
   // 두 대상(같은 전장의 적·아군)은 플레이 시점 지정 — 쌍이 없으면 플레이 불가(352.8, #9040 · #4868).

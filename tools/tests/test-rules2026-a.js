@@ -52,7 +52,7 @@ const resolve=async()=>{ await showdownPass(); await showdownPass(); };
 const settle=async()=>{ for(let i=0;i<8;i++){ const sd=G.showdown; if(!sd) return; if(sd.pendingTriggers&&sd.pendingTriggers.length) await flushCombatTriggers(sd); if(!sd.chain.length) return; await showdownPass(); await showdownPass(); } };
 // releaseEmptyBattlefields 호출 시점의 상태 기록 (닫힌 상태 표시와 1번 전장 통제자)
 var REL=[]; const _rel=releaseEmptyBattlefields;
-releaseEmptyBattlefields=function(){ const e={rw:G._rwFor??null, chain:G.showdown?G.showdown.chain.length:-1, ctrl:G.bfs[1].controller}; REL.push(e); const ret=_rel(); e.after=G.bfs[1].controller; return ret; };
+releaseEmptyBattlefields=async function(){ const e={rw:G._rwFor??null, chain:G.showdown?G.showdown.chain.length:-1, ctrl:G.bfs[1].controller}; REL.push(e); const ret=await _rel(); e.after=G.bfs[1].controller; return ret; };   // (숨김 정보 작업으로 async — 숨긴 카드 공개를 기다린다)
 (async()=>{
   // ══ ① 무혈 결전 → 전투 결전 승격 ══
   // ── A의 야스오(76)가 빈 전장에 들어가 무혈 결전. B가 「바람을 타고」(173)로 선봉대 병장(219)를 들여보내면

@@ -990,7 +990,7 @@ function persistRooms() {
   clearTimeout(roomsSaveTimer);
   roomsSaveTimer = setTimeout(() => {
     const out = [...rooms.values()].filter(r => r.started).map(r => ({
-      id: r.id, name: r.name, seed: r.seed, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
+      id: r.id, name: r.name, seed: r.seed, priv: r.priv || null, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
       ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null, rankSeats: r.rankSeats || null, rankDecks: r.rankDecks || null, rankGames: r.rankGames || null, rankMeta: r.rankMeta || null, rejoins: r.rejoins || 0, rankLeftAfterReport: !!r.rankLeftAfterReport,
       password: r.password, startedAt: r.startedAt, seq: r.seq, log: r.log || [], turnTimer: r.turnTimer, undo: r.undo,
       players: r.players.map(pl => ({ id: pl.id, deck: pl.deck, seat: pl.seat, ver: pl.ver })),
@@ -1181,15 +1181,39 @@ function rejoinSeat(ws, pick) {
   // (끊었다 들어와 턴 시간을 새로 받는 이득 제거, 2026-10-07)
   const idleMs = Math.max(0, Date.now() - Math.max(...found.players.map(q => q.lastAct || 0), found.startedAt || 0, SERVER_STARTED_AT));
   wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true, idleMs });
-  (found.log || []).forEach(o => wsSend(ws, o));
+  (found.log || []).forEach(o => wsSend(ws, outFor(o, seat.seat)));
   wsSend(ws, { t: 'rejoinDone' });
   if (found.rankResultMsgs && found.rankResultMsgs[seat.seat]) wsSend(ws, found.rankResultMsgs[seat.seat]);   // 이미 확정된 등급 결과
   roomEveryone(found).forEach(q => { if (q.ws !== ws) wsSend(q.ws, { t: 'opponentBack', id: ws._userId }); });
   broadcastLobby(); persistRooms();
   return true;
 }
+// ── 숨김 정보 (온라인 1단계, 2026-10-14) ──
+// 예전엔 공개 시드 하나로 두 클라이언트가 양쪽 덱을 같은 순서로 섞어, 조작한 클라이언트가 상대 손패·덱 순서를 볼 수 있었다(제보).
+// 이제 덱 셔플은 좌석별 비공개 시드로 하고, 각 좌석에는 자기 시드만 보낸다. 관전자(관전 허용 방)는 둘 다 받는다.
+// 이 기능을 아는 클라이언트(1.0.128~)끼리만 켠다 — 옛 클라이언트는 비공개 시드를 몰라 예전 방식으로 섞어 화면이 어긋난다
+const MASK_MIN_VER = process.env.RB_MASK_MIN_VER || '1.0.128';
+function verAtLeast(v, min) {
+  const a = String(v || '').split('.').map(x => parseInt(x, 10)), b = String(min).split('.').map(x => parseInt(x, 10));
+  if (a.some(isNaN)) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) { const x = a[i] || 0, y = b[i] || 0; if (x !== y) return x > y; }
+  return true;
+}
+function roomMaskable(r) { return r.players.length === 2 && r.players.every(pl => verAtLeast(pl.ver, MASK_MIN_VER)); }
+function newPrivSeeds() { return [crypto.randomBytes(4).readUInt32LE(0) || 1, crypto.randomBytes(4).readUInt32LE(0) || 1]; }
+function privFor(pair, seat) {
+  if (!Array.isArray(pair)) return undefined;
+  if (seat < 0) return [pair[0], pair[1]];
+  return [seat === 0 ? pair[0] : null, seat === 1 ? pair[1] : null];
+}
+// 기록·중계 메시지를 받는 좌석에 맞게: 재대결 시작(rematchGo)에는 그 좌석의 비공개 시드만 싣는다
+function outFor(o, seat) {
+  if (!o || !o.privAll) return o;
+  const { privAll, ...rest } = o;
+  return { ...rest, action: { ...rest.action, priv: privFor(privAll, seat) } };
+}
 function startMsg(r, seat) {
-  return { t: 'start', seed: r.seed, yourSeat: seat, spectate: seat < 0, manual: r.manual !== false, banRule: !!r.banRule, format: r.format || 'bo1',
+  return { t: 'start', seed: r.seed, ...(r.priv ? { priv: privFor(r.priv, seat) } : {}), yourSeat: seat, spectate: seat < 0, manual: r.manual !== false, banRule: !!r.banRule, format: r.format || 'bo1',
     turnTimer: roomTurnTimer(r), undo: roomUndo(r),
     ranked: !!r.ranked, season: RANK_SEASON,
     // 사이드덱은 본인만 쓰는 비공개 정보 — 상대 클라이언트로 보내지 않는다. 등급·칭호는 공개 정보(아이디 옆 표시)
@@ -1434,6 +1458,7 @@ function rankStartMatch(format, a, b) {
   r.rankDecks = { 0: first.deck, 1: second.deck };   // 덱별 승률 기록용 (떠나거나 재시작해도 남게 — persistRooms가 저장)
   r.rankMeta = { waitSec: [Math.round((Date.now() - first.since) / 1000), Math.round((Date.now() - second.since) / 1000)], mmr: [Math.round(first.mmr), Math.round(second.mmr)] };   // 매칭 대기·시작 MMR (통계)
   r.seed = crypto.randomBytes(4).readUInt32LE(0);
+  r.priv = roomMaskable(r) ? newPrivSeeds() : null;   // 숨김 정보: 좌석별 비공개 시드 (덱 셔플) — 각 좌석에는 자기 것만 보낸다
   rooms.set(r.id, r);
   r.players.forEach(pl => { pl.ws._room = r; wsSend(pl.ws, startMsg(r, pl.seat)); });
   persistRooms(); broadcastLobby();
@@ -1558,6 +1583,7 @@ wss.on('connection', (ws, req) => {
         r.started = true;
         r.startedAt = Date.now();   // 배포 전 '몇 분째 두는 중인지' 보여주는 데 쓴다
         r.seed = crypto.randomBytes(4).readUInt32LE(0);
+        r.priv = roomMaskable(r) ? newPrivSeeds() : null;
         r.players.forEach(pl => wsSend(pl.ws, startMsg(r, pl.seat)));
         persistRooms();
         (r.spectators || []).forEach(sp => wsSend(sp.ws, startMsg(r, -1)));
@@ -1577,7 +1603,7 @@ wss.on('connection', (ws, req) => {
         r.spectators.push({ ws, id: ws._userId });
         ws._room = r; ws._spectator = true;
         wsSend(ws, { t: 'spectating', room: roomInfo(r) });
-        if (r.started) { wsSend(ws, startMsg(r, -1)); (r.log || []).forEach(o => wsSend(ws, o)); }
+        if (r.started) { wsSend(ws, startMsg(r, -1)); (r.log || []).forEach(o => wsSend(ws, outFor(o, -1))); }
         broadcastLobby();
         break;
       }
@@ -1615,12 +1641,17 @@ wss.on('connection', (ws, req) => {
         if (!(m.t === 'act' && m.action && m.action.k === 'playmat')) me.lastAct = Date.now();   // 시작 단계 무효 판정용 (외형 정보는 제외)
         if (m.t === 'act') out.action = m.action;
         else { out.id = m.id; out.data = m.data; }
+        if (m.t === 'act' && m.action && m.action.k === 'rematchGo') {
+          out.action = { ...m.action, seed: crypto.randomBytes(4).readUInt32LE(0) };
+          if (r.priv) out.privAll = newPrivSeeds();
+        }
         // 등급전: 항복은 서버가 직접 본다 (Bo3는 매치 승자가 정해질 때 클라이언트 보고로 확정하므로 단판만 즉시)
         if (m.t === 'act' && r.ranked && !r.rankSettled && m.action && m.action.k === 'surrender' && r.format !== 'bo3')
           rankSettle(r, 1 - me.seat, me.id + ' 항복');
         r.log = r.log || []; r.log.push(out); if (r.log.length > 20000) r.log.splice(0, r.log.length - 20000);   // 관전 따라잡기 + 재접속 재생용 (모든 방)
         persistRooms();
-        roomEveryone(r).forEach(pl => wsSend(pl.ws, out));
+        r.players.forEach(pl => wsSend(pl.ws, outFor(out, pl.seat)));
+        (r.spectators || []).forEach(sp => wsSend(sp.ws, outFor(out, -1)));
         break;
       }
       case 'voidMatch': {

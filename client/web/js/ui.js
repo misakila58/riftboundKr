@@ -530,7 +530,8 @@ async function routedPick(p, interactiveFn, serialize, deserialize){
     }
     const preparation=[..._chainSoundPreparations].some(x=>x.game===G && x.p===p);
     NET._nextChoiceLabel=UI._choiceLabel||null; UI._choiceLabel=null;   // 상대 화면 "선택 대기 중 — 무엇" 표시용
-    const result=!NET.online ? await interactiveFn() : await NET.choice(p, interactiveFn, serialize, deserialize);
+    // 주인만 보는 결정(privateDecision) 안의 선택창은 이 화면에서만 받는다 — 결과는 바깥 결정 하나로 보낸다
+    const result=(!NET.online || NET._localOnly>0) ? await interactiveFn() : await NET.choice(p, interactiveFn, serialize, deserialize);
     if(preparation && pick.game===G && G.winner===null && result!==null && result!==undefined && localControlsPlayer(p))
       UI.playSpellStageSound?.('target');
     return result;
@@ -1340,15 +1341,17 @@ UI.pickReaction = async function(p, title, options){
   UI._choiceLabel='응수 여부';
   lockUnitSelection(p);
   try{
-    const idx=await routedPick(p,()=>{
+    // 응답은 선택지 번호가 아니라 REACTION_WIRE 형식으로 보낸다 — 숨김 모드에서 상대 화면은 내 손패·숨김 카드를 몰라 선택지 목록이 다르다
+    const wire=await routedPick(p,async()=>{
       _reactionPick={p,hidden:false,passIndex:options.length};
       const targets=options.map(o=>reactionBoardTarget(p,o));
       // 한 카드에 능력이 여러 개면 추가 능력을 이름 붙은 버튼으로 제공한다.
       const seen=new Set();
       targets.forEach((t,i)=>{if(!t)return;const key=JSON.stringify(t);if(seen.has(key))targets[i]=null;else seen.add(key);});
-      return _pickCardOptionLocal(p,options.length?'강조된 손패나 필드 카드로 반응하거나 패스하세요':'사용 가능한 반응이 없습니다. 주문과 대상을 확인한 뒤 패스하세요',options,targets,false);
+      const idx=await _pickCardOptionLocal(p,options.length?'강조된 손패나 필드 카드로 반응하거나 패스하세요':'사용 가능한 반응이 없습니다. 주문과 대상을 확인한 뒤 패스하세요',options,targets,false);
+      return REACTION_WIRE.encode(options, idx===null || idx===options.length ? null : options[idx].v);
     },v=>v,v=>v);
-    return idx===null || idx===options.length ? null : options[idx].v;
+    return REACTION_WIRE.decode(options, wire);
   }finally{
     _reactionPick=null; _boardCardPick=null; UI.unitSelectionPending=false;
     UI.render(); UI.promptForState();
@@ -3192,7 +3195,7 @@ function onHandClick(p, idx, e){
   if(fx.kw.hidden){
     const hide=document.createElement('div'); hide.className='ctx-item';
     hide.textContent=`🕶 숨기기 (${hideCostLabel(p)})`;
-    hide.onclick=()=>{ hideMenu(); const opts={stageHide:c.type==='Spell'};
+    hide.onclick=()=>{ hideMenu(); const opts={stageHide:c.type==='Spell' || !!G.masked};   // 숨김 모드는 종류와 무관하게 준비 단계(상대와 같은 흐름)
       NET.dispatch({k:'hide',p,handIdx:idx,opts}, ()=>hideCard(p,idx,undefined,opts)); };
     menu.appendChild(hide);
   }

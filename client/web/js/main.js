@@ -2149,7 +2149,7 @@ const RM = {
     if(!decks[0] || !decks[1]) return;
     // 서버 start의 방 속성(등급전·턴 제한·되돌리기·시즌·공개 등급)을 그대로 잇는다 — 빠뜨리면 2게임째부터 클라이언트가 등급전인 줄 몰라
     // 결과 보고(rankResult)를 안 보내고 턴 제한도 꺼진다 (제보 2026-10-06: Bo3 2승한 쪽이 먼저 나가 '퇴장' 패배 처리)
-    const m={ t:'start', seed:a.seed, yourSeat:NET.seat, spectate:!!NET.spectating, manual:ls.manual, banRule:ls.banRule,
+    const m={ t:'start', seed:a.seed, ...(Array.isArray(a.priv)?{priv:a.priv}:{}), yourSeat:NET.seat, spectate:!!NET.spectating, manual:ls.manual, banRule:ls.banRule,
       format:ls.format||'bo1', match:a.pregame?null:(a.match||null), sideboarded:true,
       turnTimer:ls.turnTimer, undo:ls.undo, ranked:!!ls.ranked, season:ls.season,
       players:[ {id:ls.players[0].id, deck:decks[0], rank:ls.players[0].rank}, {id:ls.players[1].id, deck:decks[1], rank:ls.players[1].rank} ] };
@@ -2189,7 +2189,10 @@ UI.sideboardStep=async function(){
       UI.log(`${pname(p)} 사이드덱 교체를 적용하지 않았습니다: 선발 챔피언이 적법하지 않습니다`, 'sys');
       continue;
     }
-    const deck=shuffle([...main]); deck.splice(deck.indexOf(champN),1);   // 검증한 메인 40장 중 선발 1장을 분리
+    // 검증한 메인 40장 중 선발 1장을 분리 — 숨김 모드는 목록에서 먼저 빼고 그 좌석의 비공개 난수로 섞는다(상대 화면은 순서를 모른다)
+    let deck;
+    if(G.masked){ const list=[...main]; list.splice(list.indexOf(champN),1); deck=shuffleFor(p, list); }
+    else { deck=shuffle([...main]); deck.splice(deck.indexOf(champN),1); }
     P.deckList=[...main]; P.deck=deck; P.champN=champN; P.champInZone=true;
     UI.log(`${pname(p)} 사이드덱 교체 완료 (선발: ${card(champN).ko})`, 'sys');
   }
@@ -2523,6 +2526,8 @@ async function startOnlineGame(m){
   // 선후공은 mulliganPhase 앞의 decideFirstPlayer가 시드 주사위로 정한다 (양쪽 동일). Bo3 2·3게임은 이전 게임 패자가 고른다.
   newGame({
     seed: m.seed,
+    // 숨김 정보: 서버가 준 좌석별 비공개 시드([내 것, null] — 관전자는 허용된 방에서 둘 다). 없으면(P2P·옛 서버) 예전 방식
+    ...(Array.isArray(m.priv) ? {priv: m.priv} : {}),
     orderChooser: (MATCH.active() && MATCH.game>1) ? MATCH.chooser : undefined,
     reviewSetup: true,
     manual: m.manual,

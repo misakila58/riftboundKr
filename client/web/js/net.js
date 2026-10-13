@@ -498,6 +498,21 @@ NET.localBusy=0;
 // 엔진이 플레이어 p의 선택을 요구할 때:
 //  - 내 좌석이면 인터랙티브 UI 실행 → 결과를 서버로 전송 (해결은 에코 수신 시)
 //  - 상대 좌석이면 "상대 선택 중..." 표시 후 대기
+// ── 숨김 정보 (온라인 1단계) ──
+// 공개 응답: p의 화면이 자기 비공개 카드의 정체(또는 판정)를 계산해 보내고, 나머지 화면은 받는다. 대기 안내 없이 바로 지나간다.
+NET._localOnly=0;
+NET.revealChoice = function(p, getter, why){
+  NET._silentChoice=true;
+  try{ return NET.choice(p, ()=>Promise.resolve(getter()), v=>v===undefined?null:v, v=>v); }
+  finally{ NET._silentChoice=false; }
+};
+// 주인 결정: p의 화면에서만 fn을 실행한다(그 안의 선택창은 이 화면에서만 열린다). 상대에게는 결과만 간다.
+NET.privateChoice = function(p, fn, why){
+  const labels={nocturne:'덱 위에서 본 카드 확인','look-hand':'덱 위 카드 확인','look-play':'덱 위 카드 확인',future:'덱 위 카드 확인',scry:'덱 위 카드 확인',ava:'손패의 [숨겨짐] 카드 선택'};
+  NET._nextChoiceLabel=labels[why]||'비공개 카드 확인';
+  const interactive=async()=>{ NET._localOnly++; try{ return await fn(); } finally{ NET._localOnly--; } };
+  return NET.choice(p, interactive, v=>v===undefined?null:v, v=>v);
+};
 NET.choice = function(p, interactiveFn, serialize, deserialize){
   const id = ++NET.choiceSeq, gen = NET.syncGen;
   const label0=NET._nextChoiceLabel||null; NET._nextChoiceLabel=null;   // routedPick이 넘긴 라벨 — 이 선택 한 번만 쓴다
@@ -509,6 +524,8 @@ NET.choice = function(p, interactiveFn, serialize, deserialize){
   if(earlyQ && earlyQ.length){ const early=earlyQ.shift(); if(!earlyQ.length) delete NET.earlyChoices[id]; queueMicrotask(()=>NET._resolveChoice(early)); return pr; }
   if(p===NET.seat){
     interactiveFn().then(v=>{ if(gen===NET.syncGen) NET.send({t:'choice', id, data:serialize(v)}); });   // 재접속 전 옛 게임의 선택창 응답은 보내지 않는다(새 게임 선택 순번을 어긋나게 함)
+  } else if(NET._silentChoice){
+    // 공개 응답은 곧바로 온다 — 대기 안내를 띄우지 않는다
   } else {
     // 게임 시작 전(Bo3 전장 선택 등)에는 G가 없을 수 있다 — 시작 메시지의 이름으로 대신한다
     const nm=(typeof G!=='undefined'&&G&&G.players&&G.players[p])?pname(p):(NET.lastStart?.players?.[p]?.id||'상대');

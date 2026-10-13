@@ -23,6 +23,118 @@ function rng(){
 }
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
 function card(n){ return CARD_BY_N[n]; }
+
+// ══════════ 숨김 정보 (온라인 1단계, 2026-10-14) ══════════
+// 예전 락스텝은 공개 시드 + 양쪽 덱 전체로 두 클라이언트가 같은 셔플을 계산했다 — 조작한 클라이언트는 상대 손패·덱 순서를 전부 볼 수 있었다(제보).
+// 이제 서버가 좌석마다 비공개 시드(priv)를 주고, 그 좌석의 덱 셔플은 그 시드로만 한다. 내 시드가 없는 좌석의 덱·손패 카드는 이 화면에서
+// HID(비공개 카드)로 둔다. 그 카드가 공개 구역(낸 카드·폐기장·공개 효과)으로 갈 때 주인 클라이언트가 정체를 알려 준다(revealCards, 선택 응답 경로).
+// G.masked가 거짓이면(오프라인·P2P·옛 서버) 예전 동작 그대로다.
+const HID = -1;
+CARD_BY_N[HID] = { n:HID, name:'Hidden card', ko:'비공개 카드', type:'Hidden', super:null, rarity:null, dom:[], e:0, m:0, p:null, text:'', tko:'', tags:[], img:null };
+function isHid(n){ return n===HID; }
+function knows(p){ return !G || !G.masked || !!(G.know && G.know[p]); }
+// 좌석별 비공개 난수 (mulberry32, 공개 rng와 분리 — 공개 rng 소비 순서를 양쪽이 똑같이 유지한다)
+function privRng(p){
+  const st=G._priv; let s=st[p];
+  s=(s + 0x6D2B79F5)|0; st[p]=s;
+  let t=Math.imul(s ^ (s>>>15), 1|s);
+  t=(t + Math.imul(t ^ (t>>>7), 61|t)) ^ t;
+  return ((t ^ (t>>>14))>>>0)/4294967296;
+}
+// p의 카드를 무작위 순서로 섞는다(덱으로 가는 카드). 숨김 모드: 주인은 비공개 난수로 섞고, 모르는 쪽은 순서를 알 수 없으므로 전부 HID로 가린다.
+function shuffleFor(p, a){
+  if(!G || !G.masked) return shuffle(a);
+  if(!knows(p)) return a.map(()=>HID);
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(privRng(p)*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
+}
+// p가 가진 비공개 카드들의 정체를 모두에게 공개한다(손패·덱의 카드가 공개 구역으로 갈 때). getter는 p의 화면에서만 계산되고
+// 나머지 화면은 선택 응답으로 받는다 — 같은 지점에서 양쪽이 부르므로 락스텝 순서가 유지된다. 반환: 카드 번호 배열.
+async function revealCards(p, getter, why){
+  if(!G || !G.masked) return getter();
+  if(typeof NET!=='undefined' && typeof NET.revealChoice==='function') return await NET.revealChoice(p, getter, why);
+  return getter();
+}
+// 손패의 i번 카드 정체를 확정해 둔다(공개될 때). 이미 알면 그대로.
+async function revealHandCard(p, i, why){
+  const P=G.players[p]; if(P.hand[i]===undefined) return undefined;
+  if(!G.masked) return P.hand[i];
+  const [n]=await revealCards(p, ()=>[P.hand[i]], why||'hand');
+  if(n!==undefined && n!==HID) P.hand[i]=n;
+  return P.hand[i];
+}
+async function revealHandAll(p, why){
+  const P=G.players[p];
+  if(!G.masked || !P.hand.length) return P.hand;
+  const ns=await revealCards(p, ()=>P.hand.slice(), why||'hand-all');
+  if(Array.isArray(ns) && ns.length===P.hand.length) ns.forEach((n,i)=>{ if(n!==HID) P.hand[i]=n; });
+  return P.hand;
+}
+// 전장에 숨긴 카드의 정체 공개(공개 플레이·효과)
+async function revealHiddenCard(hc, why){
+  if(!hc) return undefined;
+  if(!G.masked) return hc.n;
+  const [n]=await revealCards(hc.by, ()=>[hc.n], why||'hidden');
+  if(n!==undefined && n!==HID) hc.n=n;
+  return hc.n;
+}
+// 응수 선택의 전송 형식 — 선택지 '번호'는 화면마다 다를 수 있다(상대 화면은 내 손패·숨김 카드를 모른다).
+// 손패는 손패 번호, 숨김 카드는 전장·순번, [반응] 능력은 능력 선택지 중 몇 번째인지(능력 목록은 공개 정보라 양쪽이 같다)로 보낸다.
+const REACTION_WIRE={
+  encode(opts, v){
+    if(v===null || v===undefined) return null;
+    if(v.hand!==undefined) return {hand:v.hand};
+    if(v.hidden) return {hidden:{bf:v.hidden.bf, index:v.hidden.index}};
+    if(v.ab){ const abs=opts.filter(o=>o.v && o.v.ab); const r=abs.findIndex(o=>o.v===v); return r<0?null:{ab:r}; }
+    return null;
+  },
+  decode(opts, d){
+    if(d===null || d===undefined) return null;
+    if(d.hand!==undefined) return {hand:d.hand};
+    if(d.hidden) return {hidden:{bf:d.hidden.bf, index:d.hidden.index}};
+    if(d.ab!==undefined){ const abs=opts.filter(o=>o.v && o.v.ab); return abs[d.ab] ? abs[d.ab].v : null; }
+    return null;
+  },
+};
+// 주인만 볼 수 있는 카드를 보고 주인이 내리는 결정(덱 위 보기 등). 주인 화면에서만 fn을 실행하고(그 안의 선택창은 주인 화면에만 뜬다)
+// 결과만 모두에게 보낸다. fn은 게임 상태를 바꾸지 말고 결정(번호 등)만 돌려줘야 한다 — 상태 변경은 결과를 받은 뒤 양쪽이 똑같이 한다.
+async function privateDecision(p, fn, why){
+  if(!G.masked) return await fn();
+  if(typeof NET!=='undefined' && typeof NET.privateChoice==='function') return await NET.privateChoice(p, fn, why);
+  return await fn();
+}
+// 이 플레이어의 덱 목록에 녹턴(덱 위에서 보면 낼 수 있는 카드)이 있는가 — 공개 정보(덱 목록)라 양쪽이 같은 답을 낸다
+function deckHasNocturne(p){ return (G.players[p].deckList||[]).some(n=>FX[n]&&FX[n].nocturne); }
+// 숨김 모드 녹턴: 주인이 몰래 고르고, 고른 카드만 공개해 낸다
+async function nocturneOfferMasked(p, seen){
+  if(!deckHasNocturne(p) || !seen.length) return;
+  const plan = await privateDecision(p, async()=>{
+    const out=[];
+    for(let i=seen.length-1;i>=0;i--){
+      const n=seen[i]; const fx=FX[n];
+      if(!fx || !fx.nocturne || !canPay(p, 0, Array(out.length+1).fill('Any'))) continue;
+      const yes=await UI.confirmP(p, `「${card(n).ko}」: 추방하고 힘 1(✳)을 지불해 플레이할까요?`, card(n),{publicLabel:'덱 위에서 본 카드를 플레이할지 선택'});
+      if(yes) out.push(i);
+    }
+    return out;
+  }, 'nocturne');
+  for(const i of (Array.isArray(plan)?plan:[])){
+    if(!(i>=0 && i<seen.length) || !canPay(p, 0, ['Any'])) continue;
+    const [n]=await revealCards(p, ()=>[seen[i]], 'nocturne');
+    seen.splice(i,1);
+    payCost(p, 0, ['Any']);
+    UI.log(`${pname(p)} 「${card(n).ko}」 덱 위에서 추방 → 플레이`, 'p'+p);
+    await playCardByEffect(p, n, {ignoreEnergy:true, ignorePower:true,fxSource:`#deck-${p}`});
+  }
+}
+// 덱 위 k장의 정체를 모두에게 공개(공개 효과·폐기장으로 가는 카드)
+async function revealDeckTop(p, k, why){
+  const P=G.players[p];
+  if(!G.masked) return P.deck.slice(0,k);
+  const ns=await revealCards(p, ()=>P.deck.slice(0,k), why||'deck-top');
+  if(Array.isArray(ns)) ns.forEach((n,i)=>{ if(n!==HID && i<P.deck.length) P.deck[i]=n; });
+  return P.deck.slice(0,k);
+}
 function opp(p){ return 1-p; }
 function pname(p){ return G.players[p].name; }
 
@@ -54,12 +166,27 @@ function newGame(cfg){
   if(typeof UI!=="undefined") UI.turnOrderDecided=null;   // 온라인 상태표시 훅은 판마다 새로 건다 (다음 봇/핫시트 판에 남지 않게)
   installHiddenTargetGuard();
   seedRng(cfg.seed || (Date.now()&0xffffffff));
+  // 숨김 모드: cfg.priv = [좌석0 비공개 시드 또는 null, 좌석1 …] — 서버가 내 좌석 것만 준다(관전자는 허용된 방에서 둘 다)
+  const masked = Array.isArray(cfg.priv);
+  const know = masked ? cfg.priv.map(x=>x!==null && x!==undefined) : [true,true];
+  const privState = masked ? cfg.priv.map(x=>((x>>>0)||1)) : null;
+  G = { masked, know, _priv: privState };   // 덱 셔플(shuffleFor)이 아래에서 G를 참조한다 — 임시 G
   G = {
     players: cfg.players.map((pc,i)=>{
       // 공식 룰: 주 덱 40장에는 선발 챔피언 1장이 포함되며, 시작 시 챔피언 구역으로 이동 → 덱 39장 시작
-      const deck=shuffle([...pc.deck]);
-      let champN=pc.champN;
-      let ci=deck.indexOf(champN);
+      // 숨김 모드는 선발을 '목록'에서 먼저 빼고 섞는다 — 모르는 좌석도 덱 장수·선발은 공개 정보로 똑같이 맞춘다
+      // 숨김 모드: 선발 보정·제거를 공개된 덱 '목록'으로 먼저 하고(양쪽이 같은 결과) 남은 39장을 그 좌석의 비공개 난수로 섞는다
+      let maskedChamp=pc.champN;
+      const deck=masked ? shuffleFor(i, (()=>{
+        const l=[...pc.deck];
+        if(!l.includes(maskedChamp)){
+          const inList=[...new Set(l.filter(n=>{ const c=card(n); return c&&c.type==='Unit'&&c.super==='Champion'; }))].sort((a,b)=>((card(a).e||0)-(card(b).e||0)) || (a-b));
+          if(inList.length){ maskedChamp=inList[0]; UI.log(`${pc.name}: 선발 챔피언을 덱의 「${card(maskedChamp).ko}」(으)로 보정했습니다 (지정 카드가 덱에 없음)`, 'sys'); }
+        }
+        const k=l.indexOf(maskedChamp); if(k>=0) l.splice(k,1);
+        return l; })()) : shuffle([...pc.deck]);
+      let champN=masked ? maskedChamp : pc.champN;
+      let ci=masked ? 0 : deck.indexOf(champN);
       // 지정된 선발이 덱에 없는데 덱에 챔피언이 있으면 → 덱의 챔피언으로 보정.
       // (편집기에서 덱 밖 챔피언을 선발로 고를 수 있던 구멍 — 그대로 두면 덱 속 챔피언이
       //  일반 카드로 뽑히고, 존에는 덱에 넣지도 않은 카드가 생긴다)
@@ -72,7 +199,7 @@ function newGame(cfg){
           UI.log(`${pc.name}: 선발 챔피언을 덱의 「${card(champN).ko}」(으)로 보정했습니다 (지정 카드가 덱에 없음)`, 'sys');
         }
       }
-      if(ci>=0) deck.splice(ci,1);
+      if(ci>=0 && !masked) deck.splice(ci,1);
       return {
       idx:i, name:pc.name, legendN:pc.legendN, legendEx:false,
       arts: pc.arts || null,   // 이 사람이 고른 대체 일러스트 (표시용 · 규칙에 영향 없음)
@@ -88,6 +215,7 @@ function newGame(cfg){
     bfs: cfg.bfs.map((n,i)=>({ n, owner:i, controller:null, contestedBy:null, units:[], hiddenCards:[], scored:{} })),
     turn:first, turnCount:0, phase:'setup', state:'neutral',
     showdown:null, winner:null, actingPlayer:first,
+    masked, know, _priv: privState,
   };
   // 전장 상시: 승리 점수 +1
   G.victory = VICTORY + G.bfs.filter(bf=>bf.n===BF_STATIC.VICTORY_PLUS).length;
@@ -442,12 +570,13 @@ function ensureDeck(p){
 function burnOut(p){
   const P=G.players[p];
   UI.log(`⚠️ ${pname(p)} 번아웃! 폐기장를 덱으로 되돌리고 상대가 1점을 얻습니다.`, 'sys');
-  P.deck = shuffle([...P.trash]); P.trash=[];
+  P.deck = shuffleFor(p, [...P.trash]); P.trash=[];
   addPoints(opp(p), 1, 'effect');
 }
 function trashCard(p, n){ G.players[p].trash.push(n); }
 async function discardFromHand(p, idx, opts){
   const P=G.players[p];
+  if(G.masked && P.hand[idx]!==undefined) await revealHandCard(p, idx, 'discard');   // 버린 카드는 폐기장(공개)으로 간다
   const n=P.hand.splice(idx,1)[0];
   if(n===undefined) return;
   UI.fx.moveCard?.(p,n,opts?.fxOrigin||`#hand-${p} [data-hand-index="${idx}"]`,`#trash-${p}`,{back:opts?.faceUp?false:!handFaceUp(p),handIndex:idx});
@@ -865,7 +994,7 @@ function applyMulligan(p, idxs){
     [...idxs].slice(0,2).sort((a,b)=>b-a).forEach(i=>{ const n=P.hand.splice(i,1)[0]; if(n!==undefined) back.push(n); });
     P.mulliganCount=back.length;
     for(let i=0;i<back.length;i++) drawCard(p, true);  // 먼저 뽑고
-    P.deck.push(...shuffle(back));                     // 빼둔 카드는 무작위 순서로 덱 맨 아래로 (공식: 동시 재활용은 무작위)
+    P.deck.push(...shuffleFor(p, back));                     // 빼둔 카드는 무작위 순서로 덱 맨 아래로 (공식: 동시 재활용은 무작위)
     UI.log(`${pname(p)} 멀리건: ${back.length}장 교체 (덱 아래로 재활용)`, 'sys');
   } else {
     UI.log(`${pname(p)} 멀리건 없이 시작`, 'sys');
@@ -931,7 +1060,7 @@ async function startTurn(){
     await cleanup(p);   // 개시 효과의 치명 피해와 통제 변경은 유지 득점 전에 처리
     if(G.winner!==null) return;
     // ② 득점 절차 — 유닛이 주둔해 통제 중인 전장만 유지 득점 (개시 효과로 비었으면 먼저 해제)
-    releaseEmptyBattlefields();
+    await releaseEmptyBattlefields();
     for(let i=0;i<G.bfs.length;i++){
       const bf=G.bfs[i];
       if(bf.controller===p && G.winner===null){
@@ -1464,6 +1593,8 @@ function canPlayCardAt(p, n, loc){
 }
 
 async function playCardFromHand(p, handIdx, opts={}){
+  // 숨김 모드: 손패에서 내는 카드는 공개된다 — 주인 화면이 정체를 알려 준다(양쪽이 같은 지점에서 부른다). 손패 밖(챔피언 존)은 이미 공개.
+  if(G.masked && !opts.champZone && Number.isInteger(handIdx) && G.players[p]?.hand[handIdx]!==undefined) await revealHandCard(p, handIdx, 'play');
   if(!opts.stageSpell || typeof UI.beginSpellStage!=='function' || typeof SPELL_STAGE_CANCEL==='undefined') return playCardFromHandCore(p,handIdx,opts);
   const c=card(G.players[p]?.hand[handIdx]);
   if(!c || c.type!=='Spell' || opts.champZone || opts.fromHidden || opts.byEffect
@@ -2079,6 +2210,7 @@ async function playCardByEffect(p, n, opts){
 // '본다'는 경로(속임수 덱·[통찰]·지원·미끼 갈고리·유망한 미래)가 공유한다. seen은 덱에서 이미 뺀 카드 목록 — 플레이한 장은 제거해 돌려준다.
 // 플레이한 녹턴은 조작된 덱의 '손패 1장'에 들지 않는다 (RiftJudge #9759 · #6744).
 async function nocturneOffer(p, seen, after=null, start=seen.length-1){
+  if(G.masked) return nocturneOfferMasked(p, seen);
   for(let i=start;i>=0;i--){
     const n=seen[i]; const fx=FX[n];
     if(!fx || !fx.nocturne || !canPay(p, 0, ['Any'])) continue;
@@ -2154,7 +2286,8 @@ async function reactionWindowChoices(caster, c, context, pending){
     // 예전엔 손패 목록을 playRestriction 없이 만들어 카운터/탈취가 그대로 통했다(제보 2026-09-14). 숨김 카드는 아래에서
     // playRestriction이 따로 본다. [반응] 활성화 능력은 카드 플레이가 아니라 허용.
     const noPlay=!!TF().noPlay[o];
-    O.hand.forEach((hn,i)=>{
+    // 손패 i번의 응수 선택지 (없으면 null). 숨김 모드에서 상대 화면은 고른 카드를 공개받은 뒤 이걸로 다시 만든다.
+    const handOpt=i=>{ let out=null; (function(hn,i){
       if(noPlay) return;
       const fx=FX[hn]; if(!fx||!fx.kw||!fx.kw.reaction) return;
       // [반응] 유닛도 닫힌 상태에서 낼 수 있다 (룰 739.3). 유닛은 카운터가 아니므로
@@ -2173,10 +2306,11 @@ async function reactionWindowChoices(caster, c, context, pending){
       // card를 실어 보내면 응수 모달에서 마우스 오버로 그 카드의 효과를 볼 수 있다 (ui.js optionCard)
       // pendingSpell: 아직 해결되지 않은 상대 주문. 봇이 "이걸 맞고 나면 어떻게 되는가"를
       // 재어 볼 때 쓴다. 이미 무효화된 뒤(result)라면 대기 중인 주문이 없다.
-      opts.push({v:{hand:i}, label:`⚡ ${cc.ko} (${altOnly?'버프 소모로 비용 무시':'비용 '+cost+(pips.length?' + 힘'+pips.length:'')})`,
+      out={v:{hand:i}, label:`⚡ ${cc.ko} (${altOnly?'버프 소모로 비용 무시':'비용 '+cost+(pips.length?' + 힘'+pips.length:'')})`,
         isCounter:!!(fx.counter||fx.steal), card:cc,
-        payment:{energy:cost,pips,spellOK:cc.type==='Spell'}, pendingSpell, pendingAbility});   // 능력 응수 창엔 대기 주문이 없다
-    });
+        payment:{energy:cost,pips,spellOK:cc.type==='Spell'}, pendingSpell, pendingAbility};   // 능력 응수 창엔 대기 주문이 없다
+    })(O.hand[i],i); return out; };
+    O.hand.forEach((hn,i)=>{ const opt=handOpt(i); if(opt) opts.push(opt); });
     // [반응] 활성화 능력도 닫힌 상태 응수로 발동할 수 있다 (규칙 309.2)
     if(typeof polAbList==='function' && typeof polAbLegal==='function'){
       try{
@@ -2204,8 +2338,12 @@ async function reactionWindowChoices(caster, c, context, pending){
           isCounter:false, card:hcard, hiddenCard:hc, pendingSpell, pendingAbility});
       });
     });
-    if(!opts.length && context.ability){
-      if(++passes>=2) return result; o=opp(o); continue;
+    if(context.ability){
+      // 숨김 모드: 손패·숨김 카드가 있는 쪽의 '낼 것 없음'은 그 주인만 안다 — 주인 화면이 판정해 알려 준다(양쪽이 같은 지점에서 묻는다).
+      // 손패도 숨긴 카드도 없으면 공개 정보만으로 판정할 수 있으니 묻지 않는다.
+      const priv = G.masked && (O.hand.length>0 || G.bfs.some(bf=>bf.hiddenCards.some(hc=>hc.by===o)));
+      const empty = priv ? await revealCards(o, ()=>!opts.length, 'react-empty') : !opts.length;
+      if(empty){ if(++passes>=2) return result; o=opp(o); continue; }
     }   // 격발·능력 창에 낼 것이 없으면 자동 패스(유지·통찰 등 프롬프트 폭주 방지) — 주문 창은 정보 노출용으로 유지
     const reactionGame=G;
     const sel=await UI.pickReaction(o, `${pname(caster)}이(가) 「${c.ko}」 ${context.ability?'발동':'플레이'} — [반응]으로 응수할까요?`, opts);
@@ -2229,9 +2367,11 @@ async function reactionWindowChoices(caster, c, context, pending){
     }
     // 숨김 카드 공개 — 정식 숨김 플레이 경로(playHidden → playCardFromHand fromHidden), 먼저 해결되고 재응수 창은 그 안에서 열린다
     if(typeof sel==='object' && sel.hidden){
-      const offered=opts.find(x=>x.v?.hidden?.bf===sel.hidden.bf && x.v.hidden.index===sel.hidden.index);
       const selected=G.bfs[sel.hidden.bf]?.hiddenCards[sel.hidden.index];
-      if(!offered || !selected || selected!==offered.hiddenCard) return result;
+      if(G.masked && selected && selected.by===o) await revealHiddenCard(selected, 'react-hidden');
+      const offered=opts.find(x=>x.v?.hidden?.bf===sel.hidden.bf && x.v.hidden.index===sel.hidden.index);
+      // 숨김 모드: 상대 화면은 그 숨김 카드를 몰라 선택지에 없었다 — 주인 화면이 고른 것을 따른다
+      if(!selected || (!offered && !(G.masked && selected.by===o)) || (offered && selected!==offered.hiddenCard)) return result;
       const prevRw=G._rwFor, prevPending=G._returnPending;
       G._rwFor=o;
       G._returnPending = pendingEffect;   // 능력·격발 창엔 대기 주문이 없다
@@ -2245,11 +2385,12 @@ async function reactionWindowChoices(caster, c, context, pending){
       continue;
     }
     const idx = (typeof sel==='object') ? sel.hand : sel;   // 구형 응답(인덱스) 호환
+    if(G.masked && O.hand[idx]!==undefined) await revealHandCard(o, idx, 'react');
     const hn=O.hand[idx]; if(hn===undefined) return result;
     const rfx=FX[hn]; const cc=card(hn);
     if(rfx.counter||rfx.steal){
       // 후보를 만들 때 검증한 실제 비용으로 지불한다. 인쇄 비용으로 되돌리면 할인과 주문 전용 자원을 잃는다.
-      const offered=opts.find(x=>x.v?.hand===idx && x.card?.n===hn && x.isCounter);
+      const offered=opts.find(x=>x.v?.hand===idx && x.card?.n===hn && x.isCounter) || (G.masked ? handOpt(idx) : null);
       const payment=offered?.payment;
       if(!payment || !canPay(o,payment.energy,payment.pips,payment.spellOK)) return result;
       payCost(o, payment.energy, payment.pips, undefined, payment.spellOK);
@@ -2305,6 +2446,14 @@ async function tokenPlayed(p, u){
 async function visionCheck(p,resume=null){
   const P=G.players[p];
   if(!resume&&!P.deck.length) return;
+  if(G.masked){
+    // 녹턴 여부는 주인만 안다 — 덱 목록에 녹턴이 있을 때만 주인이 몰래 판단한다(카드를 빼서 보고, 안 냈으면 그대로 위에 되돌린다)
+    if(deckHasNocturne(p)){ const seen=[P.deck.shift()]; await nocturneOfferMasked(p, seen); if(!seen.length) return; P.deck.unshift(seen[0]); }
+    const top=P.deck[0];
+    const yes = await UI.confirmP(p, `[통찰] 덱 맨 위: 「${card(top).ko}」 — 덱 맨 아래로 되돌릴까요?`, card(top),{publicLabel:'[통찰] 덱 맨 위 카드 확인',deckReveal:true,decision:{title:'통찰',result:'확인한 카드를 덱 위에 유지하거나 맨 아래로 보냅니다.',accept:'덱 아래로 보내기',decline:'덱 위에 유지'}});
+    if(yes){ P.deck.shift(); P.deck.push(top); UI.log(`${pname(p)} [통찰]로 덱 맨 위 카드를 재활용`, 'p'+p); await fireEvent('onYouRecycle',{p}); }
+    return;
+  }
   let top=resume?resume.seen[0]:P.deck[0];
   // [통찰]도 '덱 맨 위를 본다' — 녹턴이면 먼저 추방·플레이를 물어본다 (743.2 · 카드 원문)
   if(FX[top] && FX[top].nocturne){
@@ -2329,13 +2478,14 @@ function hideCostLabel(p){
 }
 function canHideCardAt(p, n, bfIdx){
   const bf=Number.isInteger(bfIdx) ? G.bfs[bfIdx] : null;
-  return !!(FX[n]?.kw?.hidden && G.turn===p && G.phase==='action'
+  return !!((isHid(n) || FX[n]?.kw?.hidden) && G.turn===p && G.phase==='action'
     && G.state==='neutral' && !chainClosed() && bf?.controller===p
     && bf.hiddenCards.length<(bf.n===BF_STATIC.DOUBLE_HIDE?2:1) && hideCosts(p).length);
 }
 async function hideCard(p, handIdx, bfIdx, opts={}){
   const n=handIdx==='champ'?G.players[p]?.champN:G.players[p]?.hand[handIdx];
-  if(!opts.stageHide || card(n)?.type!=='Spell' || typeof UI.beginSpellStage!=='function'
+  // 숨김 모드에선 카드 종류로 준비 단계를 가르면 상대 화면과 흐름이 달라지고(상대는 카드를 모른다) 종류도 드러난다 — 요청이 오면 종류와 무관하게 준비 단계를 쓴다
+  if(!opts.stageHide || (!G.masked && card(n)?.type!=='Spell') || typeof UI.beginSpellStage!=='function'
     || typeof SPELL_STAGE_CANCEL==='undefined') return hideCardCore(p,handIdx,bfIdx);
   if(UI.spellStage) return false;
   const draft=UI.beginSpellStage(p,handIdx,n,{mode:'hide'});
@@ -2351,7 +2501,7 @@ async function hideCardCore(p, handIdx, bfIdx, draft=null){
   const n=fromChamp ? P.champN : P.hand[handIdx]; const c=card(n);
   if(!c) return false;
   const fx=FX[n]||{kw:{}};
-  if(!fx.kw.hidden){ toastP(p,'[숨겨짐] 카드가 아닙니다','warn'); return; }
+  if(!fx.kw.hidden && !isHid(n)){ toastP(p,'[숨겨짐] 카드가 아닙니다','warn'); return; }   // 상대의 비공개 카드는 주인 화면이 검사했다
   if(G.turn!==p || G.phase!=='action' || G.state!=='neutral' || chainClosed()){ toastP(p,'자신의 행동 단계 중 열린 중립 상태에서만 숨길 수 있습니다','warn'); return false; }
   const cap = bf => bf.n===BF_STATIC.DOUBLE_HIDE?2:1;
   const myBfs = G.bfs.map((bf,i)=>({bf,i})).filter(x=>x.bf.controller===p && x.bf.hiddenCards.length<cap(x.bf));
@@ -2457,7 +2607,8 @@ function commitHiddenPlay(p,opts){
   preparation.committed=true;
   UI.log(`${pname(p)} 전장의 숨김 카드를 공개!`, 'p'+p);
 }
-async function playHidden(p, bfIdx, chosen){   // chosen: 호출자가 이미 고른 숨김 카드 항목 (중립 응수 창)
+async function playHidden(p, bfIdx, chosen){
+  if(G.masked && chosen) await revealHiddenCard(chosen, 'play-hidden');   // chosen: 호출자가 이미 고른 숨김 카드 항목 (중립 응수 창)
   const bf=G.bfs[bfIdx];
   if(!bf || bf.controller!==p) return false;
   // 녹서스 파괴 공작원: 이곳의 상대 [숨겨짐] 카드는 공개 불가
@@ -2596,10 +2747,10 @@ async function moveUnits(p, units, dest){
 function chainClosed(){
   return !!((G.showdown && G.showdown.chain.length) || G.pendingChain?.length || G._rwFor!=null);
 }
-function releaseEmptyBattlefields(){
+async function releaseEmptyBattlefields(){
   if(G.manual) return;
   if(chainClosed()) return;
-  G.bfs.forEach((bf,bi)=>{
+  for(let bi=0; bi<G.bfs.length; bi++){ const bf=G.bfs[bi]; await (async()=>{
     // 진행 중인 결전 전장은 결전 종료 처리(resolveShowdown)가 담당 — 중간 클린업이
     // 먼저 통제를 풀고 숨김 카드를 폐기하면 룰(클린업 4단계: 비경합 조건)보다 이르다
     if(G.showdown && G.showdown.bfIdx===bi) return;
@@ -2610,13 +2761,13 @@ function releaseEmptyBattlefields(){
       // 정복으로 뺏길 때(resolveShowdown)만 처리하고 여기가 빠져 있어서,
       // 효과로 전멸당해 무주공산이 된 전장에 숨김 카드가 계속 남아 있었다.
       if(bf.hiddenCards.length){
-        bf.hiddenCards.forEach(hc=>{ G.players[hc.by].trash.push(hc.n); });
+        for(const hc of bf.hiddenCards){ if(G.masked) await revealHiddenCard(hc, 'trash-hidden'); G.players[hc.by].trash.push(hc.n); }   // 폐기장은 공개 구역
         UI.log(`숨겨둔 카드 ${bf.hiddenCards.length}장이 폐기되었습니다 (전장 통제 상실)`, 'sys');
         bf.hiddenCards=[];
       }
     }
     if(bf.units.length===0) bf.contestedBy=null;   // 유닛이 모두 떠나면 경합도 해제
-  });
+  })(); }
 }
 
 // ---------- 클린업: 사망 처리 & 경합 확인 ----------
@@ -2652,7 +2803,7 @@ async function cleanup(actor){
   for(const pl of G.players) for(const g of pl.gear)
     if(!g.attachedTo && Number.isInteger(g.loc)) g.loc='base';
   // 빈 전장 통제 해제 (결전 중 상호 전멸 등도 이후 클린업에서 처리됨)
-  releaseEmptyBattlefields();
+  await releaseEmptyBattlefields();
   // 무혈 결전 중 상대 유닛이 들어와 전투가 준비되면(양측 유닛 존재) 열린 상태의 이 클린업에서 진행 중인 결전이 그대로
   // 전투 결전이 된다 — 새 결전을 열지 않고 지정·전장 [방어 시]·지정 격발만 지금 일어나며 포커스·체인은 이어진다
   // (2026-07-16판 316.9.b.1 · 318 10a단계 · 460.1 · 464 1단계 "the player who has Focus maintains their Focus").
@@ -2891,14 +3042,15 @@ async function resolveShowdown(){
   //  기습 방어(surprise defense) 경우를 가리킨다. 공식 Q&A로 확인: 방어 성공 자체는 무득점.)
   if(remaining!==null && remaining!==prevController){
     bf.controller=remaining;
-    bf.hiddenCards = bf.hiddenCards.filter(h=>{
+    const keptHidden=[];
+    for(const h of bf.hiddenCards){
       if(h.by!==remaining){
         UI.log(`숨겨둔 카드가 폐기되었습니다 (전장 상실)`, 'sys');
+        if(G.masked) await revealHiddenCard(h, 'trash-hidden');   // 폐기장은 공개 구역
         G.players[h.by].trash.push(h.n);
-        return false;
-      }
-      return true;
-    });
+      } else keptHidden.push(h);
+    }
+    bf.hiddenCards = keptHidden;
     const P=G.players[remaining];
     if(!bf.scored[remaining]){
       bf.scored[remaining]=true; P.scoredBf[G.bfs.indexOf(bf)]=true;
@@ -3587,7 +3739,7 @@ async function activateAbility(p, source, ab){
       const ti=(sel==null)?P.trash.length-1:sel;
       recycled.push(P.trash.splice(ti,1)[0]);
     }
-    P.deck.push(...shuffle(recycled));
+    P.deck.push(...shuffleFor(p, recycled));
     UI.log(`${pname(p)} 폐기장에서 ${cost.recycleTrash}장 재활용`, 'p'+p);
   }
   if(cost.discard){
@@ -4546,6 +4698,31 @@ async function execOpsInner(ops, ctx){
         // 촛불 성소(291): 맨 위 n장을 '동시에' 본 뒤 원하는 만큼 재순환(덱 맨 아래),
         // 남긴 카드는 원하는 순서로 맨 위에 되돌린다 — 한 장씩 보고 중간에 끊는 방식은 원문과 다름
         const P=G.players[p];
+        if(G.masked){
+          // 주인만 본다 — 재순환할 번호와 남길 순서를 주인이 정하고, 양쪽이 같은 순서로 옮긴다
+          const seen=P.deck.splice(0, op.n); if(!seen.length) break;
+          await nocturneOfferMasked(p, seen); if(!seen.length) break;
+          const plan=await privateDecision(p, async()=>{
+            const names=seen.map(n=>`「${card(n).ko}」`).join(' · '); const deckScry={cards:seen};
+            const rec=[], keep=[];
+            for(const [index,n] of seen.entries()){
+              const yes=await UI.confirmP(p, `덱 위 ${seen.length}장: ${names} — 「${card(n).ko}」를 재순환(덱 맨 아래)할까요?`, card(n), {publicLabel:`덱 위 ${seen.length}장 확인 — 재순환할지 선택`,deckScry,deckScryIndex:index});
+              if(yes) rec.push(index); else keep.push(index);
+            }
+            const order=[];
+            while(keep.length>1){
+              const sel=await UI.pickOption(p, '덱 맨 위에 둘 카드부터 차례로 선택', keep.map((idx,i)=>({v:i, label:card(seen[idx]).ko, n:seen[idx], deckLook:{cards:keep.map(k=>seen[k]),kind:'top'}})));
+              order.push(keep.splice((sel==null)?0:sel,1)[0]);
+            }
+            order.push(...keep);
+            return {rec, order};
+          }, 'scry');
+          const order=(plan&&plan.order)||seen.map((_,i)=>i), recIdx=(plan&&plan.rec)||[];
+          for(let i=order.length-1;i>=0;i--) P.deck.unshift(seen[order[i]]);
+          P.deck.push(...shuffleFor(p, recIdx.map(i=>seen[i])));
+          if(recIdx.length) await fireEvent('onYouRecycle',{p});
+          break;
+        }
         const {nocturneResume:resume,...lookOp}=op;
         const seen=resume?resume.seen:P.deck.slice(0, op.n);
         if(!seen.length) break;
@@ -4567,7 +4744,7 @@ async function execOpsInner(ops, ctx){
         }
         order.push(...keep);
         for(let i=order.length-1;i>=0;i--) P.deck.unshift(order[i]);
-        P.deck.push(...shuffle(recList));   // 417.1 동시에 재활용된 카드는 무작위 순서로 덱 밑에
+        P.deck.push(...shuffleFor(p, recList));   // 417.1 동시에 재활용된 카드는 무작위 순서로 덱 밑에
         if(rec) await fireEvent('onYouRecycle',{p});
         break; }
       case 'winIf7Here': {
