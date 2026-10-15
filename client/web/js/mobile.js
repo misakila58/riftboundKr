@@ -414,7 +414,8 @@
   function validRuneDraft(){
     if(!runeDraft || runeDraft.game!==G) return false;
     if(runeDraft.cost){
-      if(G.winner!==null || (!runeDraft.cost.choice && G.actingPlayer!==runeDraft.p) || !localControlsPlayer(runeDraft.p)
+      // 해결 중 지불(쌍권총 난사 등)은 우선권이 상대에게 있을 때도 열린다 — 연 시점의 우선권이 바뀔 때만 닫는다
+      if(G.winner!==null || (!runeDraft.cost.choice && G.actingPlayer!==runeDraft.actor) || !localControlsPlayer(runeDraft.p)
         || NET.reconnecting || NET.catchingUp || replayLock()) return false;
     }else if(!eligibleRunes(runeDraft.p)) return false;
     if(runeDraft.cost?.choice) return runeDraft.cost.entries.every((entry,i)=>!entry ||
@@ -760,7 +761,7 @@
     hz.classList.add(runes?'mobile-runes-open':'mobile-hand-open'); hz.setAttribute('aria-expanded','true');
     if(runes){
       const runes=cost?.choice?cost.entries.map(entry=>entry?.r||{ex:false}):G.players[+hz.id.slice(-1)].runes;
-      runeDraft={game:G,p:+hz.id.slice(-1),order:[...hz.querySelectorAll('[data-rune-index]')].map(el=>+el.dataset.runeIndex),runes:[...runes],ex:runes.map(r=>!!r.ex),picks:new Map(),dragCancels:[],cost};
+      runeDraft={game:G,p:+hz.id.slice(-1),actor:G.actingPlayer,order:[...hz.querySelectorAll('[data-rune-index]')].map(el=>+el.dataset.runeIndex),runes:[...runes],ex:runes.map(r=>!!r.ex),picks:new Map(),dragCancels:[],cost};
       layer.appendChild(runeControls()); paintRuneDraft();
     }
     if(choice){
