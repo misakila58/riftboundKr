@@ -346,6 +346,7 @@ NET._pumpLoop = async function(gen){
     try {
       if(!NET._authorized(a, seat)){ console.warn('rejected unauthorized action', a, 'seat', seat); updateButtons(); continue; }
       await NET._execAction(a);
+      if(typeof syncPrivateHands==='function') await syncPrivateHands();   // 오라클 모드: 행동으로 뽑은 카드를 주인에게 (세 엔진 같은 지점)
     }
     catch(e){
       console.error('action error', a, e); UI.toast('동기화 오류: '+e.message,'warn');
@@ -501,10 +502,18 @@ NET.localBusy=0;
 // ── 숨김 정보 (온라인 1단계) ──
 // 공개 응답: p의 화면이 자기 비공개 카드의 정체(또는 판정)를 계산해 보내고, 나머지 화면은 받는다. 대기 안내 없이 바로 지나간다.
 NET._localOnly=0;
+// 2단계(서버 오라클): 공개 응답은 서버가 보낸다 — 주인 화면도 계산하지 않고 기다린다(자기 덱 순서도 모른다). NET.oracle은 start.oracle
+NET.oracle=false; NET._waitOnly=false;
 NET.revealChoice = function(p, getter, why){
-  NET._silentChoice=true;
+  NET._silentChoice=true; NET._waitOnly=!!NET.oracle;
   try{ return NET.choice(p, ()=>Promise.resolve(getter()), v=>v===undefined?null:v, v=>v); }
-  finally{ NET._silentChoice=false; }
+  finally{ NET._silentChoice=false; NET._waitOnly=false; }
+};
+// 주인 전용 공개: 서버가 그 좌석에만 정체를 보낸다(다른 화면은 null을 받아 HID 유지). 선택 순번은 모든 화면이 같이 소비한다
+NET.ownerReveal = function(p, getter, why){
+  NET._silentChoice=true; NET._waitOnly=true;
+  try{ return NET.choice(p, ()=>Promise.resolve(null), v=>v, v=>v); }
+  finally{ NET._silentChoice=false; NET._waitOnly=false; }
 };
 // 주인 결정: p의 화면에서만 fn을 실행한다(그 안의 선택창은 이 화면에서만 열린다). 상대에게는 결과만 간다.
 NET.privateChoice = function(p, fn, why){
@@ -522,7 +531,7 @@ NET.choice = function(p, interactiveFn, serialize, deserialize){
   // 따라잡는 중인데 이 선택의 답이 로그에 없다 = 끊기기 전 마지막 지점에 닿았다(그 뒤 행동은 이 답 없이는 생길 수 없다) → 여기서부터 라이브
   if(NET.catchingUp && !(earlyQ && earlyQ.length)) NET.finishCatchUp();
   if(earlyQ && earlyQ.length){ const early=earlyQ.shift(); if(!earlyQ.length) delete NET.earlyChoices[id]; queueMicrotask(()=>NET._resolveChoice(early)); return pr; }
-  if(p===NET.seat){
+  if(p===NET.seat && !NET._waitOnly){
     interactiveFn().then(v=>{ if(gen===NET.syncGen) NET.send({t:'choice', id, data:serialize(v)}); });   // 재접속 전 옛 게임의 선택창 응답은 보내지 않는다(새 게임 선택 순번을 어긋나게 함)
   } else if(NET._silentChoice){
     // 공개 응답은 곧바로 온다 — 대기 안내를 띄우지 않는다

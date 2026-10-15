@@ -8,6 +8,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const WebSocket = require('ws');
+const ORACLE = require('./oracle.js');   // 숨김 정보 2단계: 방마다 '모든 것을 아는' 엔진 사본
 
 // ---------- 설정 ----------
 const PORT = parseInt(process.argv[2], 10) || parseInt(process.env.PORT, 10) || 8321;
@@ -122,9 +123,9 @@ function statsRecord(b) {
 
 // ---------- 모바일/브라우저용 웹앱 제공 경로 ----------
 // 배포판(dist): exe 옆 web/ · 개발: ../client/web
-const WEB_ROOT = fs.existsSync(path.join(BASE, 'web', 'index.html'))
+const WEB_ROOT = process.env.RB_WEB_ROOT || (fs.existsSync(path.join(BASE, 'web', 'index.html'))
   ? path.join(BASE, 'web')
-  : path.join(__dirname, '..', 'client', 'web');
+  : path.join(__dirname, '..', 'client', 'web'));
 const SERVE_WEB = fs.existsSync(path.join(WEB_ROOT, 'index.html'));
 // 지금 서비스 중인 웹 클라이언트의 버전. 데스크톱 exe와 이 값이 다르면 서로 방에 못 들어가므로
 // (입장 시 버전 검사) 배포가 밀렸는지 한눈에 보이도록 상태에 함께 싣는다.
@@ -979,6 +980,7 @@ const server = http.createServer(async (req, res) => {
 // ---------- WebSocket: 로비 & 게임 릴레이 ----------
 const wss = new WebSocket.Server({ server, maxPayload: LIMITS.WS_PAYLOAD });
 const rooms = new Map();
+{ const del = rooms.delete.bind(rooms); rooms.delete = id => { const r = rooms.get(id); if (r && r.oracle) { r.oracle.dispose(); r.oracle = null; } return del(id); }; }   // 오라클 정리
 let roomSeq = 1;
 function wsSend(ws, obj) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }   // 끊긴 좌석(ws=null)은 조용히 건너뛴다
 
@@ -990,7 +992,7 @@ function persistRooms() {
   clearTimeout(roomsSaveTimer);
   roomsSaveTimer = setTimeout(() => {
     const out = [...rooms.values()].filter(r => r.started).map(r => ({
-      id: r.id, name: r.name, seed: r.seed, priv: r.priv || null, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
+      id: r.id, name: r.name, seed: r.seed, priv: r.priv || null, oracleMode: !!r.oracleMode, manual: r.manual, banRule: r.banRule, format: r.format, allowSpectate: r.allowSpectate,
       ranked: !!r.ranked, rankSettled: !!r.rankSettled, rankReports: r.rankReports || null, rankResultMsgs: r.rankResultMsgs || null, rankSeats: r.rankSeats || null, rankDecks: r.rankDecks || null, rankGames: r.rankGames || null, rankMeta: r.rankMeta || null, rejoins: r.rejoins || 0, rankLeftAfterReport: !!r.rankLeftAfterReport,
       password: r.password, startedAt: r.startedAt, seq: r.seq, log: r.log || [], turnTimer: r.turnTimer, undo: r.undo,
       players: r.players.map(pl => ({ id: pl.id, deck: pl.deck, seat: pl.seat, ver: pl.ver })),
@@ -1088,6 +1090,7 @@ try {
       rooms.set(r.id, r); restored++;
       const n = parseInt(String(r.id).replace(/^r/, ''), 10); if (Number.isFinite(n) && n >= roomSeq) roomSeq = n + 1;
       r.players.forEach(pl => scheduleExpire(r, pl, LIMITS.REJOIN_GRACE_RESTART_MS));
+      restoreOracle(r);
     }
     if (restored) console.log(`진행 중이던 방 ${restored}개 복원 — 플레이어 재접속 대기`);
     if (restored < saved.length) persistRooms();   // 버린 방은 파일에서도 지운다
@@ -1181,7 +1184,7 @@ function rejoinSeat(ws, pick) {
   // (끊었다 들어와 턴 시간을 새로 받는 이득 제거, 2026-10-07)
   const idleMs = Math.max(0, Date.now() - Math.max(...found.players.map(q => q.lastAct || 0), found.startedAt || 0, SERVER_STARTED_AT));
   wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true, idleMs });
-  (found.log || []).forEach(o => wsSend(ws, outFor(o, seat.seat)));
+  (found.log || []).forEach(o => wsSend(ws, outFor(o, seat.seat, found)));
   wsSend(ws, { t: 'rejoinDone' });
   if (found.rankResultMsgs && found.rankResultMsgs[seat.seat]) wsSend(ws, found.rankResultMsgs[seat.seat]);   // 이미 확정된 등급 결과
   roomEveryone(found).forEach(q => { if (q.ws !== ws) wsSend(q.ws, { t: 'opponentBack', id: ws._userId }); });
@@ -1201,23 +1204,100 @@ function verAtLeast(v, min) {
 }
 function roomMaskable(r) { return r.players.length === 2 && r.players.every(pl => verAtLeast(pl.ver, MASK_MIN_VER)); }
 function newPrivSeeds() { return [crypto.randomBytes(4).readUInt32LE(0) || 1, crypto.randomBytes(4).readUInt32LE(0) || 1]; }
-function privFor(pair, seat) {
+function privFor(pair, seat, oracle) {
   if (!Array.isArray(pair)) return undefined;
   if (seat < 0) return [pair[0], pair[1]];
+  if (oracle) return [null, null];   // 2단계: 좌석 둘 다 자기 시드를 모른다 — 서버 오라클이 공개를 보낸다
   return [seat === 0 ? pair[0] : null, seat === 1 ? pair[1] : null];
 }
+// ── 숨김 정보 2단계: 서버 오라클 (2026-10-15) — server/oracle.js ──
+// 양쪽이 ORACLE_MIN_VER 이상이면 비공개 시드를 플레이어에게 주지 않고 방마다 엔진 사본을 돌려 공개·주인 전용 공개를 서버가 보낸다.
+// 상대 덱 목록(메인 40장)도 가려 보내고(maskDeck), 사이드덱 교체·재대결 덱도 받는 좌석에 맞게 가린다. 옛 쌍(1.0.128)은 1단계 그대로.
+const ORACLE_MIN_VER = process.env.RB_ORACLE_MIN_VER || '1.0.129';
+function roomOracle(r) { return r.players.length === 2 && r.players.every(pl => verAtLeast(pl.ver, ORACLE_MIN_VER)); }
+function oracleCfg(r) {
+  return { seed: r.seed, priv: r.priv, format: r.format || 'bo1', manual: r.manual !== false, banRule: !!r.banRule, undo: roomUndo(r), match: null,
+    players: r.players.map(q => ({ id: q.id, deck: q.deck })) };
+}
+function oracleHooks(r) {
+  return {
+    emit(msg) {   // 오라클 공개 → 로그(재접속·관전 따라잡기·재시작 복원)와 좌석별 전송
+      if (!rooms.has(r.id)) return;
+      r.log = r.log || []; r.log.push(msg); if (r.log.length > 20000) r.log.splice(0, r.log.length - 20000);
+      persistRooms();
+      r.players.forEach(pl => wsSend(pl.ws, outFor(msg, pl.seat, r)));
+      (r.spectators || []).forEach(sp => wsSend(sp.ws, outFor(msg, -1, r)));
+    },
+    violation(seat, action, why) {
+      r.violations = (r.violations || 0) + 1;
+      const who = (r.players.find(pl => pl.seat === seat) || {}).id || ('seat' + seat);
+      console.log(`[검증] ${r.id} ${who}: ${why} ${JSON.stringify(action).slice(0, 160)}`);
+      STATS['oracle:violations'] = (STATS['oracle:violations'] || 0) + 1;
+    },
+    fail(err) {
+      console.log(`[오라클] ${r.id} 오류 — 경기를 무효로 닫습니다:`, err && err.stack || err);
+      STATS['oracle:failures'] = (STATS['oracle:failures'] || 0) + 1;
+      if (rooms.has(r.id)) voidRoom(r, { id: '서버' }, '서버 판정 오류');
+    },
+  };
+}
+function startOracle(r) {
+  if (!r.oracleMode || !r.priv) return;
+  try { r.oracle = ORACLE.createOracle(WEB_ROOT, oracleCfg(r), oracleHooks(r)); r.oracle.start(oracleCfg(r)); }
+  catch (e) { console.log(`[오라클] ${r.id} 시작 실패:`, e.message); r.oracle = null; }
+}
+// 재시작 복원: 기록된 오라클 공개와 대조하며 로그 전체를 다시 먹인다(새 공개는 그대로 보낸다)
+function restoreOracle(r) {
+  if (!r.oracleMode || !r.priv) return;
+  try {
+    r.oracle = ORACLE.createOracle(WEB_ROOT, oracleCfg(r), oracleHooks(r));
+    // 기록된 공개는 게임별(재대결마다 선택 번호가 1부터 다시 시작)로 묶어 대조한다
+    const games = [{}]; (r.log || []).forEach(o => { if (o.t === 'act' && o.action && o.action.k === 'rematchGo') games.push({}); else if (o.from === 'oracle') games[games.length - 1][o.id] = o; });
+    r.oracle.replay(games);
+    r.oracle.start(oracleCfg(r));
+    // 한 건씩 틱을 두고 먹인다 — 한꺼번에 넣으면 게임 사이에 겹치는 선택 번호가 먼저 온 것을 덮는다. 그동안 들어오는 새 메시지는 대기열에
+    const oracle = r.oracle, entries = (r.log || []).filter(o => o.from !== 'oracle');
+    r.oracleQueue = [];
+    (async () => {
+      for (const o of entries) { if (r.oracle !== oracle) return; oracle.feed(o); await new Promise(res => setImmediate(res)); }
+      if (r.oracle !== oracle) return;
+      oracle.live();
+      const q = r.oracleQueue; r.oracleQueue = null; (q || []).forEach(m => oracle.feed(m));
+    })();
+  } catch (e) { console.log(`[오라클] ${r.id} 복원 실패:`, e.message); r.oracle = null; }
+}
+function oracleFeed(r, m) { if (!r.oracle) return; if (r.oracleQueue) r.oracleQueue.push(m); else r.oracle.feed(m); }
+// 선택 응답에 실린 덱(사이드덱 교체 {main,champN})의 선발 검사 — 서버가 미리 걸러 null로 바꾸면 세 엔진이 똑같이 '변경 없음'으로 간다
+function validChampionDeck(legendN, main, champN) {
+  if (!VALID.size) return true;   // 카드 데이터가 없으면 검증 완화(기존 덱 검증과 같은 태도)
+  return !!(main.includes(champN) && VALID.champ.has(champN) && (VALID.tags[champN] || []).some(t => (VALID.tags[legendN] || []).includes(t)));
+}
 // 기록·중계 메시지를 받는 좌석에 맞게: 재대결 시작(rematchGo)에는 그 좌석의 비공개 시드만 싣는다
-function outFor(o, seat) {
-  if (!o || !o.privAll) return o;
-  const { privAll, ...rest } = o;
-  return { ...rest, action: { ...rest.action, priv: privFor(privAll, seat) } };
+function outFor(o, seat, r) {
+  if (!o) return o;
+  const oracle = !!(r && r.oracleMode);
+  if (o.from === 'oracle') { const { dataFor, ...rest } = o; return { ...rest, data: dataFor ? dataFor[seat < 0 ? 2 : seat] : null }; }   // 좌석별 데이터(주인 전용 공개)
+  if (o.t === 'choice') {
+    if (oracle && seat >= 0 && seat !== o.seat && o.data && Array.isArray(o.data.main)) return { ...o, data: { ...o.data, main: o.data.main.map(() => ORACLE.HID) } };   // 사이드덱 교체
+    return o;
+  }
+  if (o.t !== 'act' || !o.action) return o;
+  if (o.action.k === 'rematch' && oracle && seat >= 0 && seat !== o.seat) return { ...o, action: { ...o.action, deck: ORACLE.maskDeck(o.action.deck) } };
+  if (o.action.k === 'rematchGo') {
+    const { privAll, ...rest } = o;
+    const action = { ...rest.action };
+    if (privAll) action.priv = privFor(privAll, seat, oracle);
+    if (oracle && seat >= 0 && Array.isArray(action.decks)) action.decks = action.decks.map((d, i) => i === seat ? d : ORACLE.maskDeck(d));
+    return { ...rest, action };
+  }
+  return o;
 }
 function startMsg(r, seat) {
-  return { t: 'start', seed: r.seed, ...(r.priv ? { priv: privFor(r.priv, seat) } : {}), yourSeat: seat, spectate: seat < 0, manual: r.manual !== false, banRule: !!r.banRule, format: r.format || 'bo1',
+  return { t: 'start', seed: r.seed, ...(r.priv ? { priv: privFor(r.priv, seat, r.oracleMode) } : {}), oracle: !!r.oracleMode, yourSeat: seat, spectate: seat < 0, manual: r.manual !== false, banRule: !!r.banRule, format: r.format || 'bo1',
     turnTimer: roomTurnTimer(r), undo: roomUndo(r),
     ranked: !!r.ranked, season: RANK_SEASON,
     // 사이드덱은 본인만 쓰는 비공개 정보 — 상대 클라이언트로 보내지 않는다. 등급·칭호는 공개 정보(아이디 옆 표시)
-    players: r.players.map(q => ({ id: q.id, deck: deckWithoutSide(q.deck), rank: rankPublic(q.id, r.format) })) };
+    players: r.players.map(q => ({ id: q.id, deck: (r.oracleMode && seat >= 0 && q.seat !== seat) ? ORACLE.maskDeck(deckWithoutSide(q.deck)) : deckWithoutSide(q.deck), rank: rankPublic(q.id, r.format) })) };   // 2단계: 상대 메인 40장은 가린다
 }
 function roomEveryone(r) { return [...r.players, ...(r.spectators || [])]; }
 
@@ -1459,9 +1539,11 @@ function rankStartMatch(format, a, b) {
   r.rankMeta = { waitSec: [Math.round((Date.now() - first.since) / 1000), Math.round((Date.now() - second.since) / 1000)], mmr: [Math.round(first.mmr), Math.round(second.mmr)] };   // 매칭 대기·시작 MMR (통계)
   r.seed = crypto.randomBytes(4).readUInt32LE(0);
   r.priv = roomMaskable(r) ? newPrivSeeds() : null;   // 숨김 정보: 좌석별 비공개 시드 (덱 셔플) — 각 좌석에는 자기 것만 보낸다
+  r.oracleMode = !!r.priv && roomOracle(r);
   rooms.set(r.id, r);
   r.players.forEach(pl => { pl.ws._room = r; wsSend(pl.ws, startMsg(r, pl.seat)); });
   persistRooms(); broadcastLobby();
+  startOracle(r);
 }
 // 밴 리스트 (한국 KR 기준 = 글로벌 공통, 2026-09-18 개정 확인) — client/web/js/banlist.js와 반드시 함께 갱신할 것
 // 168 투쟁 혹은 도피 · 177 은밀한 추적자 · 182 고철 더미 · 276 지망자의 등반
@@ -1584,8 +1666,10 @@ wss.on('connection', (ws, req) => {
         r.startedAt = Date.now();   // 배포 전 '몇 분째 두는 중인지' 보여주는 데 쓴다
         r.seed = crypto.randomBytes(4).readUInt32LE(0);
         r.priv = roomMaskable(r) ? newPrivSeeds() : null;
+        r.oracleMode = !!r.priv && roomOracle(r);
         r.players.forEach(pl => wsSend(pl.ws, startMsg(r, pl.seat)));
         persistRooms();
+        startOracle(r);
         (r.spectators || []).forEach(sp => wsSend(sp.ws, startMsg(r, -1)));
         broadcastLobby();
         break;
@@ -1603,7 +1687,7 @@ wss.on('connection', (ws, req) => {
         r.spectators.push({ ws, id: ws._userId });
         ws._room = r; ws._spectator = true;
         wsSend(ws, { t: 'spectating', room: roomInfo(r) });
-        if (r.started) { wsSend(ws, startMsg(r, -1)); (r.log || []).forEach(o => wsSend(ws, outFor(o, -1))); }
+        if (r.started) { wsSend(ws, startMsg(r, -1)); (r.log || []).forEach(o => wsSend(ws, outFor(o, -1, r))); }
         broadcastLobby();
         break;
       }
@@ -1641,17 +1725,31 @@ wss.on('connection', (ws, req) => {
         if (!(m.t === 'act' && m.action && m.action.k === 'playmat')) me.lastAct = Date.now();   // 시작 단계 무효 판정용 (외형 정보는 제외)
         if (m.t === 'act') out.action = m.action;
         else { out.id = m.id; out.data = m.data; }
+        if (m.t === 'act' && m.action && m.action.k === 'rematch' && r.oracleMode) {   // 다음 게임 덱(사이드보딩 결과) — 서버가 보관해 rematchGo에 싣고, 상대에게는 가려 보낸다
+          const d = m.action.deck;
+          if (d && Array.isArray(d.main) && d.main.length === 40) { r.nextDecks = r.nextDecks || {}; r.nextDecks[me.seat] = d; }
+        }
         if (m.t === 'act' && m.action && m.action.k === 'rematchGo') {
           out.action = { ...m.action, seed: crypto.randomBytes(4).readUInt32LE(0) };
           if (r.priv) out.privAll = newPrivSeeds();
+          if (r.oracleMode) {   // 방장이 보낸 덱 대신 각자 보낸 덱(서버 보관)을 쓴다 — 방장 화면은 상대 덱을 가린 채 받았다
+            const nd = r.nextDecks || {}, sent = Array.isArray(m.action.decks) ? m.action.decks : [];
+            out.action.decks = [nd[0] || sent[0], nd[1] || sent[1]];
+            r.nextDecks = {};
+          }
+        }
+        if (m.t === 'choice' && r.oracleMode && out.data && Array.isArray(out.data.main)) {   // 사이드덱 교체 응답: 선발이 부적법하면 세 엔진 모두 '변경 없음'
+          const main = out.data.main.map(Number);
+          if (main.length !== 40 || !validChampionDeck(me.deck && me.deck.legendN, main, out.data.champN)) out.data = null;
         }
         // 등급전: 항복은 서버가 직접 본다 (Bo3는 매치 승자가 정해질 때 클라이언트 보고로 확정하므로 단판만 즉시)
         if (m.t === 'act' && r.ranked && !r.rankSettled && m.action && m.action.k === 'surrender' && r.format !== 'bo3')
           rankSettle(r, 1 - me.seat, me.id + ' 항복');
         r.log = r.log || []; r.log.push(out); if (r.log.length > 20000) r.log.splice(0, r.log.length - 20000);   // 관전 따라잡기 + 재접속 재생용 (모든 방)
         persistRooms();
-        r.players.forEach(pl => wsSend(pl.ws, outFor(out, pl.seat)));
-        (r.spectators || []).forEach(sp => wsSend(sp.ws, outFor(out, -1)));
+        r.players.forEach(pl => wsSend(pl.ws, outFor(out, pl.seat, r)));
+        (r.spectators || []).forEach(sp => wsSend(sp.ws, outFor(out, -1, r)));
+        oracleFeed(r, out);   // 오라클은 가리지 않은 전체를 받는다 (복원 중이면 대기열)
         break;
       }
       case 'voidMatch': {

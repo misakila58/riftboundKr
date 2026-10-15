@@ -10,6 +10,7 @@ module.exports = function (name, PORT, env = {}) {
   fs.rmSync(DIR, { recursive: true, force: true }); fs.mkdirSync(path.join(DIR, 'data'), { recursive: true });
   fs.copyFileSync(path.join(REPO, 'server', 'server.js'), path.join(DIR, 'server.js'));
   fs.copyFileSync(path.join(REPO, 'server', 'cards.json'), path.join(DIR, 'cards.json'));
+  fs.copyFileSync(path.join(REPO, 'server', 'oracle.js'), path.join(DIR, 'oracle.js'));   // 숨김 정보 2단계 오라클(서버가 require)
   const far = Date.now() + 30 * 24 * 3600 * 1000;
   fs.writeFileSync(path.join(DIR, 'data', 'db.json'), JSON.stringify({
     users: { t1: { id: 't1', salt: 'x', hash: 'x', decks: [], created: Date.now() }, t2: { id: 't2', salt: 'x', hash: 'x', decks: [], created: Date.now() } },
@@ -24,7 +25,7 @@ module.exports = function (name, PORT, env = {}) {
   let srv = null;
   function startServer() {
     return new Promise((res, rej) => {
-      srv = spawn(process.execPath, ['server.js', String(PORT)], { cwd: DIR, env: { ...process.env, NODE_PATH: path.join(REPO, 'server', 'node_modules'), RB_REJOIN_GRACE_MS: '3000', RB_VOID_IDLE_MS: '1500', ...env } });
+      srv = spawn(process.execPath, ['server.js', String(PORT)], { cwd: DIR, env: { ...process.env, NODE_PATH: path.join(REPO, 'server', 'node_modules'), RB_REJOIN_GRACE_MS: '3000', RB_VOID_IDLE_MS: '1500', RB_WEB_ROOT: path.join(REPO, 'client', 'web'), ...env } });
       let out = ''; srv.stdout.on('data', d => { out += d; if (/실행!/.test(out)) res(out); }); srv.stderr.on('data', d => { out += d; });
       srv.on('exit', c => { if (!/실행!/.test(out)) rej(new Error('server exit ' + c + '\n' + out)); });
       setTimeout(() => rej(new Error('server start timeout\n' + out)), 8000);

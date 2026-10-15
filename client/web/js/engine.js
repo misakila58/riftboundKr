@@ -33,6 +33,43 @@ const HID = -1;
 CARD_BY_N[HID] = { n:HID, name:'Hidden card', ko:'비공개 카드', type:'Hidden', super:null, rarity:null, dom:[], e:0, m:0, p:null, text:'', tko:'', tags:[], img:null };
 function isHid(n){ return n===HID; }
 function knows(p){ return !G || !G.masked || !!(G.know && G.know[p]); }
+// ══ 2단계: 서버 오라클 (2026-10-15) ══
+// 좌석 둘 다 자기 덱 순서를 모른다(비공개 시드는 서버만 갖는다). 서버가 '모든 것을 아는' 엔진 사본(오라클)을 돌리며
+//  · 공개(revealCards)는 서버가 답하고(주인 화면도 계산하지 않는다 — 상대 덱 목록도 모르므로 조작할 재료가 없다),
+//  · 주인 전용 공개(ownerReveal)는 그 좌석에만 정체를 보낸다 — 드로우한 손패(syncPrivateHands)·덱 위 엿보기(peekDeckTop).
+// 드로우는 동기 함수라 그 자리에서 기다릴 수 없다 → 손패에 HID를 넣고 '더럽혀짐'만 표시한 뒤, 모든 엔진이 같은 지점
+// (선택창 직전 routedPick·행동 끝·턴 시작 끝·멀리건 교체 뒤·privateDecision 직전)에서 한꺼번에 동기화한다. 조건은 공개 정보라 세 엔진이 같다.
+function oracleMode(){ return !!(G && G.masked && G.oracle); }
+async function ownerReveal(p, getter, why){
+  if(!oracleMode()) return getter();
+  if(typeof NET!=='undefined' && typeof NET.ownerReveal==='function') return await NET.ownerReveal(p, getter, why);
+  return getter();
+}
+function handTouched(p){ if(oracleMode() && G._handDirty) G._handDirty[p]=true; }
+let _handSync=null;
+// 반환: 동기화할 것이 없으면 null(호출자는 await 없이 동기 경로를 유지한다 — ui.js routedPick이 선택 번호를 동기적으로 등록해야 공개 손패·멀리건 관전이 맞는다)
+function syncPrivateHands(){
+  if(!oracleMode() || !G._handDirty || !(G._handDirty[0]||G._handDirty[1])) return null;
+  if(_handSync) return _handSync;
+  const game=G;
+  _handSync=(async()=>{ try{
+    for(const p of [0,1]){
+      if(G!==game || !G._handDirty[p]) continue; G._handDirty[p]=false;
+      const P=G.players[p];
+      const ns=await ownerReveal(p, ()=>P.hand.slice(), 'hand-sync');
+      if(G===game && Array.isArray(ns) && ns.length===P.hand.length) ns.forEach((n,i)=>{ if(n!==HID && P.hand[i]===HID) P.hand[i]=n; });
+    }
+    if(G===game) UI.render();
+  } finally{ _handSync=null; } })();
+  return _handSync;
+}
+// 덱 위 k장을 주인에게만 알려 둔다 — 주인이 몰래 보고 고르는 효과(privateDecision) 앞에서 부른다
+async function peekDeckTop(p, k, why){
+  if(!oracleMode()) return;
+  const P=G.players[p]; const game=G;
+  const ns=await ownerReveal(p, ()=>P.deck.slice(0,k), why||'peek');
+  if(G===game && Array.isArray(ns)) ns.forEach((n,i)=>{ if(n!==HID && i<P.deck.length) P.deck[i]=n; });
+}
 // 좌석별 비공개 난수 (mulberry32, 공개 rng와 분리 — 공개 rng 소비 순서를 양쪽이 똑같이 유지한다)
 function privRng(p){
   const st=G._priv; let s=st[p];
@@ -100,6 +137,7 @@ const REACTION_WIRE={
 // 결과만 모두에게 보낸다. fn은 게임 상태를 바꾸지 말고 결정(번호 등)만 돌려줘야 한다 — 상태 변경은 결과를 받은 뒤 양쪽이 똑같이 한다.
 async function privateDecision(p, fn, why){
   if(!G.masked) return await fn();
+  await syncPrivateHands();   // 오라클 모드: 주인 화면이 fn 안에서 손패를 읽을 수 있게 먼저 맞춘다 (세 엔진이 같은 지점)
   if(typeof NET!=='undefined' && typeof NET.privateChoice==='function') return await NET.privateChoice(p, fn, why);
   return await fn();
 }
@@ -107,7 +145,8 @@ async function privateDecision(p, fn, why){
 function deckHasNocturne(p){ return (G.players[p].deckList||[]).some(n=>FX[n]&&FX[n].nocturne); }
 // 숨김 모드 녹턴: 주인이 몰래 고르고, 고른 카드만 공개해 낸다
 async function nocturneOfferMasked(p, seen){
-  if(!deckHasNocturne(p) || !seen.length) return;
+  if(!seen.length) return;
+  if(!oracleMode() && !deckHasNocturne(p)) return;   // 오라클 모드는 덱 목록이 비공개라(상대 화면 HID) 이 판정을 공개 정보로 쓸 수 없다 — 항상 주인이 몰래 판단
   const plan = await privateDecision(p, async()=>{
     const out=[];
     for(let i=seen.length-1;i>=0;i--){
@@ -184,6 +223,7 @@ function newGame(cfg){
           if(inList.length){ maskedChamp=inList[0]; UI.log(`${pc.name}: 선발 챔피언을 덱의 「${card(maskedChamp).ko}」(으)로 보정했습니다 (지정 카드가 덱에 없음)`, 'sys'); }
         }
         const k=l.indexOf(maskedChamp); if(k>=0) l.splice(k,1);
+        else if(l.length && l.every(isHid)) l.pop();   // 오라클 모드: 상대 덱 목록은 전부 HID로 온다 — 장수만 맞춘다(선발 1장 제외)
         return l; })()) : shuffle([...pc.deck]);
       let champN=masked ? maskedChamp : pc.champN;
       let ci=masked ? 0 : deck.indexOf(champN);
@@ -216,6 +256,7 @@ function newGame(cfg){
     turn:first, turnCount:0, phase:'setup', state:'neutral',
     showdown:null, winner:null, actingPlayer:first,
     masked, know, _priv: privState,
+    oracle: masked && !!cfg.oracle, _handDirty:[false,false],   // 2단계: 서버 오라클 모드 (양 좌석 모두 비공개 시드 없음)
   };
   // 전장 상시: 승리 점수 +1
   G.victory = VICTORY + G.bfs.filter(bf=>bf.n===BF_STATIC.VICTORY_PLUS).length;
@@ -548,7 +589,7 @@ function placeUnit(u, loc){
 function putCardInHand(p,n,source,faceDown=false){
   const P=G.players[p];
   UI.fx.moveCard?.(p,n,source,`#hand-${p} [data-hand-index="${P.hand.length}"]`,{back:faceDown || !handFaceUp(p)});
-  P.hand.push(n);
+  P.hand.push(n); handTouched(p);
 }
 function drawCard(p, silent){
   const P=G.players[p];
@@ -556,7 +597,7 @@ function drawCard(p, silent){
   const n=P.deck.shift();
   if(n!==undefined){
     UI.fx.moveCard?.(p,n,`#deck-${p}`,`#hand-${p} [data-hand-index="${P.hand.length}"]`,{back:!handFaceUp(p)});
-    P.hand.push(n); if(!silent) UI.log(`${pname(p)} 카드 1장 드로우`, 'p'+p);
+    P.hand.push(n); handTouched(p); if(!silent) UI.log(`${pname(p)} 카드 1장 드로우`, 'p'+p);
   }
   checkWin();
 }
@@ -976,6 +1017,7 @@ async function mulliganPhase(){
     if(G!==game || G.winner!==null) return;
     applyMulligan(p, picks);
     UI.render();
+    await syncPrivateHands();   // 오라클 모드: 교체로 뽑은 카드를 주인에게 (세 엔진 같은 지점)
     if(UI.presentMulliganReplacement) await UI.presentMulliganReplacement(p,before,picks);
     if(G!==game || G.winner!==null) return;
   }
@@ -1093,6 +1135,7 @@ async function startTurn(){
 
   G.phase='action'; G.state='neutral';
   G.actingPlayer=p; // 이전 턴 결전 해결 시점의 행동 권한이 남지 않도록 턴 주인으로 초기화
+  await syncPrivateHands();   // 오라클 모드: 드로우한 카드를 주인에게 (첫 턴은 행동 큐 밖에서 시작되므로 여기서)
   UI.render();
   UI.prompt(`${pname(p)}의 행동 단계 — 카드 플레이 / 이동 / 능력 발동 / 턴 종료`);
 }
@@ -2933,6 +2976,9 @@ async function resolveChainItem(it){
   }
   if(it.kind==='counter'){
     await fireSpellPlayEvents(it.p, it.n, !!it.fromHidden);   // 카운터 주문도 지금 해결된다
+    // 카운터 주문의 '주문 플레이' 격발(레이븐블룸 학생·버려진 전당 등)은 보통 주문과 달리 execOps를 거치지 않아 대기열에만 남았다 —
+    // 결전 중이면 전투가 끝난 뒤에야 체인에 올라 격발원이 이미 죽어 불발됐다(제보 2026-10-15). 지금 체인에 올려 전투 전에 해결되게 한다.
+    if(_execDepth===0 && !G.manual && G._pendingTriggers && G._pendingTriggers.length) await flushPendingTriggers();
     trashCard(it.p, it.n);
     if(it.target && !it.target.countered && !it.target.resolved){
       if(it.steal){ it.target.execAs=it.p; UI.log(`🔗 ⚡「${c.ko}」: 「${card(it.target.n).ko}」 통제권 탈취!`, 'p'+it.p); }
@@ -4700,6 +4746,7 @@ async function execOpsInner(ops, ctx){
         const P=G.players[p];
         if(G.masked){
           // 주인만 본다 — 재순환할 번호와 남길 순서를 주인이 정하고, 양쪽이 같은 순서로 옮긴다
+          await peekDeckTop(p, op.n, 'scry');
           const seen=P.deck.splice(0, op.n); if(!seen.length) break;
           await nocturneOfferMasked(p, seen); if(!seen.length) break;
           const plan=await privateDecision(p, async()=>{

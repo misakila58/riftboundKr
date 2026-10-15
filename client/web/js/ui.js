@@ -524,6 +524,8 @@ async function routedPick(p, interactiveFn, serialize, deserialize){
   updateTurnGlow();
   updateButtons();
   try{
+    // 오라클 모드: 선택창을 열기 전에 드로우한 손패를 주인에게 맞춘다 (주인 전용 결정 안(_localOnly)에서는 안 한다 — 서버·상대는 그 안을 보지 않는다)
+    const _hs=(typeof syncPrivateHands==='function' && !(NET._localOnly>0)) ? syncPrivateHands() : null; if(_hs) await _hs;   // 없으면 동기 경로 유지
     const draft=UI.spellStage;
     if(draft && draft.game===G && draft.p===p && !draft.committed){
       return await UI.routeSpellStagePick(draft,interactiveFn,serialize,deserialize);
@@ -542,6 +544,9 @@ async function routedPick(p, interactiveFn, serialize, deserialize){
     updateButtons();
   }
 }
+
+// 진행 중인 손패 동기화(오라클 모드)가 있으면 그 뒤에, 없으면 지금 바로 fn을 부른다. routedPick이 먼저 같은 약속을 기다리므로 선택 번호 할당 뒤에 온다
+function afterHandSync(fn){ const s=(typeof _handSync!=='undefined') ? _handSync : null; if(s) s.then(fn, fn); else fn(); }
 
 // 유닛 선택 (보드에서 클릭)
 UI.unitSelectionPending=false;
@@ -887,10 +892,14 @@ async function pickRevealedHandOption(p,title,options){
   if(view) UI._revealedHandView=view;
   try{
     const pending=routedPick(p,()=>UI.mobileHand.pickRevealedHand(p,title,options),v=>v,v=>v);
-    if(NET.online && view && NET.seat===owner && !NET.catchingUp && NET.pendingChoices[view.id]?.p===p){
-      UI.mobileHand.observeRevealedHand(view);
-      NET.requestHandPreview(p,view.id);
-    }
+    // 오라클 모드에서 routedPick이 손패 동기화를 먼저 하면 선택 번호가 그 뒤에 정해진다 — 동기화가 끝난 뒤(없으면 즉시) 번호를 다시 읽는다
+    afterHandSync(()=>{
+      if(view) view.id=NET.choiceSeq;
+      if(NET.online && view && NET.seat===owner && !NET.catchingUp && NET.pendingChoices[view.id]?.p===p){
+        UI.mobileHand.observeRevealedHand(view);
+        NET.requestHandPreview(p,view.id);
+      }
+    });
     const index=await pending;
     const selected=options[index]?.v;
     if(!selected) return null;
@@ -1705,7 +1714,9 @@ UI.pickMulligan = function(p){
   UI._choiceLabel='멀리건';
   const choice=routedPick(p, ()=>_pickMulliganLocal(p), v=>v, v=>v);
   // NET.choice detects the live boundary during reconnect before we open the observer.
-  if(NET.online && p!==NET.seat && !NET.catchingUp && NET.pendingChoices[NET.choiceSeq]) UI.observeMulligan(p);
+  // 오라클 모드: routedPick의 손패 동기화가 끝난 뒤(없으면 즉시) 멀리건 선택 번호가 등록된다
+  const open=()=>{ if(NET.online && p!==NET.seat && !NET.catchingUp && NET.pendingChoices[NET.choiceSeq]) UI.observeMulligan(p); };
+  const hs=(typeof _handSync!=='undefined') ? _handSync : null; if(hs) hs.then(open, open); else open();
   return choice;
 };
 UI.observeMulligan=function(p){

@@ -441,6 +441,7 @@ const EXTRA_OPS = {
   async lookTopHand(op, ctx, h){ const P=G.players[ctx.p];
     if(G.masked){
       // 주인만 본다 — 손패로 가져갈 카드 번호만 주인이 정한다(상대는 어떤 카드인지 모른다)
+      await peekDeckTop(ctx.p, op.n, 'look-hand');
       const top=P.deck.splice(0, op.n); if(!top.length) return;
       await nocturneOfferMasked(ctx.p, top);
       if(top.length){
@@ -476,6 +477,7 @@ const EXTRA_OPS = {
   async lookTopPlayUnit(op, ctx, h){ const P=G.players[ctx.p];
     if(G.masked){
       // 주인만 본다 — 낼 유닛의 번호만 주인이 정하고, 낼 카드는 공개해 정식 플레이 경로로 낸다
+      await peekDeckTop(ctx.p, op.n, 'look-play');
       const top=P.deck.splice(0, op.n); if(!top.length) return; let toPlay=null;
       await nocturneOfferMasked(ctx.p, top);
       const i=await privateDecision(ctx.p, async()=>{
@@ -577,6 +579,7 @@ const EXTRA_OPS = {
       // 각자 자기 덱 위 5장을 몰래 보고 1장을 고른다 — 고른 카드는 낼 때 공개된다
       const picks={}, recycled=[];
       for(const pi of [ctx.p,opp(ctx.p)]){ const P=G.players[pi];
+        await peekDeckTop(pi, 5, 'future');
         const top=P.deck.splice(0,5); if(!top.length) continue;
         await nocturneOfferMasked(pi, top);
         const i=await privateDecision(pi, async()=>{

@@ -2149,7 +2149,7 @@ const RM = {
     if(!decks[0] || !decks[1]) return;
     // 서버 start의 방 속성(등급전·턴 제한·되돌리기·시즌·공개 등급)을 그대로 잇는다 — 빠뜨리면 2게임째부터 클라이언트가 등급전인 줄 몰라
     // 결과 보고(rankResult)를 안 보내고 턴 제한도 꺼진다 (제보 2026-10-06: Bo3 2승한 쪽이 먼저 나가 '퇴장' 패배 처리)
-    const m={ t:'start', seed:a.seed, ...(Array.isArray(a.priv)?{priv:a.priv}:{}), yourSeat:NET.seat, spectate:!!NET.spectating, manual:ls.manual, banRule:ls.banRule,
+    const m={ t:'start', seed:a.seed, ...(Array.isArray(a.priv)?{priv:a.priv}:{}), oracle:!!ls.oracle, yourSeat:NET.seat, spectate:!!NET.spectating, manual:ls.manual, banRule:ls.banRule,
       format:ls.format||'bo1', match:a.pregame?null:(a.match||null), sideboarded:true,
       turnTimer:ls.turnTimer, undo:ls.undo, ranked:!!ls.ranked, season:ls.season,
       players:[ {id:ls.players[0].id, deck:decks[0], rank:ls.players[0].rank}, {id:ls.players[1].id, deck:decks[1], rank:ls.players[1].rank} ] };
@@ -2185,13 +2185,13 @@ UI.sideboardStep=async function(){
     const P=G.players[p]; const main=r.main.map(Number);
     const champN=r.champN;
     // 받은 선택도 확인한다. 잘못된 응답은 기존의 적법한 구성을 보존하며 난수를 소비하지 않는다.
-    if(!RM.validChampion({legendN:P.legendN,main,champN})){
+    if(!(main.every(n=>n===HID) && G.oracle) && !RM.validChampion({legendN:P.legendN,main,champN})){   // 가려진 상대 메인(오라클 모드)은 서버가 검증해 넘긴다
       UI.log(`${pname(p)} 사이드덱 교체를 적용하지 않았습니다: 선발 챔피언이 적법하지 않습니다`, 'sys');
       continue;
     }
     // 검증한 메인 40장 중 선발 1장을 분리 — 숨김 모드는 목록에서 먼저 빼고 그 좌석의 비공개 난수로 섞는다(상대 화면은 순서를 모른다)
     let deck;
-    if(G.masked){ const list=[...main]; list.splice(list.indexOf(champN),1); deck=shuffleFor(p, list); }
+    if(G.masked){ const list=[...main]; const ci=list.indexOf(champN); if(ci>=0) list.splice(ci,1); else list.pop(); deck=shuffleFor(p, list); }   // 오라클 모드: 상대 메인은 전부 HID로 온다 — 장수만 맞춘다
     else { deck=shuffle([...main]); deck.splice(deck.indexOf(champN),1); }
     P.deckList=[...main]; P.deck=deck; P.champN=champN; P.champInZone=true;
     UI.log(`${pname(p)} 사이드덱 교체 완료 (선발: ${card(champN).ko})`, 'sys');
@@ -2510,6 +2510,7 @@ async function startOnlineGame(m){
   if(typeof STATS!=='undefined' && !NET.catchingUp){ if(NET.spectating){ STATS.mode=null; STATS._ended=true; } else STATS.gameStart((typeof P2P!=='undefined' && P2P.active) ? 'p2p' : 'online'); }
   NET.online=true;
   NET.seat=NET.spectating ? -1 : m.yourSeat;
+  NET.oracle=!!m.oracle;   // 2단계: 서버 오라클 — 공개 응답을 서버가 보낸다
   NET.lastStart=m;    // 재대결용: 모드/밴/플레이어 이름 보존
   MATCH.restoreDeck(m);   // 새로고침·재접속 뒤 사이드보딩용 덱 복원
   RM.reset();
@@ -2528,6 +2529,7 @@ async function startOnlineGame(m){
     seed: m.seed,
     // 숨김 정보: 서버가 준 좌석별 비공개 시드([내 것, null] — 관전자는 허용된 방에서 둘 다). 없으면(P2P·옛 서버) 예전 방식
     ...(Array.isArray(m.priv) ? {priv: m.priv} : {}),
+    oracle: !!m.oracle,
     orderChooser: (MATCH.active() && MATCH.game>1) ? MATCH.chooser : undefined,
     reviewSetup: true,
     manual: m.manual,
