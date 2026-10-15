@@ -128,6 +128,7 @@ NET.connect = function(){
           break;
         case 'act': NET._enqueueAction(m); break;
         case 'choice': NET._resolveChoice(m); break;
+        case 'replayFile': if(typeof REPLAY!=='undefined' && REPLAY.onServerFile) REPLAY.onServerFile(m); break;   // 서버 오라클이 기록한 전체 리플레이(양측 손패 포함)
       }
     };
     ws.onclose = ()=>{

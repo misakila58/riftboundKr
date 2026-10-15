@@ -56,6 +56,12 @@ UI.pickBoardOrder = async (p,t,o) => { if(o.length<2) return o.map((_,i)=>i); co
 UI.pickReaction = async (p,t,o) => { const v = await SEATP(p).reaction(p,t,o); recPick('reaction', p, REACTION_WIRE.encode(o, v)); return v; };
 for(const k of ['pickUnitFrom','pickOption','confirmP','pickNumber','pickHandCard','pickMulligan','pickBuffs','pickBoardOrder','pickReaction'])
   Object.defineProperty(UI, k, { value: UI[k], writable:false, configurable:false });
+// 주문 준비 화면(spell-stage.js) 흐름: 확인 선택을 'stage' 기록으로 남긴다(항상 확인)
+var SPELL_STAGE_CANCEL = Symbol('spellStageCancel'); UI.spellStage=null;
+UI.beginSpellStage = (p,handIdx,n,opts={})=>{ const draft={game:G,p,handIdx,n,mode:opts.mode||'cast',committed:false,confirming:false}; UI.spellStage=draft; return draft; };
+UI.confirmSpellStage = async (draft,targets)=>{ draft.confirming=true; recPick('stage', draft.p, true); draft.committed=true; UI.endSpellStage(draft); };
+UI.endSpellStage = (draft)=>{ if(UI.spellStage===draft) UI.spellStage=null; };
+UI.resumeSpellStage = (draft)=>{ if(draft.game!==G || (UI.spellStage && UI.spellStage!==draft)) return false; draft.committed=false; draft.confirming=false; UI.spellStage=draft; return true; };
 // 사이드덱 교체: 화면·오라클과 같은 재구성(변경 없음) — 덱 순서(비공개 난수 소비)가 같아야 기록된 선택이 맞는다
 UI.sideboardStep = async ()=>{ if(NET.lastStart && NET.lastStart.format==='bo3') return; for(const p of [0,1]){ const P=G.players[p]; const main=[...P.deckList]; const champN=P.champN; const list=[...main]; list.splice(list.indexOf(champN),1); P.deckList=[...main]; P.deck=shuffleFor(p, list); P.champN=champN; P.champInZone=true; } };
 var DEPTH = 0;
@@ -69,7 +75,7 @@ function wrapAct(name, mk){
   };
 }
 wrapAct('playCardFromHand', (p,i,o)=>({k:'play',p,handIdx:i,opts:JSON.parse(JSON.stringify(o||{}))}));
-wrapAct('hideCard', (p,i,bf,o)=>({k:'hide',p,handIdx:i,bfIdx:bf}));
+wrapAct('hideCard', (p,i,bf,o)=>({k:'hide',p,handIdx:i,bfIdx:bf,opts:JSON.parse(JSON.stringify(o||{}))}));
 wrapAct('playHidden', (p,bf,hc)=>({k:'playHidden',p,bfIdx:bf,hiddenIndex:G.bfs[bf].hiddenCards.indexOf(hc)}));
 wrapAct('moveUnits', (p,us,dest)=>({k:'move',p,uids:us.map(u=>u.uid),dest}));
 wrapAct('endTurn', ()=>({k:'endTurn', p:G.turn}));
@@ -81,6 +87,13 @@ wrapAct('activateAbility', (p,src,ab)=>{
   const abIdx=(fx.activated||[]).indexOf(ab); if(abIdx<0) return null;
   return {k:'ability',p,src:s,abIdx};
 });
+// 실제 클라이언트는 손패의 주문을 준비 화면(stageSpell)으로, 숨김은 stageHide로 낸다 — 봇의 호출에도 같은 옵션을 넣어 같은 경로를 기록한다
+{ const orig=globalThis.playCardFromHand;
+  globalThis.playCardFromHand=async function(p,i,o){ o=o||{}; const n=G.players[p]?.hand?.[i];
+    if(DEPTH===0 && !o.champZone && !o.fromHidden && !o.byEffect && !o.fromDeck && !o.fromTrash && card(n)?.type==='Spell') o={...o, stageSpell:true};
+    return orig.call(this,p,i,o); }; }
+{ const orig=globalThis.hideCard;
+  globalThis.hideCard=async function(p,i,bf,o){ o=o||{}; if(DEPTH===0 && i!=='champ') o={...o, stageHide:true}; return orig.call(this,p,i,bf,o); }; }
 function remainingBfs(cfg, p){ const u=[...(((cfg.match&&cfg.match.used)||[[],[]])[p]||[])]; return (cfg.players[p].deck.bfs||[]).filter(n=>{ const i=u.indexOf(n); if(i>=0){ u.splice(i,1); return false; } return true; }); }
 var __drive = async function(cfg, maxTurns){
   REC=[]; NET.lastStart=cfg; seedRng(cfg.seed);
@@ -130,6 +143,12 @@ var NET = { online:true, seat:SEAT, spectating:false, lastStart:null, _localOnly
   privateChoice(p, fn, why){ const r=take('reveal', null, p); return netChoice(p, ()=>r.v, v=>v); },
   choice(p, fn, ser, deser){ return netChoice(p, fn, deser); } };
 async function pre(){ if(!(NET._localOnly>0)) await syncPrivateHands(); }   // ui.js routedPick 입구와 같다
+var SPELL_STAGE_CANCEL = Symbol('spellStageCancel'); UI.spellStage=null;
+function stageDraftFor(p){ const d=UI.spellStage; return (d && d.game===G && d.p===p && !d.committed) ? d : null; }
+UI.beginSpellStage = (p,handIdx,n,opts={})=>{ const draft={game:G,p,handIdx,n,mode:opts.mode||'cast',committed:false,confirming:false}; UI.spellStage=draft; return draft; };
+UI.confirmSpellStage = async (draft,targets)=>{ draft.confirming=true; await pre(); const r=take('pick','stage',draft.p); const v=await netChoice(draft.p, ()=>r.data, x=>x); if(v!==true) throw SPELL_STAGE_CANCEL; draft.committed=true; UI.endSpellStage(draft); };
+UI.endSpellStage = (draft)=>{ if(UI.spellStage===draft) UI.spellStage=null; };
+UI.resumeSpellStage = (draft)=>{ if(draft.game!==G || (UI.spellStage && UI.spellStage!==draft)) return false; draft.committed=false; draft.confirming=false; UI.spellStage=draft; return true; };
 UI.pickUnitFrom = async (p,c) => { if(!c.length) return null; await pre(); const r=take('pick','unit',p); const d=await netChoice(p, ()=>r.data===null?null:{uid:r.data}, v=>v); if(!d) return null; const u = c.find(x=>x.uid===d.uid) || everyUnit().find(x=>x.uid===d.uid); if(!u) throw new Error('유닛 없음 uid '+d.uid); return u; };
 UI.pickOption   = async (p,t,o) => { await pre(); const r=take('pick','option',p); if(o.length!==r.data.n) throw new Error('선택지 수 다름 「'+t+'」 화면 '+o.length+' / 기록 '+r.data.n); const i=await netChoice(p, ()=>r.data.i, v=>v); if(i===null||i===undefined) return null; const x=o[i]; return x?x.v:null; };
 UI.confirmP     = async (p) => { await pre(); const r=take('pick','confirm',p); return !!(await netChoice(p, ()=>r.data, v=>v)); };
@@ -346,7 +365,7 @@ async function runGame(gi){
   // 승자 확인
   const w = JSON.parse(O.digest()).winner;
   if(VERBOSE && violations.length) console.log('    위반:', JSON.stringify(violations.slice(0,4)).slice(0,600));
-  return { gi, ok:true, acts:acts.length, recs:REC.length, reveals:log.filter(m=>m.from==='oracle').length, winner:w, violations:violations.length, turns:JSON.parse(O.digest()).tc };
+  return { gi, ok:true, acts:acts.length, recs:REC.length, reveals:log.filter(m=>m.from==='oracle').length, winner:w, violations:violations.length, turns:JSON.parse(O.digest()).tc, stages:REC.filter(r=>r.t==='pick'&&r.fn==='stage').length };
 }
 
 module.exports = { makeCtx, mkDecks, maskFor, BRAIN, VIEW, UI_STUB, HID, WEB };
@@ -356,7 +375,7 @@ if(require.main===module) (async()=>{
   for(let gi=0; gi<N; gi++){
     if(ONLY!==null && gi!==+ONLY) continue;
     const r = await runGame(gi);
-    if(r.ok){ ok++; if(VERBOSE) console.log(`  ✓ game ${gi}: 행동 ${r.acts} · 기록 ${r.recs} · 공개 ${r.reveals} · ${r.turns}턴 · 승자 ${r.winner} · 위반 ${r.violations}`); }
+    if(r.ok){ ok++; if(VERBOSE) console.log(`  ✓ game ${gi}: 행동 ${r.acts} · 기록 ${r.recs} · 공개 ${r.reveals} · ${r.turns}턴 · 승자 ${r.winner} · 위반 ${r.violations} · 준비화면 ${r.stages}`); }
     else { bad++; console.log(`  ✗ game ${gi} [${r.where}]\n    ${r.err}`); }
   }
   console.log(`${ok}/${ok+bad} 통과` + (bad ? ` ← 실패 ${bad}` : ''));

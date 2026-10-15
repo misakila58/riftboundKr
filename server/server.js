@@ -1045,6 +1045,7 @@ function rankDerivedWinner(r) {
 // 좌석이 비워진 채 유예가 끝나면 진짜 퇴장 처리
 function expireGone(r, pl) {
   if (!rooms.has(r.id) || pl.ws) return;
+  if (r.players.length === 2) sendPartialOracleReplay(r, 1 - pl.seat, 'left');
   // 등급전: 유예가 끝나도 돌아오지 않은 쪽이 패배 (상대가 아직 있으면) — 단 결과 보고를 마친 뒤라면 아니다
   rankLeave(r, pl, '이탈');
   const i = r.players.indexOf(pl); if (i >= 0) r.players.splice(i, 1);
@@ -1186,6 +1187,7 @@ function rejoinSeat(ws, pick) {
   wsSend(ws, { ...startMsg(found, seat.seat), rejoin: true, idleMs });
   (found.log || []).forEach(o => wsSend(ws, outFor(o, seat.seat, found)));
   wsSend(ws, { t: 'rejoinDone' });
+  if (found.replayFiles && found.replayFiles[seat.seat]) wsSend(ws, found.replayFiles[seat.seat]);   // 끊긴 사이 끝난 판의 전체 리플레이
   if (found.rankResultMsgs && found.rankResultMsgs[seat.seat]) wsSend(ws, found.rankResultMsgs[seat.seat]);   // 이미 확정된 등급 결과
   roomEveryone(found).forEach(q => { if (q.ws !== ws) wsSend(q.ws, { t: 'opponentBack', id: ws._userId }); });
   broadcastLobby(); persistRooms();
@@ -1234,12 +1236,49 @@ function oracleHooks(r) {
       console.log(`[검증] ${r.id} ${who}: ${why} ${JSON.stringify(action).slice(0, 160)}`);
       STATS['oracle:violations'] = (STATS['oracle:violations'] || 0) + 1;
     },
+    replay(rec) { deliverOracleReplay(r, rec); },
     fail(err) {
       console.log(`[오라클] ${r.id} 오류 — 경기를 무효로 닫습니다:`, err && err.stack || err);
       STATS['oracle:failures'] = (STATS['oracle:failures'] || 0) + 1;
       if (rooms.has(r.id)) voidRoom(r, { id: '서버' }, '서버 판정 오류');
     },
   };
+}
+// 오라클이 기록한 전체 정보 리플레이를 양쪽 좌석에 보낸다(각자 '나/상대' 문구) · 봇 개선용으로 익명 사본 보관(클라이언트 share 대신)
+function deliverOracleReplay(r, rec) {
+  if (!rec || !rec.frames || !rec.frames.length) return;
+  rec.app = WEB_VERSION || '';
+  const seatName = s => (r.players.find(pl => pl.seat === s) || {}).id || ((r.rankSeats || {})[s]) || ('좌석' + s);
+  const first = (() => { try { const g = JSON.parse(rec.states[rec.states.length - 1]); return g.firstPlayer; } catch (e) { return null; } })();
+  const modeFor = seat => `${r.ranked ? '🏆 등급전' : '🌐 온라인'}(${r.manual !== false ? '수동' : '자동'}${r.banRule ? ' · 🚫밴' : ''}${roomTurnTimer(r) ? ' · ⏱1분' : ''}${r.format === 'bo3' ? ' · Bo3' : ''}) — 나: ${seatName(seat)}${first === seat ? ' (선공)' : first === 1 - seat ? ' (후공)' : ''} · 상대: ${seatName(1 - seat)}`;
+  const stamp = (() => { const d = new Date(rec.created), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; })();
+  const id = `${stamp}_${rec.meta.players.map(p => String(p.name).replace(/[\\/:*?"<>|]+/g, '_')).join(' vs ')}.rbr`;
+  r.replayFiles = r.replayFiles || {};
+  for (const seat of [0, 1]) {
+    try {
+      const bytes = ORACLE.buildRbr({ ...rec, meta: { ...rec.meta, modeText: modeFor(seat) } });
+      if (bytes.length > 6 * 1024 * 1024) { console.log(`[리플레이] ${r.id} 너무 큼 ${bytes.length}B — 전달 생략`); return; }
+      const msg = { t: 'replayFile', id, b64: bytes.toString('base64') };
+      r.replayFiles[seat] = msg;
+      const pl = r.players.find(q => q.seat === seat); if (pl) wsSend(pl.ws, msg);
+    } catch (e) { console.log(`[리플레이] ${r.id} 빌드 실패:`, e.message); }
+  }
+  // 봇 개선용 보관 — 클라이언트의 /api/replay 제공과 같은 조건(완주·자동 모드) · 같은 상한
+  try {
+    if (rec.result && !rec.result.reason && r.manual === false) {
+      const buf = ORACLE.buildRbr(ORACLE.anonymizeReplay({ ...rec, meta: { ...rec.meta, modeText: modeFor(0) } }));
+      const h = replayHeader(buf);
+      if (h && buf.length <= REPLAY_LIMITS.MAX_BYTES && REPLAYS.files < REPLAY_LIMITS.MAX_FILES && REPLAYS.bytes + buf.length <= REPLAY_LIMITS.MAX_TOTAL) replayStore(buf, h);
+    }
+  } catch (e) {}
+}
+// 승리 화면 없이 끝난 판(퇴장·이탈·무효): 지금까지의 기록을 남은 좌석에 보낸다
+function sendPartialOracleReplay(r, winnerSeat, reason) {
+  if (!r.oracle) return;
+  let result = null;
+  try { const g = JSON.parse(r.oracle.eval('G ? rpSerialize(G) : "null"')); if (g && g.winner === null) result = { winner: winnerSeat, points: g.players.map(P => P.points), turns: Math.ceil(g.turnCount / 2), reason }; } catch (e) {}
+  const rec = r.oracle.takeReplay(result);
+  if (rec) deliverOracleReplay(r, rec);
 }
 function startOracle(r) {
   if (!r.oracleMode || !r.priv) return;
@@ -1578,6 +1617,7 @@ function leaveRoom(ws, notify = true) {
     return;
   }
   const i = r.players.findIndex(pl => pl.ws === ws);
+  if (i >= 0 && r.started && r.players.length === 2) sendPartialOracleReplay(r, 1 - r.players[i].seat, 'left');
   if (i >= 0) rankLeave(r, r.players[i], '퇴장');
   if (i >= 0) r.players.splice(i, 1);
   if (r.players.length === 0) {

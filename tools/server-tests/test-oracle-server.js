@@ -145,6 +145,21 @@ const sleep = H.sleep;
     await replay(rest, REC2, 8);
     H.ok(`⑦ 재시작 뒤 행동 ${played}개 이어서 재생 — 복원된 오라클이 공개를 보내고 두 화면 일치`, !bad && played > 0, bad || ('played ' + played));
   } else H.ok('⑦ 재시작 뒤 이어서 둘 행동이 남아 있음', false, '2게임 기록이 짧음');
+  // ⑧ 항복으로 게임 종료 → 오라클이 기록한 전체 리플레이(양측 손패 포함)가 양쪽에 온다
+  socks[0].send({ t: 'act', action: { k: 'surrender', p: 0 } });
+  const rfA = await socks[0].wait(m => m.t === 'replayFile', 8000).catch(() => null), rfB = await socks[1].wait(m => m.t === 'replayFile', 8000).catch(() => null);
+  H.ok('⑧ 항복 뒤 양쪽에 replayFile 도착', !!rfA && !!rfB && rfA.id === rfB.id && /\.rbr$/.test(rfA.id), JSON.stringify([rfA && rfA.id, !!rfB]));
+  if (rfA && rfB) {
+    const parse = m => { const buf = Buffer.from(m.b64, 'base64'); const hl = buf.readUInt32LE(6); const header = JSON.parse(buf.toString('utf8', 10, 10 + hl)); const body = JSON.parse(require('zlib').gunzipSync(buf.subarray(10 + hl)).toString('utf8')); return { header, body, size: buf.length }; };
+    const pa = parse(rfA), pb = parse(rfB);
+    const last = pa.body.states[pa.body.states.length - 1];   // 본문 파싱 뒤 states는 객체 배열
+    H.ok('⑧ 결과: 좌석 1 승리(항복) · 각자 "나" 문구', pa.header.result && pa.header.result.winner === 1 && /나: t1/.test(pa.header.mode) && /나: t2/.test(pb.header.mode), JSON.stringify([pa.header.result, pa.header.mode, pb.header.mode]));
+    H.ok('⑧ 리플레이 상태에 양측 손패·덱이 모두 공개(HID 없음)', last.players.every(P => !P.hand.includes(-1) && !P.deck.includes(-1) && P.hand.length > 0), JSON.stringify(last.players.map(P => [P.hand, P.deck.slice(0, 3)])));
+    H.ok('⑧ 프레임·상태가 있고 오라클 모드 표식은 꺼짐', pa.body.frames.length > 20 && pa.body.states.length > 5 && last.oracle === false, JSON.stringify([pa.body.frames.length, pa.body.states.length, last.oracle, pa.size]));
+    await sleep(500);
+    const idx = H.fs.existsSync(H.path.join(H.DIR, 'data', 'replays', 'index.jsonl')) ? H.fs.readFileSync(H.path.join(H.DIR, 'data', 'replays', 'index.jsonl'), 'utf8').trim().split(String.fromCharCode(10)) : [];
+    H.ok('⑧ 서버 보관(봇 개선용 익명 사본) 1건', idx.length === 1 && /"mode":"online"/.test(idx[0]), JSON.stringify(idx.slice(-1)));
+  }
   // ④ 재접속: B를 끊고 같은 계정으로 다시 붙어 로그를 받는다 — 주인 전용 공개가 좌석별로 가려져 있어야 한다
   const B2 = socks[1];   // 재시작 뒤 재접속한 소켓 — 로그 전체를 다시 받았다
   const st2 = B2.inbox.find(m => m.t === 'start' && m.rejoin);

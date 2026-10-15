@@ -304,6 +304,7 @@ REPLAY.capture = function(log, cls){
 
 REPLAY._onNewGame = function(cfg){
   if(REPLAY.viewing) return;
+  REPLAY._serverGot = false; REPLAY._pendingOwn = null; clearTimeout(REPLAY._serverTimer);
   REPLAY.startRecording({
     tutorial: !!REPLAY._tutStarting,
     modeText: '',
@@ -325,8 +326,32 @@ REPLAY._onVictory = function(p){
   REPLAY.recording = false;
   if(REPLAY.rec.meta.tutorial) return;             // 튜토리얼은 보관함을 어지럽히지 않도록 자동 저장 제외
   REPLAY.willSave = true;                          // 승리 모달 문구용 (저장은 비동기)
+  // 서버 오라클 방(숨김 정보 2단계): 내 기록에는 상대 손패·덱이 비공개라, 서버가 보내는 전체 기록을 대신 저장한다(봇 개선용 보관도 서버가 한다).
+  // 일정 시간 안에 안 오면(오라클 오류 등) 내 기록이라도 남긴다.
+  if(REPLAY.serverRecords()){ REPLAY._awaitServer(REPLAY.rec, 10000); return; }
   REPLAY.save(true);
   REPLAY.share(REPLAY.rec);                        // 봇 개선용 제공 (설정에서 끌 수 있음 · 실패해도 무시)
+};
+// 이 판은 서버 오라클이 전체 리플레이를 기록·전달하는 온라인 대전인가
+REPLAY.serverRecords = function(){ return !!(typeof NET!=='undefined' && NET.online && NET.oracle && !(typeof P2P!=='undefined' && P2P.active)); };
+REPLAY._awaitServer = function(rec, ms){
+  const game = REPLAY._gameOf || null;
+  clearTimeout(REPLAY._serverTimer);
+  REPLAY._pendingOwn = rec; REPLAY._serverGot = false;
+  REPLAY._serverTimer = setTimeout(()=>{ if(!REPLAY._serverGot && REPLAY._pendingOwn===rec){ REPLAY._pendingOwn=null; REPLAY.save(true); } }, ms);
+};
+// 서버 오라클의 전체 리플레이(양측 손패 포함) 수신 → 보관함에 저장 (내 부분 기록은 버린다)
+REPLAY.onServerFile = async function(m){
+  try{
+    const bin = atob(m.b64); const bytes = new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+    const data = await rpParseFile(bytes);           // 검증 겸 파싱
+    const id = rpSafeName(String(m.id||'').replace(/\.rbr$/i,'')||('replay-'+Date.now())) + '.rbr';
+    await RPStore.save(id, bytes, data.header);
+    REPLAY._serverGot = true; REPLAY._pendingOwn = null; clearTimeout(REPLAY._serverTimer);
+    REPLAY.willSave = true;
+    const where = await RPStore.where();
+    UI.toast(`🎬 리플레이 저장됨 (양측 손패 포함) · ${rpBytesText(bytes.length)}${where?' → '+where:' (앱 보관함)'}`);
+  }catch(e){ console.error('server replay save failed', e); }
 };
 
 // 상대가 대전 중 나가 끝난 판 — 승리 화면 없이 바로 로비로 가므로 여기서 남은 쪽 승리로 마감해 저장한다 (제보 2026-09-30).
@@ -339,6 +364,8 @@ REPLAY.finishOnLeave = async function(winner){
   REPLAY.rec.result = { winner, points:G.players.map(P=>P.points), turns:Math.ceil(G.turnCount/2), reason:'left' };
   REPLAY.recording = false;
   if(REPLAY.rec.meta.tutorial) return;
+  // 서버 오라클 방: 서버가 opponentLeft 앞에 부분 기록(양측 손패 포함)을 보낸다 — 이미 받았으면 내 기록은 건너뛴다
+  if(REPLAY.serverRecords()){ if(REPLAY._serverGot) return; await new Promise(r=>setTimeout(r,1500)); if(REPLAY._serverGot) return; }
   await REPLAY.save(true);
 };
 

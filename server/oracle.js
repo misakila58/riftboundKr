@@ -51,6 +51,51 @@ if(typeof globalThis.withBattlefieldSource==='undefined') globalThis.withBattlef
 
 const RUNTIME = `
 var ORC = { gen:0, choiceSeq:0, pending:{}, early:{}, clockReady:false, chain:Promise.resolve(), cfg:null, undo:[], replay:null, gameNo:0 };
+// ── 리플레이 기록 (client/web/js/replay.js와 같은 상태 스냅샷 방식·같은 본문 형식) ──
+// 클라이언트는 상대 손패·덱을 모르므로(HID) 자기 기록만으로는 상대 패를 볼 수 없다. 모든 것을 아는 오라클이 기록해 경기 끝에 양쪽에 보낸다.
+var RP = { rec:null, stateIdx:null, t0:0, lastState:-1, overflow:false, bytes:0, MAX_STATES:4000, MAX_FRAMES:60000, MAX_BYTES:12*1024*1024 };
+function rpSerialize(obj){
+  const seen=new Set();
+  return JSON.stringify(obj, function(k, v){
+    if(typeof k==='string' && k.charCodeAt(0)===95) return undefined;
+    if(typeof v==='function') return undefined;
+    if(v && typeof v==='object'){ if(seen.has(v)) return undefined; seen.add(v); }
+    return v;
+  });
+}
+function __rpStart(cfg){
+  RP.rec={ app:'', created:new Date().toISOString(),
+    meta:{ tutorial:false, modeText:'', manual:!!G.manual, victory:G.victory, seed:cfg.seed||null,
+      players:G.players.map(P=>({ name:P.name, legendN:P.legendN, champN:P.champN })), bfs:G.bfs.map(b=>b.n), modeKey:'online', bot:null },
+    states:[], frames:[], result:null };
+  RP.stateIdx=new Map(); RP.t0=Date.now(); RP.lastState=-1; RP.overflow=false; RP.bytes=0;
+  __rpCapture();
+}
+function __rpCapture(log, cls){
+  if(!RP.rec || RP.overflow || !G) return;
+  let s; const o=G.oracle; G.oracle=false;   // 재생 화면에서 오라클 모드로 보이지 않게
+  try{ s=rpSerialize(G); }catch(e){ return; } finally{ G.oracle=o; }
+  let idx=RP.stateIdx.get(s);
+  if(idx===undefined){
+    if(RP.rec.states.length>=RP.MAX_STATES || RP.rec.frames.length>=RP.MAX_FRAMES || RP.bytes+s.length>RP.MAX_BYTES){ RP.overflow=true; return; }
+    idx=RP.rec.states.length; RP.rec.states.push(s); RP.stateIdx.set(s, idx); RP.bytes+=s.length;
+  }
+  if(log===undefined && idx===RP.lastState) return;
+  const f={ s:idx, t:Date.now()-RP.t0 };
+  if(log!==undefined){ f.l=String(log); f.c=cls||'sys'; }
+  RP.rec.frames.push(f); RP.lastState=idx;
+}
+// 기록을 꺼낸다(결과를 붙여). 승리 때는 엔진의 UI.showVictory에서, 상대 이탈 등은 서버가 결과를 지정해 부른다
+function __rpTake(result){
+  if(!RP.rec) return null;
+  __rpCapture();
+  const rec=RP.rec; RP.rec=null; RP.stateIdx=null;
+  rec.result=result||null; rec.partial=RP.overflow;
+  return rec;
+}
+UI.log=(msg, cls)=>__rpCapture(msg, cls);
+UI.render=()=>__rpCapture();
+UI.showVictory=(p)=>{ const rec=__rpTake({ winner:p, points:G.players.map(P=>P.points), turns:Math.ceil(G.turnCount/2) }); if(rec) __replay(rec); };
 var UNDO_KINDS = new Set(['play','move','ability','endTurn','pass','hide','playHidden','equip','runeFloat','manual']);
 function __json(v){ return v===undefined ? null : JSON.parse(JSON.stringify(v)); }   // 클라이언트가 받는 값과 같게
 function waitChoice(p){
@@ -86,15 +131,25 @@ function __feedChoice(m){
 }
 // ── 선택 함수: 클라이언트 UI.pick*와 같은 조기 반환·직렬화(ui.js routedPick 직렬화와 일치해야 한다) ──
 async function pre(){ await syncPrivateHands(); }   // 클라이언트 routedPick 입구와 같은 지점의 손패 동기화
-UI.pickUnitFrom = async (p,c)=>{ if(!c.length) return null; await pre(); const d=await waitChoice(p); return d?(c.find(u=>u.uid===d.uid)||everyUnit().find(u=>u.uid===d.uid)||null):null; };
-UI.pickOption   = async (p,t,o)=>{ await pre(); const i=await waitChoice(p); if(i===null||i===undefined) return null; const x=o[i]; return x?x.v:null; };
-UI.confirmP     = async (p)=>{ await pre(); return !!(await waitChoice(p)); };
-UI.pickNumber   = async (p)=>{ await pre(); return await waitChoice(p); };
-UI.pickHandCard = async (p)=>{ if(!G.players[p].hand.length) return null; await pre(); const i=await waitChoice(p); return (i===null||i===undefined)?null:i; };
-UI.pickBuffs    = async (p)=>{ await pre(); const v=await waitChoice(p); return Array.isArray(v)?v:[]; };
-UI.pickBoardOrder = async (p,t,o)=>{ if(o.length<2) return o.map((_,i)=>i); await pre(); const v=await waitChoice(p); return Array.isArray(v)?v:o.map((_,i)=>i); };
-UI.pickMulligan = async (p)=>{ await pre(); const v=await waitChoice(p); return Array.isArray(v)?v:[]; };
-UI.pickReaction = async (p,t,o)=>{ await pre(); const w=await waitChoice(p); return REACTION_WIRE.decode(o, w); };
+// 주문 준비 화면(spell-stage.js): 클라이언트는 stageSpell/stageHide 행동을 '준비 초안' 상태로 진행하며 대상 선택 응답에 취소({spellStageCancel:true})가
+// 올 수 있고, 마지막에 [확인] 선택 1회를 더 소비한다. 오라클도 같은 초안 객체·같은 선택 소비로 따라간다 (2026-10-15 제보: 선택 순번 어긋남 → 패스 불가).
+var SPELL_STAGE_CANCEL = Symbol('spellStageCancel');
+UI.spellStage = null;
+function stageDraftFor(p){ const d=UI.spellStage; return (d && d.game===G && d.p===p && !d.committed) ? d : null; }
+async function pick(p){ const d=await waitChoice(p); if(stageDraftFor(p) && d && typeof d==='object' && d.spellStageCancel===true) throw SPELL_STAGE_CANCEL; return d; }
+UI.beginSpellStage = (p,handIdx,n,opts={})=>{ const draft={game:G,p,handIdx,n,mode:opts.mode||'cast',ready:false,submitted:false,cancelRequested:false,committed:false,confirming:false}; UI.spellStage=draft; return draft; };
+UI.confirmSpellStage = async (draft,targets)=>{ draft.targets=targets; draft.confirming=true; await pre(); const v=await waitChoice(draft.p); if(v!==true) throw SPELL_STAGE_CANCEL; draft.committed=true; UI.endSpellStage(draft); };
+UI.endSpellStage = (draft)=>{ if(UI.spellStage!==draft) return; UI.spellStage=null; };
+UI.resumeSpellStage = (draft)=>{ if(draft.game!==G || (UI.spellStage && UI.spellStage!==draft)) return false; draft.ready=false; draft.submitted=false; draft.cancelRequested=false; draft.committed=false; draft.confirming=false; UI.spellStage=draft; return true; };
+UI.pickUnitFrom = async (p,c)=>{ if(!c.length) return null; await pre(); const d=await pick(p); return d?(c.find(u=>u.uid===d.uid)||everyUnit().find(u=>u.uid===d.uid)||null):null; };
+UI.pickOption   = async (p,t,o)=>{ await pre(); const i=await pick(p); if(i===null||i===undefined) return null; const x=o[i]; return x?x.v:null; };
+UI.confirmP     = async (p)=>{ await pre(); return !!(await pick(p)); };
+UI.pickNumber   = async (p)=>{ await pre(); return await pick(p); };
+UI.pickHandCard = async (p)=>{ if(!G.players[p].hand.length) return null; await pre(); const i=await pick(p); return (i===null||i===undefined)?null:i; };
+UI.pickBuffs    = async (p)=>{ await pre(); const v=await pick(p); return Array.isArray(v)?v:[]; };
+UI.pickBoardOrder = async (p,t,o)=>{ if(o.length<2) return o.map((_,i)=>i); await pre(); const v=await pick(p); return Array.isArray(v)?v:o.map((_,i)=>i); };
+UI.pickMulligan = async (p)=>{ await pre(); const v=await pick(p); return Array.isArray(v)?v:[]; };
+UI.pickReaction = async (p,t,o)=>{ await pre(); const w=await pick(p); return REACTION_WIRE.decode(o, w); };
 // ── 설정 화면(setup-preview.js)·사이드덱(main.js)·Bo3 전장 선택(main.js)이 소비하는 선택을 같은 순서로 소비 ──
 UI.reviewSetup = async ()=>true;
 UI.rollSetupDice = async ()=>({instant:false});     // decideFirstPlayer의 animated 판정용 — 실제로는 rollSetupDiceBoth가 쓰인다
@@ -137,6 +192,7 @@ async function __startGame(cfg){
     orderChooser:(cfg.format==='bo3' && cfg.match && cfg.match.game>1) ? cfg.match.chooser : undefined,
     players:cfg.players.map(pl=>({ name:pl.id, legendN:pl.deck.legendN, champN:pl.deck.champN, deck:pl.deck.main, runes:pl.deck.runes, recruitToken:271 })),
     bfs });
+  __rpStart(cfg);
   await mulliganPhase(); if(!G || G.winner!==null) return;
   await startTurn();
 }
@@ -225,6 +281,7 @@ function createOracle(webRoot, cfg, hooks) {
   ctx.__emit = msg => { if (!dead) try { hooks.emit(msg); } catch (e) { console.log('[오라클] emit 오류', e.message); } };
   ctx.__violation = (seat, action, why) => { if (!dead) try { hooks.violation(seat, action, why); } catch (e) {} };
   ctx.__fail = err => { if (dead) return; dead = true; try { hooks.fail(err); } catch (e) {} };
+  ctx.__replay = rec => { if (!dead && hooks.replay) try { hooks.replay(rec); } catch (e) { console.log('[오라클] replay 오류', e.message); } };
   script.runInContext(ctx);
   const o = {
     start(c) { if (dead) return; try { ctx.__cfg = c; vm.runInContext('__start(__cfg)', ctx); } catch (e) { ctx.__fail(e); } },
@@ -234,6 +291,8 @@ function createOracle(webRoot, cfg, hooks) {
     live() { vm.runInContext('ORC.replay=null', ctx); },
     digest() { try { return vm.runInContext('__digest()', ctx); } catch (e) { return null; } },
     eval(code) { return vm.runInContext(code, ctx); },   // 테스트·진단용
+    // 진행 중 기록을 결과를 붙여 꺼낸다(상대 이탈 등으로 승리 화면 없이 끝난 판) — 없으면 null
+    takeReplay(result) { if (dead) return null; try { ctx.__res = result; return vm.runInContext('__rpTake(__res)', ctx); } catch (e) { return null; } },
     settled() { return vm.runInContext('ORC.chain', ctx); },
     get dead() { return dead; },
     dispose() { dead = true; },
@@ -248,4 +307,28 @@ function maskDeck(deck) {
   return { ...rest, main: deck.main.map(() => HID) };
 }
 
-module.exports = { createOracle, loadEngine, maskDeck, HID, ENGINE_FILES };
+// .rbr 파일 빌드 — client/web/js/replay.js rpBuildFile/rpHeaderOf와 같은 형식 ("RBRP"+포맷 1B+gzip 1B+헤더길이 4B LE+헤더 JSON+gzip 본문)
+function replayHeaderOf(rec) {
+  return { v: 1, app: rec.app, created: rec.created, mode: rec.meta.modeText, manual: !!rec.meta.manual, victory: rec.meta.victory,
+    players: rec.meta.players.map(p => ({ name: p.name, legendN: p.legendN, champN: p.champN })), modeKey: rec.meta.modeKey || null, bot: rec.meta.bot || null,
+    result: rec.result, frames: rec.frames.length, states: rec.states.length, partial: !rec.result };
+}
+function buildRbr(rec) {
+  const body = '{"v":1,"app":' + JSON.stringify(rec.app || '') + ',"created":' + JSON.stringify(rec.created) + ',"meta":' + JSON.stringify(rec.meta)
+    + ',"result":' + JSON.stringify(rec.result || null) + ',"frames":' + JSON.stringify(rec.frames) + ',"states":[' + rec.states.join(',') + ']}';
+  const payload = require('zlib').gzipSync(Buffer.from(body, 'utf8'));
+  const head = Buffer.from(JSON.stringify(replayHeaderOf(rec)), 'utf8');
+  const out = Buffer.alloc(10 + head.length + payload.length);
+  out.write('RBRP', 0, 'latin1'); out[4] = 1; out[5] = 1; out.writeUInt32LE(head.length, 6); head.copy(out, 10); payload.copy(out, 10 + head.length);
+  return out;
+}
+// 닉네임을 '플레이어 1/2'로 바꾼 사본 (replay.js rpAnonymize와 같은 규칙) — 봇 개선용 서버 보관
+function anonymizeReplay(rec) {
+  const alias = rec.meta.players.map((p, i) => (!p.name || p.name.length < 2) ? p.name : `플레이어 ${i + 1}`);
+  const subs = rec.meta.players.map((p, i) => [p.name, alias[i]]).filter(([a, b]) => a && a !== b && a.length >= 2);
+  const swapText = s => { for (const [a, b] of subs) s = s.split(a).join(b); return s; };
+  const swapJson = s => { for (const [a, b] of subs) s = s.split(JSON.stringify(a)).join(JSON.stringify(b)); return s; };
+  return { ...rec, meta: { ...rec.meta, modeText: swapText(rec.meta.modeText || ''), players: rec.meta.players.map((p, i) => ({ ...p, name: alias[i] })) },
+    frames: rec.frames.map(f => f.l === undefined ? f : { ...f, l: swapText(f.l) }), states: rec.states.map(swapJson) };
+}
+module.exports = { createOracle, loadEngine, maskDeck, HID, ENGINE_FILES, buildRbr, replayHeaderOf, anonymizeReplay };
