@@ -13,6 +13,7 @@ const argv = process.argv.slice(2);
 const arg = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : d; };
 const N = +arg('-n', 6), SEED0 = +arg('--seed', 20261015), VERBOSE = argv.includes('--verbose');
 const MAX_TURNS = +arg('--max-turns', 60);
+const CANCEL_RATE = +arg('--cancel', 0);   // 두뇌가 주문 준비 화면을 취소할 확률(취소 응답 경로 검증)
 const HID = -1;
 
 const UI_STUB = `
@@ -59,7 +60,7 @@ for(const k of ['pickUnitFrom','pickOption','confirmP','pickNumber','pickHandCar
 // 주문 준비 화면(spell-stage.js) 흐름: 확인 선택을 'stage' 기록으로 남긴다(항상 확인)
 var SPELL_STAGE_CANCEL = Symbol('spellStageCancel'); UI.spellStage=null;
 UI.beginSpellStage = (p,handIdx,n,opts={})=>{ const draft={game:G,p,handIdx,n,mode:opts.mode||'cast',committed:false,confirming:false}; UI.spellStage=draft; return draft; };
-UI.confirmSpellStage = async (draft,targets)=>{ draft.confirming=true; recPick('stage', draft.p, true); draft.committed=true; UI.endSpellStage(draft); };
+UI.confirmSpellStage = async (draft,targets)=>{ draft.confirming=true; const cancel=(typeof CANCEL_RATE==='number' && rrand()<CANCEL_RATE); if(cancel){ recPick('stage', draft.p, {spellStageCancel:true}); throw SPELL_STAGE_CANCEL; } recPick('stage', draft.p, true); draft.committed=true; UI.endSpellStage(draft); };
 UI.endSpellStage = (draft)=>{ if(UI.spellStage===draft) UI.spellStage=null; };
 UI.resumeSpellStage = (draft)=>{ if(draft.game!==G || (UI.spellStage && UI.spellStage!==draft)) return false; draft.committed=false; draft.confirming=false; UI.spellStage=draft; return true; };
 // 사이드덱 교체: 화면·오라클과 같은 재구성(변경 없음) — 덱 순서(비공개 난수 소비)가 같아야 기록된 선택이 맞는다
@@ -241,7 +242,7 @@ const ENGINE = ORACLE.ENGINE_FILES.map(read).join('\n;\n');
 function makeCtx(kind){
   const ctx = vm.createContext({ console, setTimeout, clearTimeout, Promise, Math, JSON, Object, Array, Set, Map, String, Number, Date, isNaN, parseInt, parseFloat, structuredClone, globalThis:undefined });
   ctx.globalThis = ctx;
-  const src = [UI_STUB, ENGINE, kind==='brain' ? BRAIN : VIEW, 'compileAllCards();'].join('\n;\n');
+  const src = [UI_STUB, 'var CANCEL_RATE='+CANCEL_RATE+';', ENGINE, kind==='brain' ? BRAIN : VIEW, 'compileAllCards();'].join('\n;\n');
   vm.runInContext(src, ctx, { filename: 'oracle-'+kind+'.js' });
   return ctx;
 }
@@ -365,7 +366,7 @@ async function runGame(gi){
   // 승자 확인
   const w = JSON.parse(O.digest()).winner;
   if(VERBOSE && violations.length) console.log('    위반:', JSON.stringify(violations.slice(0,4)).slice(0,600));
-  return { gi, ok:true, acts:acts.length, recs:REC.length, reveals:log.filter(m=>m.from==='oracle').length, winner:w, violations:violations.length, turns:JSON.parse(O.digest()).tc, stages:REC.filter(r=>r.t==='pick'&&r.fn==='stage').length };
+  return { gi, ok:true, acts:acts.length, recs:REC.length, reveals:log.filter(m=>m.from==='oracle').length, winner:w, violations:violations.length, turns:JSON.parse(O.digest()).tc, stages:REC.filter(r=>r.t==='pick'&&r.fn==='stage').length, cancels:REC.filter(r=>r.t==='pick'&&r.fn==='stage'&&r.data!==true).length };
 }
 
 module.exports = { makeCtx, mkDecks, maskFor, BRAIN, VIEW, UI_STUB, HID, WEB };
@@ -375,7 +376,7 @@ if(require.main===module) (async()=>{
   for(let gi=0; gi<N; gi++){
     if(ONLY!==null && gi!==+ONLY) continue;
     const r = await runGame(gi);
-    if(r.ok){ ok++; if(VERBOSE) console.log(`  ✓ game ${gi}: 행동 ${r.acts} · 기록 ${r.recs} · 공개 ${r.reveals} · ${r.turns}턴 · 승자 ${r.winner} · 위반 ${r.violations} · 준비화면 ${r.stages}`); }
+    if(r.ok){ ok++; if(VERBOSE) console.log(`  ✓ game ${gi}: 행동 ${r.acts} · 기록 ${r.recs} · 공개 ${r.reveals} · ${r.turns}턴 · 승자 ${r.winner} · 위반 ${r.violations} · 준비화면 ${r.stages}(취소 ${r.cancels})`); }
     else { bad++; console.log(`  ✗ game ${gi} [${r.where}]\n    ${r.err}`); }
   }
   console.log(`${ok}/${ok+bad} 통과` + (bad ? ` ← 실패 ${bad}` : ''));

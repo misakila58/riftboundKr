@@ -139,7 +139,7 @@ function stageDraftFor(p){ const d=UI.spellStage; return (d && d.game===G && d.p
 async function pick(p){ const d=await waitChoice(p); if(stageDraftFor(p) && d && typeof d==='object' && d.spellStageCancel===true) throw SPELL_STAGE_CANCEL; return d; }
 UI.beginSpellStage = (p,handIdx,n,opts={})=>{ const draft={game:G,p,handIdx,n,mode:opts.mode||'cast',ready:false,submitted:false,cancelRequested:false,committed:false,confirming:false}; UI.spellStage=draft; return draft; };
 UI.confirmSpellStage = async (draft,targets)=>{ draft.targets=targets; draft.confirming=true; await pre(); const v=await waitChoice(draft.p); if(v!==true) throw SPELL_STAGE_CANCEL; draft.committed=true; UI.endSpellStage(draft); };
-UI.endSpellStage = (draft)=>{ if(UI.spellStage!==draft) return; UI.spellStage=null; };
+UI.endSpellStage = (draft)=>{ if(UI.spellStage!==draft) return; if(!draft.committed) ORC.cancelled=true; UI.spellStage=null; };   // 플레이어가 준비 화면을 취소한 것은 위반이 아니다
 UI.resumeSpellStage = (draft)=>{ if(draft.game!==G || (UI.spellStage && UI.spellStage!==draft)) return false; draft.ready=false; draft.submitted=false; draft.cancelRequested=false; draft.committed=false; draft.confirming=false; UI.spellStage=draft; return true; };
 UI.pickUnitFrom = async (p,c)=>{ if(!c.length) return null; await pre(); const d=await pick(p); return d?(c.find(u=>u.uid===d.uid)||everyUnit().find(u=>u.uid===d.uid)||null):null; };
 UI.pickOption   = async (p,t,o)=>{ await pre(); const i=await pick(p); if(i===null||i===undefined) return null; const x=o[i]; return x?x.v:null; };
@@ -250,8 +250,9 @@ function __feed(m){
   ORC.chain=ORC.chain.then(()=>__run(async()=>{
     if(!G) return;
     if(!__authorized(a, m.seat)){ __violation(m.seat, a, 'unauthorized'); return; }
+    ORC.cancelled=false;
     const r=await __execAct(a);
-    if(r===false) __violation(m.seat, a, 'rejected');
+    if(r===false && !ORC.cancelled) __violation(m.seat, a, 'rejected');
     await syncPrivateHands();
   }));
 }
