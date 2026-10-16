@@ -115,7 +115,11 @@ NET.connect = function(){
           if(NET._rejoinStart){ const s=NET._rejoinStart; NET._rejoinStart=null; NET.onStart && NET.onStart(s); }   // 로그가 다 왔다 — 이제 시작(선택은 로그의 답으로 채워짐)
           NET._enqueueAction({ action:{k:'_rejoinDone'}, seat:-1 }); break;   // 로그 뒤에 줄을 서서, 다 재생된 뒤 복귀 처리
         case 'rejoinNone': NET._onRejoinNone(); break;
-        case 'opponentAway': NET.oppAway=true; UI.toast(`상대 연결이 끊겼습니다${m.count>1?` (이번 매치 ${m.count}번째)`:''} — 재접속을 기다립니다 (최대 ${Math.round((m.graceMs||60000)/1000)}초${m.count>=3?' · 반복 끊김이라 유예가 줄었습니다':''})`,'warn'); UI.promptForState?.(); break;
+        case 'opponentAway': NET.oppAway=true; NET.oppAwayGrace=m.noLimit?0:(m.graceMs||60000);
+          // 일반 방은 시간 제한 없이 기다린다(서버 2026-10-16) — 등급전만 유예(반복 끊김이면 축소)
+          UI.toast(m.noLimit ? `상대 연결이 끊겼습니다${m.count>1?` (이번 매치 ${m.count}번째)`:''} — 돌아올 때까지 기다립니다 (기다리지 않으려면 메뉴에서 나가기)`
+                             : `상대 연결이 끊겼습니다${m.count>1?` (이번 매치 ${m.count}번째)`:''} — 재접속을 기다립니다 (최대 ${Math.round(NET.oppAwayGrace/1000)}초${m.count>=3?' · 반복 끊김이라 유예가 줄었습니다':''})`,'warn');
+          UI.promptForState?.(); break;
         case 'opponentBack': NET.oppAway=false; UI.toast('상대가 다시 접속했습니다'); UI.promptForState?.(); break;
         case 'err': NET.onErr && NET.onErr(m.msg); break;
         case 'opponentLeft': NET.oppAway=false; NET.clearRejoinFlag(); if(!NET.voided) NET.onOppLeft && NET.onOppLeft(); break;
@@ -162,26 +166,27 @@ NET._serverVersionCheck = function(){
   NET.onServerUpdate && NET.onServerUpdate();
 };
 // ── 재접속 ──
-// 끊긴 뒤 1분까지 점점 간격을 늘려 다시 연결하고 rejoin을 보낸다. 서버는 start(rejoin)+행동/선택 로그+rejoinDone으로 답한다.
+// 끊긴 뒤 점점 간격을 늘려(최대 5초) 연결될 때까지 다시 연결하고 rejoin을 보낸다 — 시간 제한 없음(2026-10-16: 예전엔 75초 뒤 포기·로비로).
+// 서버는 start(rejoin)+행동/선택 로그+rejoinDone으로 답하고, 복귀할 방이 없으면(상대 퇴장·등급전 유예 만료) rejoinNone으로 정리된다.
+// 그만두는 길은 메뉴의 나가기(gameLeave → NET.reconnecting=false). 화면이 다시 보이면(모바일 복귀) 기다리지 않고 바로 시도한다.
 NET.reconnect = async function(){
   if(NET.reconnecting) return;
   NET.reconnecting=true;
   UI.prompt(NET.draining ? '🔄 서버 업데이트 중 — 몇 초 뒤 자동으로 다시 연결됩니다 (경기는 그대로 이어집니다)'
-                         : '⚠ 서버 연결이 끊어졌습니다 — 재접속 시도 중… (최대 1분, 그동안 상대는 기다립니다)');
-  const delays=[1000,2000,3000,5000], t0=Date.now(); let n=0;
-  while(Date.now()-t0 < 60*1000+15000){   // 서버 유예(1분)보다 조금 더 — 만료 뒤엔 rejoinNone으로 정리된다
-    await new Promise(r=>setTimeout(r, delays[Math.min(n++, delays.length-1)]));
+                         : '⚠ 서버 연결이 끊어졌습니다 — 재접속 시도 중… (연결될 때까지 계속 시도합니다 · 그만두려면 메뉴에서 나가기)');
+  const delays=[1000,2000,3000,5000]; let n=0;
+  while(NET.reconnecting){
+    await new Promise(r=>{ const t=setTimeout(r, delays[Math.min(n++, delays.length-1)]); NET._reconnectWake=()=>{ clearTimeout(t); r(); }; });
+    NET._reconnectWake=null;
     if(!NET.reconnecting) return;                      // 그 사이 사용자가 나갔거나 복귀가 끝남
     try{
       await NET.connect();
       NET.send({t:'rejoin'});
       return;                                          // 이후 흐름은 start(rejoin)/rejoinNone 메시지가 이끈다
-    }catch(e){ UI.prompt(`⚠ 재접속 시도 중… (${n}회 실패, 계속 시도합니다)`); }
+    }catch(e){ UI.prompt(`⚠ 재접속 시도 중… (${n}회 실패, 계속 시도합니다 · 그만두려면 메뉴에서 나가기)`); }
   }
-  NET.reconnecting=false;
-  alert('서버에 다시 연결하지 못했습니다.\n\n로비로 돌아갑니다.');
-  location.reload();
 };
+try{ document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && NET._reconnectWake) NET._reconnectWake(); }); }catch(e){}
 NET._onRejoinNone = function(){
   NET.clearRejoinFlag();
   NET.reconnecting=false;

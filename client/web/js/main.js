@@ -2720,7 +2720,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   // 새로고침·앱 재시작 직후: 진행 중이던 온라인 대전 표식이 있으면 같은 서버·계정으로 붙어 복귀를 묻는다 (없으면 조용히 시작 화면)
   (async()=>{
     const flag=NET.readRejoinFlag?.(); if(!flag) return;
-    if(!flag.server || Date.now()-flag.at > 6*60*60*1000){ NET.clearRejoinFlag(); return; }
+    if(!flag.server){ NET.clearRejoinFlag(); return; }   // 시간 제한 없음(2026-10-16) — 복귀할 방이 남아 있는지는 서버가 판단(rejoinNone이면 표식만 지운다)
     const token=localStorage.getItem('rb_token'), userId=localStorage.getItem('rb_id');
     if(!token || !userId){ NET.clearRejoinFlag(); return; }
     try{

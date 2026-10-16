@@ -229,11 +229,13 @@ function digest(){
 }
 `;
 
+const DECK_A = arg('--deckA', null), DECK_B = arg('--deckB', null);   // 덱 id(부분 일치) 고정 — 같은 짝으로 시드만 바꿔 여러 판
 function mkDecks(seed){
   const ctx={}; vm.createContext(ctx);
   vm.runInContext(read('botdecks.js')+';globalThis.__T=BOT_DECKS;', ctx);
   const arr=(Array.isArray(ctx.__T)?ctx.__T:Object.values(ctx.__T||{}));
-  const a=arr[seed % arr.length], b=arr[(seed*7+3) % arr.length];
+  const byId=q=>{ const f=arr.find(x=>String(x.id||'')===q)||arr.find(x=>String(x.id||'').includes(q)); if(!f) throw new Error('덱 없음: '+q); return f; };
+  const a=DECK_A?byId(DECK_A):arr[seed % arr.length], b=DECK_B?byId(DECK_B):arr[(seed*7+3) % arr.length];
   const d=x=>({legendN:x.legendN, champN:x.champN, main:[...x.main], runes:[...x.runes], bfs:[...x.bfs]});
   return [d(a), d(b)];
 }

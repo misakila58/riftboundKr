@@ -95,7 +95,7 @@ UI.manualNotice = function(c){
 
 // ---------- 프롬프트 ----------
 UI.prompt = function(text){
-  if(text && typeof NET!=='undefined' && NET.oppAway && G && G.winner===null) text='⏳ 상대 재접속 대기 중(최대 2분) · '+text;
+  if(text && typeof NET!=='undefined' && NET.oppAway && G && G.winner===null) text=`⏳ 상대 재접속 대기 중(${NET.oppAwayGrace>0?`최대 ${Math.round(NET.oppAwayGrace/1000)}초`:'시간 제한 없음 · 기다리지 않으려면 메뉴에서 나가기'}) · `+text;
   document.getElementById('prompt-area').innerHTML =
     text?`<div class="prompt-title">${esc(text)}</div>`:'';
 };

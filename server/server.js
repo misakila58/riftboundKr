@@ -198,6 +198,9 @@ const LIMITS = {
   WS_MSG_MAX: 120,
   REJOIN_GRACE_MS: +process.env.RB_REJOIN_GRACE_MS || 60 * 1000,    // 소켓이 끊긴 좌석을 이만큼 비워 둔다 — 그 안에 같은 계정이 rejoin 하면 이어서 둔다 (2026-09-28: 2분 → 1분)
   REJOIN_GRACE_RESTART_MS: 60 * 1000,
+  // 위 두 유예는 등급전에만 적용. 일반 온라인 방은 상대가 방에 남아 있는 한 비운 좌석을 시간 제한 없이 기다린다(2026-10-16 제보 "재접속 안 됨").
+  // 두 좌석이 모두 비면(둘 다 끊김·서버 재시작 뒤 아무도 안 돌아옴) 이만큼 뒤에 방을 닫는다.
+  ROOM_ABANDON_MS: +process.env.RB_ROOM_ABANDON_MS || 30 * 60 * 1000,
   AWAY_TOTAL_MS: +process.env.RB_AWAY_TOTAL_MS || 180 * 1000,   // 한 매치에서 자리 비움이 이만큼 쌓이면 이후 끊김의 유예는 15초   // 서버 재시작 뒤 복원된 방도 같은 유예 (클라이언트는 몇 초 안에 재접속을 시도한다)
   CONCURRENT_HASH: 4,
   AUTH_DEADLINE_MS: 15000,
@@ -1066,6 +1069,29 @@ function scheduleExpire(r, pl, ms) {
   pl.timer = setTimeout(() => expireGone(r, pl), ms);
   if (pl.timer.unref) pl.timer.unref();
 }
+// 방에 접속자가 한 명도 없을 때만 돈다 — ROOM_ABANDON_MS 뒤에도 아무도 돌아오지 않으면 방을 닫는다 (일반 방의 좌석 유예 대신)
+function scheduleAbandon(r) {
+  clearTimeout(r.abandonTimer);
+  if (r.players.some(q => q.ws)) return;
+  r.abandonTimer = setTimeout(() => expireAbandoned(r), LIMITS.ROOM_ABANDON_MS);
+  if (r.abandonTimer.unref) r.abandonTimer.unref();
+}
+function expireAbandoned(r) {
+  if (!rooms.has(r.id) || r.players.some(q => q.ws)) return;
+  r.players.forEach(pl => clearTimeout(pl.timer));
+  rooms.delete(r.id);
+  (r.spectators || []).forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); });
+  console.log(`방 ${r.id} 종료 — 양쪽 모두 ${Math.round(LIMITS.ROOM_ABANDON_MS / 60000)}분 이상 미접속`);
+  broadcastLobby(); persistRooms();
+}
+// 일반 방의 비운 좌석은 시간 제한 없이 기다리므로, 그 계정이 다른 경기를 시작하면(방 만들기·입장·등급전 참가) 옛 방은 떠난 것으로 본다 — 기다리던 상대에게 opponentLeft
+function dropCasualSeats(userId) {
+  for (const r of [...rooms.values()]) {
+    if (!r.started || r.ranked) continue;
+    const pl = r.players.find(q => q.id === userId && !q.ws);
+    if (pl) { clearTimeout(pl.timer); expireGone(r, pl); }
+  }
+}
 // 시작된 방에서 플레이어 소켓이 끊기면 좌석만 비워 둔다 — 새로고침·네트워크 끊김·서버 재시작 뒤 같은 계정이 이어서 둘 수 있게
 function dropPlayer(ws) {
   const r = ws._room; if (!r) return false;
@@ -1075,6 +1101,12 @@ function dropPlayer(ws) {
   // 같은 매치에서 끊김이 반복되면 유예를 줄인다 — 일부러 끊었다 들어오기를 반복해 상대를 기다리게 하는 행동 방지 (제보 2026-10-06).
   // 1~2번째 60초, 3~4번째 30초, 5번째부터·누적 자리 비움 3분 이상이면 15초. 상대 화면에는 몇 번째인지와 남은 유예를 알린다.
   pl.awayCount = (pl.awayCount || 0) + 1;
+  if (!r.ranked) {   // 일반 방: 시간 제한 없음(graceMs 0) — 상대가 남아 있는 한 언제든 복귀. 둘 다 비면 scheduleAbandon
+    roomEveryone(r).forEach(q => wsSend(q.ws, { t: 'opponentAway', id: pl.id, count: pl.awayCount, graceMs: 0, noLimit: true }));
+    scheduleAbandon(r);
+    persistRooms();
+    return true;
+  }
   const graceMs = rejoinGraceFor(pl);
   roomEveryone(r).forEach(q => wsSend(q.ws, { t: 'opponentAway', id: pl.id, count: pl.awayCount, graceMs }));
   scheduleExpire(r, pl, graceMs);
@@ -1090,7 +1122,8 @@ try {
       if (roomVerMismatch(r)) { console.log(`[버전 불일치] 복원하지 않음 ${r.id} (${r.players.map(pl => pl.id + ' v' + pl.ver).join(' / ')})`); continue; }
       rooms.set(r.id, r); restored++;
       const n = parseInt(String(r.id).replace(/^r/, ''), 10); if (Number.isFinite(n) && n >= roomSeq) roomSeq = n + 1;
-      r.players.forEach(pl => scheduleExpire(r, pl, LIMITS.REJOIN_GRACE_RESTART_MS));
+      if (r.ranked) r.players.forEach(pl => scheduleExpire(r, pl, LIMITS.REJOIN_GRACE_RESTART_MS));
+      else scheduleAbandon(r);   // 일반 방: 좌석 유예 없음 — 아무도 안 돌아오면 ROOM_ABANDON_MS 뒤 종료
       restoreOracle(r);
     }
     if (restored) console.log(`진행 중이던 방 ${restored}개 복원 — 플레이어 재접속 대기`);
@@ -1179,7 +1212,7 @@ function rejoinSeat(ws, pick) {
     const old = seat.ws; old._room = null; wsSend(old, { t: 'err', msg: '같은 계정이 다른 접속에서 이 경기에 복귀했습니다' }); try { old.close(); } catch (e) {}
   }
   clearTimeout(seat.timer); if (seat.gone) seat.awayMs = (seat.awayMs || 0) + Math.max(0, Date.now() - seat.gone);   // 누적 자리 비움(유예 축소 판단용)
-  seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false;
+  seat.ws = ws; seat.gone = null; ws._room = found; ws._spectator = false; clearTimeout(found.abandonTimer);
   found.rejoins = (found.rejoins || 0) + 1;   // 통계: 매치 중 재접속 횟수
   // 자리 비운 동안에도 턴 제한 시간은 흐른다 — 방의 마지막 행동/선택 이후 지난 시간을 알려 주면 클라이언트가 그만큼 이미 흐른 것으로 친다
   // (끊었다 들어와 턴 시간을 새로 받는 이득 제거, 2026-10-07)
@@ -1624,6 +1657,7 @@ function leaveRoom(ws, notify = true) {
     rooms.delete(r.id);
     r.spectators.forEach(sp => { sp.ws._room = null; sp.ws._spectator = false; wsSend(sp.ws, { t: 'opponentLeft' }); });
   } else if (notify) roomEveryone(r).forEach(pl => wsSend(pl.ws, { t: 'opponentLeft' }));
+  if (r.players.length && r.started && !r.players.some(q => q.ws)) scheduleAbandon(r);   // 남은 좌석이 전부 비어 있음(상대가 유예 중) — 돌아오면 rejoinNone, 안 오면 방 종료
   if (r.players.length === 0 || !r.started) broadcastLobby();
   if (r.started) persistRooms();
 }
@@ -1658,6 +1692,7 @@ wss.on('connection', (ws, req) => {
       case 'createRoom': {
         if (ws._room) return;
         { const pend = pendingRankSeat(ws._userId); if (pend) { wsSend(ws, { t: 'err', msg: '⚠ 진행 중인 등급전이 있어 그 경기로 복귀합니다 — 끝내지 않고 나가면 패배로 기록됩니다' }); rejoinSeat(ws, pend); break; } }
+        dropCasualSeats(ws._userId);
         if (rooms.size >= LIMITS.MAX_ROOMS) return wsSend(ws, { t: 'err', msg: '서버 방이 가득 찼습니다.' });
         const deck = resolveDeck(ws, m);
         if (!deck) return wsSend(ws, { t: 'err', msg: '덱을 선택하세요 (덱 형식 오류 포함)' });
@@ -1681,6 +1716,7 @@ wss.on('connection', (ws, req) => {
       case 'joinRoom': {
         if (ws._room) return;
         { const pend = pendingRankSeat(ws._userId); if (pend) { wsSend(ws, { t: 'err', msg: '⚠ 진행 중인 등급전이 있어 그 경기로 복귀합니다 — 끝내지 않고 나가면 패배로 기록됩니다' }); rejoinSeat(ws, pend); break; } }
+        dropCasualSeats(ws._userId);
         const r = rooms.get(m.roomId);
         if (!r || r.started || r.players.length >= 2) return wsSend(ws, { t: 'err', msg: '입장할 수 없는 방입니다' });
         if (r.players[0].id === ws._userId) return wsSend(ws, { t: 'err', msg: '자신의 방에는 입장할 수 없습니다' });
@@ -1733,6 +1769,7 @@ wss.on('connection', (ws, req) => {
       }
       case 'leaveRoom': leaveRoom(ws); break;
       case 'rankQueue': {
+        dropCasualSeats(ws._userId);
         if (ws._room) return wsSend(ws, { t: 'err', msg: '이미 방에 있습니다' });
         { const pend = pendingRankSeat(ws._userId); if (pend) { wsSend(ws, { t: 'err', msg: '⚠ 진행 중인 등급전이 있어 그 경기로 복귀합니다 — 끝내지 않고 나가면 패배로 기록됩니다' }); rejoinSeat(ws, pend); break; } }
         const format = m.format === 'bo3' ? 'bo3' : 'bo1';
